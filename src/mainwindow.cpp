@@ -154,10 +154,10 @@ void MainWindow::parseObjects(const QDomElement &root)
                 int rawW = extractValue(hexInit, m_rectSchema["w"].offset, m_rectSchema["w"].size);
                 int rawH = extractValue(hexInit, m_rectSchema["h"].offset, m_rectSchema["h"].size);
                 
-                r.x0 = rawX / 10.0;
-                r.y0 = rawY / 10.0;
-                r.w = rawW / 10.0;
-                r.h = rawH / 10.0;
+                r.x0 = rawX / 1;
+                r.y0 = rawY / 1;
+                r.w = rawW / 1;
+                r.h = rawH / 1;
 
                 //2) цвет заливки (color)
                 quint32 cVal = extractValue(hexInit, m_rectSchema["color"].offset, m_rectSchema["color"].size);
