@@ -10,6 +10,8 @@ qt_add_executable(XML-Editor
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
+    src/shapes.h
+    src/shapes.cpp
 )
 
 # Линкуем библиотеку Xml

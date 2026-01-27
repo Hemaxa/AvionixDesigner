@@ -1,24 +1,11 @@
-//единоразовое включение заголовочного файла при компиляции
-#pragma once
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
 
 #include <QMainWindow>
 #include <QList>
 #include <QMap>
-#include <QDomElement> //работа с XML в Qt
-
-//расшифрованный объект
-struct Rectangle {
-    double x0, y0, w, h; //координаты и размеры
-    QColor color; //цвет заливки
-    QColor colorb; //цвет рамки
-    double a; //толщина рамки
-};
-
-//один параметр
-struct Parameter {
-    int offset;
-    int size;
-};
+#include <QDomElement>
+#include "shapes.h" // Подключаем наши классы фигур
 
 class MainWindow : public QMainWindow
 {
@@ -27,28 +14,25 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
-
-    //метод загрузки файла
-    bool loadFile(const QString &fileName);
+    bool loadXml(const QString &fileName);
 
 protected:
-    //метод отрисовки
     void paintEvent(QPaintEvent *event) override;
 
 private:
-    //список объектов
-    QList<Rectangle> m_rects;
-
-    //схема параметров
-    QMap<QString, Parameter> m_rectSchema;
+    // Храним указатели на фигуры (полиморфизм)
+    QList<QSharedPointer<CorelShape>> m_shapes; 
     
-    //переменная для лога
+    // Схемы для разных типов объектов
+    // Ключ 1: Тип объекта ("rectangle", "rotationobject")
+    // Ключ 2: Имя поля ("x0", "sin")
+    QMap<QString, QMap<QString, ParamInfo>> m_schemas;
+
     QString m_debugLog; 
 
     void parseParameters(const QDomElement &root);
     void parseObjects(const QDomElement &root);
-    quint32 extractValue(const QString &hexString, int offset, int size);
-    
-    //помощник для логирования
     void log(const QString &msg);
 };
+
+#endif // MAINWINDOW_H
