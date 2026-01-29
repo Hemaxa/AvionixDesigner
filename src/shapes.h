@@ -4,6 +4,7 @@
 #include <QPainter>
 #include <QMap>
 #include <QImage>
+#include <QDomElement>
 #include "utils.h"
 
 // --- Базовый абстрактный класс фигуры ---

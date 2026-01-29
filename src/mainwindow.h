@@ -2,10 +2,16 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QDockWidget>
 #include <QList>
 #include <QMap>
 #include <QDomElement>
-#include "shapes.h" // Подключаем наши классы фигур
+#include <QSharedPointer>
+#include "shapes.h"
+#include "CanvasWidget.h"
+#include "ObjectListWidget.h"
+#include "LogWidget.h"
+#include "PropertiesWidget.h"
 
 class MainWindow : public QMainWindow
 {
@@ -14,22 +20,36 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+    
     bool loadXml(const QString &fileName);
 
-protected:
-    void paintEvent(QPaintEvent *event) override;
+private slots:
+    void onObjectSelected(int index);
+    void onOpenFile();
 
 private:
-    // Храним указатели на фигуры (полиморфизм)
-    QList<QSharedPointer<CorelShape>> m_shapes; 
+    // Виджеты панелей
+    CanvasWidget *m_canvas;
+    ObjectListWidget *m_objectList;
+    LogWidget *m_log;
+    PropertiesWidget *m_properties;
     
-    // Схемы для разных типов объектов
-    // Ключ 1: Тип объекта ("rectangle", "rotationobject")
-    // Ключ 2: Имя поля ("x0", "sin")
+    // Dock widgets
+    QDockWidget *m_objectListDock;
+    QDockWidget *m_logDock;
+    QDockWidget *m_propertiesDock;
+    
+    // Данные
+    QList<QSharedPointer<CorelShape>> m_shapes;
     QMap<QString, QMap<QString, ParamInfo>> m_schemas;
+    
+    // Параметры проекта
+    int m_projectWidth;
+    int m_projectHeight;
+    QColor m_bgColor;
 
-    QString m_debugLog; 
-
+    void setupUI();
+    void setupMenus();
     void parseParameters(const QDomElement &root);
     void parseObjects(const QDomElement &root);
     void log(const QString &msg);

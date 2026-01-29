@@ -12,9 +12,17 @@ qt_add_executable(XML-Editor
     src/mainwindow.h
     src/shapes.h
     src/shapes.cpp
+    src/utils.h
+    src/CanvasWidget.h
+    src/CanvasWidget.cpp
+    src/ObjectListWidget.h
+    src/ObjectListWidget.cpp
+    src/LogWidget.h
+    src/LogWidget.cpp
+    src/PropertiesWidget.h
+    src/PropertiesWidget.cpp
 )
 
-# Линкуем библиотеку Xml
 target_link_libraries(XML-Editor
     PRIVATE
         Qt::Core
