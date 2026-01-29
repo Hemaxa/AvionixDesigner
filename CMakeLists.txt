@@ -7,20 +7,42 @@ qt_standard_project_setup()
 
 qt_add_executable(XML-Editor
     WIN32 MACOSX_BUNDLE
+    
+    # Точка входа
     src/main.cpp
-    src/mainwindow.cpp
-    src/mainwindow.h
-    src/shapes.h
-    src/shapes.cpp
-    src/utils.h
-    src/CanvasWidget.h
-    src/CanvasWidget.cpp
-    src/ObjectListWidget.h
-    src/ObjectListWidget.cpp
-    src/LogWidget.h
-    src/LogWidget.cpp
-    src/PropertiesWidget.h
-    src/PropertiesWidget.cpp
+    
+    # Менеджеры
+    src/managers/ProjectManager.h
+    src/managers/ProjectManager.cpp
+    src/managers/ObjectsManager.h
+    src/managers/ObjectsManager.cpp
+    src/managers/AppearanceManager.h
+    src/managers/AppearanceManager.cpp
+    
+    # Объекты
+    src/objects/AbstractObject.h
+    src/objects/RectangleObject.h
+    src/objects/RectangleObject.cpp
+    src/objects/RotationObject.h
+    src/objects/RotationObject.cpp
+    src/objects/StaticGroupObject.h
+    src/objects/StaticGroupObject.cpp
+    
+    # Окна
+    src/windows/MainWindow.h
+    src/windows/MainWindow.cpp
+    src/windows/ViewportWindow.h
+    src/windows/ViewportWindow.cpp
+    src/windows/ObjectsListWindow.h
+    src/windows/ObjectsListWindow.cpp
+    src/windows/PropertiesWindow.h
+    src/windows/PropertiesWindow.cpp
+    src/windows/LogWindow.h
+    src/windows/LogWindow.cpp
+    
+    # Утилиты (header-only)
+    src/utils/BitParser.h
+    src/utils/XmlHelper.h
 )
 
 target_link_libraries(XML-Editor
@@ -29,6 +51,16 @@ target_link_libraries(XML-Editor
         Qt::Widgets
         Qt::Xml
 )
+
+target_compile_features(XML-Editor PRIVATE cxx_std_17)
+
+set_target_properties(XML-Editor PROPERTIES
+    AUTOMOC ON
+    AUTOUIC ON
+    AUTORCC ON
+)
+
+file(COPY ${CMAKE_SOURCE_DIR}/res DESTINATION ${CMAKE_BINARY_DIR})
 
 include(GNUInstallDirs)
 
