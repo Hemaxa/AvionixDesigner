@@ -1,11 +1,11 @@
+#include <QFile>
+#include <QDomDocument>
+
 #include "ProjectManager.h"
 #include "ObjectsManager.h"
 #include "../objects/RectangleObject.h"
 #include "../objects/RotationObject.h"
 #include "../objects/StaticGroupObject.h"
-
-#include <QFile>
-#include <QDomDocument>
 
 ProjectManager::ProjectManager() : m_canvasWidth(0), m_canvasHeight(0), m_bgColor() {}
 
@@ -39,6 +39,7 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     }
     file.close();
     
+    //создание XML структуры внутри программы
     QDomElement root = doc.documentElement();
     
     //читаем метаданные проекта
@@ -52,25 +53,19 @@ bool ProjectManager::loadFromFile(const QString &fileName)
         bool ok;
         uint colorVal = bgStr.mid(1).toUInt(&ok, 16);
         if (ok) {
-            m_bgColor = QColor(colorVal & 0xFF, 
-                               (colorVal >> 8) & 0xFF, 
-                               (colorVal >> 16) & 0xFF);
+            //извелечение RGB со сдвигом
+            m_bgColor = QColor(colorVal & 0xFF, (colorVal >> 8) & 0xFF, (colorVal >> 16) & 0xFF);
         }
     }
     
-    emit logMessage(tr("Проект: %1 (%2x%3)")
-                    .arg(m_projectName)
-                    .arg(m_canvasWidth)
-                    .arg(m_canvasHeight));
+    emit logMessage(tr("Проект: %1 (%2x%3)").arg(m_projectName).arg(m_canvasWidth).arg(m_canvasHeight));
     
     //парсим схемы параметров
     QDomElement paramsEl = root.firstChildElement("parameters");
     QMap<QString, ParamSchema> schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
     
     for (const QString &type : schemas.keys()) {
-        emit logMessage(tr("  Схема: %1 (%2 полей)")
-                        .arg(type)
-                        .arg(schemas[type].size()));
+        emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(schemas[type].size()));
     }
     
     //парсим объекты
