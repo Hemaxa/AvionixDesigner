@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief Точка входа в приложение XML-Editor
+ * @brief Точка входа в приложение Avionix Designer
  * 
  * Инициализирует:
  * - QApplication
@@ -16,13 +16,6 @@
 
 /**
  * @brief Главная функция приложения
- * 
- * Порядок инициализации:
- * 1. Создание QApplication
- * 2. Регистрация типов объектов
- * 3. Загрузка стилей (опционально из файла)
- * 4. Создание и показ главного окна
- * 5. Запуск цикла событий
  */
 int main(int argc, char *argv[])
 {
@@ -30,22 +23,17 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     
     // Мета-информация приложения
-    app.setApplicationName("XML Editor");
-    app.setOrganizationName("MyCompany");
+    app.setApplicationName("Avionix Designer");
+    app.setOrganizationName("Avionix");
     app.setApplicationVersion("1.0");
     
     // 2. Регистрируем стандартные типы объектов
-    //    (rectangle, rotationobject, staticgroup)
     ProjectManager::instance()->registerStandardTypes();
     
-    // 3. Загружаем стили
-    //    Можно загрузить из файла: AppearanceManager::instance()->loadStyleSheet("...");
-    //    Или использовать встроенную тему (делается в MainWindow)
-    
-    // 4. Создаем и показываем главное окно
+    // 3. Создаем и показываем главное окно
     MainWindow mainWindow;
     mainWindow.show();
     
-    // 5. Запускаем цикл событий
+    // 4. Запускаем цикл событий
     return app.exec();
 }

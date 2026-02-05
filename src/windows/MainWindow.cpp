@@ -4,10 +4,12 @@
  */
 
 #include "MainWindow.h"
-#include "ViewportWindow.h"
-#include "ObjectsListWindow.h"
-#include "PropertiesWindow.h"
-#include "LogWindow.h"
+#include "SettingsWindow.h"
+#include "../panels/ViewportPanel.h"
+#include "../panels/ObjectListPanel.h"
+#include "../panels/ObjectPropertiesPanel.h"
+#include "../panels/ObjectLibraryPanel.h"
+#include "../panels/ViewportSettingsPanel.h"
 #include "../managers/ProjectManager.h"
 #include "../managers/AppearanceManager.h"
 #include <QDockWidget>
@@ -16,12 +18,17 @@
 #include <QAction>
 #include <QFileDialog>
 #include <QTimer>
+#include <QSplitter>
+#include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
+    , m_settingsWindow(nullptr)
 {
-    setWindowTitle("XML Editor");
+    setWindowTitle("Avionix Designer");
+    setObjectName("MainWindow");
     
+    // Применяем тёмную тему по умолчанию
     AppearanceManager::instance()->applyDarkTheme();
     
     createWidgets();
@@ -30,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent)
     
     showMaximized();
     
+    // Открываем файл при запуске
     QTimer::singleShot(100, this, &MainWindow::onOpenFile);
 }
 
@@ -51,39 +59,84 @@ void MainWindow::onOpenFile()
 void MainWindow::updateWindowTitle()
 {
     auto pm = ProjectManager::instance();
-    setWindowTitle(QString("XML Editor - %1").arg(pm->getProjectName()));
+    setWindowTitle(QString("Avionix Designer - %1").arg(pm->getProjectName()));
+}
+
+void MainWindow::openSettings()
+{
+    // Создаём окно настроек при первом вызове
+    if (!m_settingsWindow) {
+        m_settingsWindow = new SettingsWindow(this);
+    }
+    m_settingsWindow->show();
+    m_settingsWindow->raise();
+    m_settingsWindow->activateWindow();
 }
 
 void MainWindow::createWidgets()
 {
-    // Центральный виджет - холст
-    m_viewport = new ViewportWindow(this);
-    setCentralWidget(m_viewport);
+    // ===== Центральная область: Viewport + нижние панели =====
     
-    // Панель списка объектов (слева)
-    m_objectsList = new ObjectsListWindow(this);
-    m_objectsListDock = new QDockWidget("Объекты", this);
-    m_objectsListDock->setWidget(m_objectsList);
-    m_objectsListDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    addDockWidget(Qt::LeftDockWidgetArea, m_objectsListDock);
+    // Основной сплиттер (вертикальный) - верх/низ
+    QSplitter *mainSplitter = new QSplitter(Qt::Vertical, this);
+    mainSplitter->setObjectName("MainSplitter");
     
-    // Панель свойств (справа)
-    m_properties = new PropertiesWindow(this);
-    m_propertiesDock = new QDockWidget("Свойства", this);
-    m_propertiesDock->setWidget(m_properties);
-    m_propertiesDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    addDockWidget(Qt::RightDockWidgetArea, m_propertiesDock);
+    // Холст (основная панель ~70% площади)
+    m_viewport = new ViewportPanel(this);
+    mainSplitter->addWidget(m_viewport);
     
-    // Панель лога (снизу)
-    m_log = new LogWindow(this);
-    m_logDock = new QDockWidget("Лог", this);
-    m_logDock->setWidget(m_log);
-    m_logDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    addDockWidget(Qt::BottomDockWidgetArea, m_logDock);
+    // Нижняя часть: ViewportSettings + ObjectLibrary
+    QSplitter *bottomSplitter = new QSplitter(Qt::Horizontal, this);
+    bottomSplitter->setObjectName("BottomSplitter");
+    
+    m_viewportSettings = new ViewportSettingsPanel(this);
+    m_objectLibrary = new ObjectLibraryPanel(this);
+    
+    bottomSplitter->addWidget(m_viewportSettings);
+    bottomSplitter->addWidget(m_objectLibrary);
+    
+    // Пропорции нижней панели 1:2
+    bottomSplitter->setStretchFactor(0, 1);
+    bottomSplitter->setStretchFactor(1, 2);
+    
+    mainSplitter->addWidget(bottomSplitter);
+    
+    // Пропорции верх/низ 3:1
+    mainSplitter->setStretchFactor(0, 3);
+    mainSplitter->setStretchFactor(1, 1);
+    
+    setCentralWidget(mainSplitter);
+    
+    // ===== Правая боковая панель (dock) =====
+    
+    // Сплиттер для правой стороны
+    QSplitter *rightSplitter = new QSplitter(Qt::Vertical, this);
+    rightSplitter->setObjectName("RightSplitter");
+    
+    // Список объектов (сверху справа)
+    m_objectList = new ObjectListPanel(this);
+    rightSplitter->addWidget(m_objectList);
+    
+    // Свойства объекта (снизу справа)
+    m_objectProperties = new ObjectPropertiesPanel(this);
+    rightSplitter->addWidget(m_objectProperties);
+    
+    // Равные пропорции
+    rightSplitter->setStretchFactor(0, 1);
+    rightSplitter->setStretchFactor(1, 1);
+    
+    // Dock для правой панели
+    m_objectListDock = new QDockWidget("Панели", this);
+    m_objectListDock->setObjectName("RightPanelDock");
+    m_objectListDock->setWidget(rightSplitter);
+    m_objectListDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
+    m_objectListDock->setMinimumWidth(250);
+    addDockWidget(Qt::RightDockWidgetArea, m_objectListDock);
 }
 
 void MainWindow::createMenus()
 {
+    // ===== Меню "Файл" =====
     QMenu *fileMenu = menuBar()->addMenu("Файл");
     
     QAction *openAction = fileMenu->addAction("Открыть...");
@@ -96,23 +149,32 @@ void MainWindow::createMenus()
     exitAction->setShortcut(QKeySequence::Quit);
     connect(exitAction, &QAction::triggered, this, &QMainWindow::close);
     
+    // ===== Меню "Вид" =====
     QMenu *viewMenu = menuBar()->addMenu("Вид");
-    viewMenu->addAction(m_objectsListDock->toggleViewAction());
-    viewMenu->addAction(m_propertiesDock->toggleViewAction());
-    viewMenu->addAction(m_logDock->toggleViewAction());
+    
+    viewMenu->addAction(m_objectListDock->toggleViewAction());
     
     viewMenu->addSeparator();
     
-    QAction *resetViewAction = viewMenu->addAction("Сбросить вид");
+    QAction *resetViewAction = viewMenu->addAction("Сбросить масштаб");
     resetViewAction->setShortcut(QKeySequence("Ctrl+0"));
-    connect(resetViewAction, &QAction::triggered, m_viewport, &ViewportWindow::resetView);
+    connect(resetViewAction, &QAction::triggered, m_viewport, &ViewportPanel::resetView);
+    
+    // ===== Меню "Настройки" =====
+    QMenu *settingsMenu = menuBar()->addMenu("Настройки");
+    
+    QAction *preferencesAction = settingsMenu->addAction("Параметры...");
+    preferencesAction->setShortcut(QKeySequence("Ctrl+,"));
+    connect(preferencesAction, &QAction::triggered, this, &MainWindow::openSettings);
 }
 
 void MainWindow::connectSignals()
 {
-    connect(m_objectsList, &ObjectsListWindow::objectSelected,
-            m_properties, &PropertiesWindow::showObjectProperties);
+    // Связь списка объектов с панелью свойств
+    connect(m_objectList, &ObjectListPanel::objectSelected,
+            m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
     
+    // Обновление заголовка при загрузке проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded,
             this, &MainWindow::updateWindowTitle);
 }

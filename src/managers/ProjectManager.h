@@ -1,34 +1,41 @@
-//ProjectManager - менеджер проекта, который хранит все данные загруженного XML
+/**
+ * @file ProjectManager.h
+ * @brief Менеджер проекта - хранит все данные загруженного XML
+ */
 
-#pragma once //защита от повторного включения файла
+#pragma once
 
 #include <QObject>
 #include <QList>
-#include <QSharedPointer> //умный указатель, который автоматически удаляет объекты
+#include <QSharedPointer>
 #include <QColor>
 
-#include "../objects/AbstractObject.h"
+#include "../BaseObject.h"
 
+/**
+ * @class ProjectManager
+ * @brief Менеджер проекта (синглтон) - загрузка и хранение данных проекта
+ */
 class ProjectManager : public QObject
 {
     Q_OBJECT
     
 public:
-    //статический метод для доступа к единственному экземпляру (singleton)
+    // Получение единственного экземпляра
     static ProjectManager* instance();
     
-    //метод загрузки проекта из файла
+    // Загружает проект из файла
     bool loadFromFile(const QString &fileName);
     
-    //метод регистрации стандартных типов объектов
+    // Регистрирует стандартные типы объектов
     void registerStandardTypes();
 
-    //геттеры объектов
-    const QList<QSharedPointer<AbstractObject>>& getObjects() const; //список объектов
-    QSharedPointer<AbstractObject> getObjectAt(int index) const; //метод получения конкретного объекта по его индексу
-    int getObjectCount() const; //метод получения количества объектов
+    // Геттеры объектов
+    const QList<QSharedPointer<BaseObject>>& getObjects() const;
+    QSharedPointer<BaseObject> getObjectAt(int index) const;
+    int getObjectCount() const;
 
-    //геттеры свойств проекта
+    // Геттеры свойств проекта
     QString getProjectName() const;
     int getCanvasWidth() const;
     int getCanvasHeight() const;
@@ -36,22 +43,18 @@ public:
     QString getFilePath() const;
 
 signals:
-    //сигналы об изменении проекта
-    void projectLoaded();
-    void projectChanged();
-    void logMessage(const QString &message);
+    void projectLoaded();                    // Проект загружен
+    void projectChanged();                   // Проект изменён
+    void logMessage(const QString &message); // Сообщение для лога
 
 private:
-    //приватный конструктор
     ProjectManager();
     
-    //поля свойств проекта
-    QString m_projectName;
-    int m_canvasWidth;
-    int m_canvasHeight;
-    QColor m_bgColor;
-    QString m_filePath;
+    QString m_projectName;   // Имя проекта
+    int m_canvasWidth;       // Ширина холста
+    int m_canvasHeight;      // Высота холста
+    QColor m_bgColor;        // Цвет фона
+    QString m_filePath;      // Путь к файлу
 
-    //список объектов
-    QList<QSharedPointer<AbstractObject>> m_objects;
+    QList<QSharedPointer<BaseObject>> m_objects;  // Список объектов
 };

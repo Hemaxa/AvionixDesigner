@@ -16,8 +16,9 @@ void ObjectsManager::registerType(const QString &typeName, ObjectCreator creator
     m_creators[typeName] = creator;
 }
 
-AbstractObject* ObjectsManager::createObject(const QString &typeName)
+BaseObject* ObjectsManager::createObject(const QString &typeName)
 {
+    // Создаём объект через зарегистрированный конструктор
     if (m_creators.contains(typeName)) {
         return m_creators[typeName]();
     }

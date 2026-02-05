@@ -1,3 +1,8 @@
+/**
+ * @file ProjectManager.cpp
+ * @brief Реализация менеджера проекта
+ */
+
 #include <QFile>
 #include <QDomDocument>
 
@@ -22,14 +27,14 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     
     emit logMessage(tr("Загрузка: %1").arg(fileName));
     
-    //отправка сообщения в окно лога с неудачным открытием файла
+    // Открываем файл
     QFile file(fileName);
     if (!file.open(QIODevice::ReadOnly)) {
         emit logMessage(tr("ОШИБКА: Не удалось открыть файл"));
         return false;
     }
     
-    //отправка сообщения в окно лога с неудачным парсингом файла
+    // Парсим XML
     QDomDocument doc;
     QDomDocument::ParseResult result = doc.setContent(&file);
     if (!result) {
@@ -39,28 +44,27 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     }
     file.close();
     
-    //создание XML структуры внутри программы
+    // Получаем корневой элемент
     QDomElement root = doc.documentElement();
     
-    //читаем метаданные проекта
+    // Читаем метаданные проекта
     m_projectName = root.attribute("name", "Untitled");
     m_canvasWidth = root.attribute("width", "640").toInt();
     m_canvasHeight = root.attribute("height", "480").toInt();
     
-    //парсим цвет фона
+    // Парсим цвет фона
     QString bgStr = root.attribute("bgcolor", "#0");
     if (bgStr.startsWith("#")) {
         bool ok;
         uint colorVal = bgStr.mid(1).toUInt(&ok, 16);
         if (ok) {
-            //извелечение RGB со сдвигом
             m_bgColor = QColor(colorVal & 0xFF, (colorVal >> 8) & 0xFF, (colorVal >> 16) & 0xFF);
         }
     }
     
     emit logMessage(tr("Проект: %1 (%2x%3)").arg(m_projectName).arg(m_canvasWidth).arg(m_canvasHeight));
     
-    //парсим схемы параметров
+    // Парсим схемы параметров
     QDomElement paramsEl = root.firstChildElement("parameters");
     QMap<QString, ParamSchema> schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
     
@@ -68,7 +72,7 @@ bool ProjectManager::loadFromFile(const QString &fileName)
         emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(schemas[type].size()));
     }
     
-    //парсим объекты
+    // Парсим объекты
     QDomElement objectsEl = root.firstChildElement("objects");
     QDomNode objNode = objectsEl.isNull() ? root.firstChild() : objectsEl.firstChild();
     
@@ -79,12 +83,13 @@ bool ProjectManager::loadFromFile(const QString &fileName)
         if (schemas.contains(tagName)) {
             QString hexInit = objEl.firstChildElement("init").text().trimmed();
             
-            AbstractObject *obj = ObjectsManager::instance()->createObject(tagName);
+            // Создаём объект через фабрику
+            BaseObject *obj = ObjectsManager::instance()->createObject(tagName);
             
             if (obj && !hexInit.isEmpty()) {
                 obj->parse(hexInit, schemas[tagName]);
                 obj->parseExtraData(objEl);
-                m_objects.append(QSharedPointer<AbstractObject>(obj));
+                m_objects.append(QSharedPointer<BaseObject>(obj));
             }
         }
         
@@ -101,6 +106,7 @@ void ProjectManager::registerStandardTypes()
 {
     auto om = ObjectsManager::instance();
     
+    // Регистрируем типы объектов
     om->registerType("rectangle", []() { return new RectangleObject(); });
     om->registerType("rectanglea", []() { return new RectangleObject(); });
     om->registerType("rectanglee", []() { return new RectangleObject(); });
@@ -108,7 +114,7 @@ void ProjectManager::registerStandardTypes()
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
 }
 
-QSharedPointer<AbstractObject> ProjectManager::getObjectAt(int index) const
+QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const
 {
     if (index >= 0 && index < m_objects.size()) {
         return m_objects[index];
@@ -116,13 +122,11 @@ QSharedPointer<AbstractObject> ProjectManager::getObjectAt(int index) const
     return nullptr;
 }
 
-//геттеры
+// Геттеры
 int ProjectManager::getObjectCount() const { return m_objects.size(); }
-
 QString ProjectManager::getProjectName() const { return m_projectName; }
 int ProjectManager::getCanvasWidth() const { return m_canvasWidth; }
 int ProjectManager::getCanvasHeight() const { return m_canvasHeight; }
 QColor ProjectManager::getBackgroundColor() const { return m_bgColor; }
 QString ProjectManager::getFilePath() const { return m_filePath; }
-
-const QList<QSharedPointer<AbstractObject>>& ProjectManager::getObjects() const { return m_objects; }
+const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }

@@ -19,11 +19,21 @@ class AppearanceManager : public QObject
     Q_OBJECT
     
 public:
+    // Получение единственного экземпляра
     static AppearanceManager* instance();
     
     // ===== Стили =====
+    
+    // Загружает стили из файла
     bool loadStyleSheet(const QString &filePath);
+    
+    // Применяет тёмную тему
     void applyDarkTheme();
+    
+    // Применяет светлую тему
+    void applyLightTheme();
+    
+    // Возвращает путь к текущей теме
     QString getCurrentStylePath() const;
     
     // ===== Геттеры/сеттеры цветов темы =====
@@ -37,13 +47,13 @@ public:
     void setUiFont(const QFont &font);
 
 signals:
-    void styleChanged();
+    void styleChanged();  // Сигнал смены стиля
 
 private:
     AppearanceManager();
     
-    QString m_currentStylePath;
-    QMap<QString, QColor> m_colors;
-    QFont m_monoFont;
-    QFont m_uiFont;
+    QString m_currentStylePath;       // Путь к текущему файлу стилей
+    QMap<QString, QColor> m_colors;   // Палитра цветов
+    QFont m_monoFont;                 // Моноширинный шрифт
+    QFont m_uiFont;                   // Шрифт интерфейса
 };

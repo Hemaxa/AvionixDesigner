@@ -1,48 +1,49 @@
-//ObjectsManager - менеджер создания объектов (приницп фабрики)
+/**
+ * @file ObjectsManager.h
+ * @brief Менеджер создания объектов (паттерн фабрика)
+ */
 
 #pragma once
 
 #include <QObject>
 #include <QMap>
 #include <QSharedPointer>
-#include <QDomElement> //работа с XML
+#include <QDomElement>
 #include <functional>
 
-#include "../objects/AbstractObject.h"
+#include "../BaseObject.h"
 
+/**
+ * @class ObjectsManager
+ * @brief Фабрика для создания объектов по типу (синглтон)
+ */
 class ObjectsManager : public QObject
 {
     Q_OBJECT
     
 public:
-    //Тип функции-конструктора объекта
-    using ObjectCreator = std::function<AbstractObject*()>;
+    // Тип функции-конструктора объекта
+    using ObjectCreator = std::function<BaseObject*()>;
     
+    // Получение единственного экземпляра
     static ObjectsManager* instance();
     
-    //регистрирует тип объекта, вызывается в registerStandardTypes
-    //typeName - имя типа, creator - функция для создания объекта
+    // Регистрирует тип объекта
     void registerType(const QString &typeName, ObjectCreator creator);
     
-    //typeName Имя типа объекта
-    AbstractObject* createObject(const QString &typeName);
+    // Создаёт объект по имени типа
+    BaseObject* createObject(const QString &typeName);
     
-    /**
-     * @brief Проверяет, зарегистрирован ли тип
-     */
+    // Проверяет, зарегистрирован ли тип
     bool hasType(const QString &typeName) const;
     
-    /**
-     * @brief Парсит схемы параметров из секции <parameters>
-     */
+    // Парсит схемы параметров из секции <parameters>
     QMap<QString, ParamSchema> parseSchemas(const QDomElement &parametersNode);
     
-    /**
-     * @brief Возвращает список зарегистрированных типов
-     */
+    // Возвращает список зарегистрированных типов
     QStringList registeredTypes() const;
 
 private:
     ObjectsManager() = default;
-    QMap<QString, ObjectCreator> m_creators;
+    QMap<QString, ObjectCreator> m_creators;  // Карта типов и их конструкторов
 };

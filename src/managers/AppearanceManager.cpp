@@ -16,7 +16,7 @@ AppearanceManager::AppearanceManager()
     m_uiFont = QFont("SF Pro", 13);
     m_uiFont.setStyleHint(QFont::SansSerif);
     
-    // Инициализация палитры цветов
+    // Инициализация палитры цветов (тёмная тема по умолчанию)
     m_colors["background"] = QColor(0x2d, 0x2d, 0x2d);
     m_colors["foreground"] = QColor(0xe0, 0xe0, 0xe0);
     m_colors["accent"] = QColor(0x4a, 0x90, 0xd9);
@@ -55,10 +55,26 @@ bool AppearanceManager::loadStyleSheet(const QString &filePath)
 
 void AppearanceManager::applyDarkTheme()
 {
-    // Загружаем стили из QSS файла темы (файл находится в res/styles/)
-    if (!loadStyleSheet("res/styles/dark_theme.qss")) {
-        qWarning("AppearanceManager: Не удалось загрузить dark_theme.qss");
+    // Загружаем тёмную тему из файла
+    if (!loadStyleSheet("res/themes/DarkTheme.qss")) {
+        qWarning("AppearanceManager: Не удалось загрузить DarkTheme.qss");
     }
+    
+    // Обновляем палитру цветов
+    m_colors["background"] = QColor(0x2d, 0x2d, 0x2d);
+    m_colors["foreground"] = QColor(0xe0, 0xe0, 0xe0);
+}
+
+void AppearanceManager::applyLightTheme()
+{
+    // Загружаем светлую тему из файла
+    if (!loadStyleSheet("res/themes/LightTheme.qss")) {
+        qWarning("AppearanceManager: Не удалось загрузить LightTheme.qss");
+    }
+    
+    // Обновляем палитру цветов
+    m_colors["background"] = QColor(0xf5, 0xf5, 0xf5);
+    m_colors["foreground"] = QColor(0x2d, 0x2d, 0x2d);
 }
 
 QString AppearanceManager::getCurrentStylePath() const

@@ -1,34 +1,43 @@
 /**
  * @file StaticGroupObject.h
- * @brief Статическая группа объектов (заглушка)
+ * @brief Статическая группа объектов
  */
 
 #pragma once
 
-#include "AbstractObject.h"
+#include "../BaseObject.h"
 
 /**
  * @class StaticGroupObject
  * @brief Группа со статическими состояниями
  */
-class StaticGroupObject : public AbstractObject
+class StaticGroupObject : public BaseObject
 {
     Q_OBJECT
     
 public:
-    double x = 0;
-    double y = 0;
-    double width = 0;
-    double height = 0;
-    QColor color;
-    int address = 0;
-    int groupNumber = 0;
+    double x = 0;         // Координата X
+    double y = 0;         // Координата Y
+    double width = 0;     // Ширина
+    double height = 0;    // Высота
+    QColor color;         // Цвет
+    int address = 0;      // Адрес в памяти
+    int groupNumber = 0;  // Номер группы
     
     explicit StaticGroupObject(QObject *parent = nullptr);
     
+    // Парсит параметры из HEX-строки
     void parse(const QString &hexInit, const ParamSchema &schema) override;
+    
+    // Отрисовывает группу
     void draw(QPainter &painter) override;
+    
+    // Возвращает имя типа
     QString typeName() const override;
+    
+    // Возвращает свойства
     QList<QPair<QString, QString>> getProperties() const override;
+    
+    // Возвращает ограничивающий прямоугольник
     QRectF getBoundingRect() const override;
 };

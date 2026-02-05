@@ -5,16 +5,17 @@
 
 #include "RotationObject.h"
 #include "../utils/BitParser.h"
-#include "../utils/XmlHelper.h"
+#include "../utils/XmlReader.h"
 
 RotationObject::RotationObject(QObject *parent)
-    : AbstractObject(parent)
+    : BaseObject(parent)
     , color(Qt::white)
 {
 }
 
 void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
+    // Парсинг границ
     if (schema.contains("left")) 
         left = BitParser::extract(hexInit, schema["left"].offset, schema["left"].size) / 10.0;
     if (schema.contains("top")) 
@@ -24,16 +25,19 @@ void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
     if (schema.contains("bottom")) 
         bottom = BitParser::extract(hexInit, schema["bottom"].offset, schema["bottom"].size) / 10.0;
     
+    // Парсинг центра вращения
     if (schema.contains("xrot")) 
         xRot = BitParser::extract(hexInit, schema["xrot"].offset, schema["xrot"].size) / 10.0;
     if (schema.contains("yrot")) 
         yRot = BitParser::extract(hexInit, schema["yrot"].offset, schema["yrot"].size) / 10.0;
 
+    // Парсинг цвета
     if (schema.contains("color")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["color"].offset, schema["color"].size);
         color = BitParser::parseColor(colorVal);
     }
 
+    // Парсинг синуса и косинуса
     if (schema.contains("sin")) {
         sinVal = BitParser::extractSigned(hexInit, schema["sin"].offset, schema["sin"].size);
     }
@@ -47,18 +51,21 @@ void RotationObject::parseExtraData(const QDomElement &element)
     QDomElement dataEl = element.firstChildElement("data");
     if (dataEl.isNull()) return;
 
-    int w = XmlHelper::readInt(dataEl, "width", 0);
-    int h = XmlHelper::readInt(dataEl, "height", 0);
+    // Чтение размеров маски
+    int w = XmlReader::readInt(dataEl, "width", 0);
+    int h = XmlReader::readInt(dataEl, "height", 0);
     QString text = dataEl.text().trimmed();
 
     if (w <= 0 || h <= 0) return;
 
+    // Создание изображения маски
     maskImage = QImage(w, h, QImage::Format_ARGB32);
     maskImage.fill(Qt::transparent);
 
     QStringList parts = text.split(',');
     int idx = 0;
     
+    // Заполнение пикселей маски
     for (int py = 0; py < h; ++py) {
         for (int px = 0; px < w; ++px) {
             if (idx >= parts.size()) break;
@@ -82,6 +89,7 @@ void RotationObject::draw(QPainter &painter)
 
     painter.save();
     
+    // Применяем трансформации
     painter.translate(xRot, yRot);
     painter.translate(-xRot, -yRot);
 

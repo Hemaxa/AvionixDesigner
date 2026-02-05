@@ -1,6 +1,6 @@
 /**
  * @file MainWindow.h
- * @brief Главное окно приложения
+ * @brief Главное окно приложения - сборщик панелей
  */
 
 #pragma once
@@ -8,14 +8,17 @@
 #include <QMainWindow>
 
 class QDockWidget;
-class ViewportWindow;
-class ObjectsListWindow;
-class PropertiesWindow;
-class LogWindow;
+class QSplitter;
+class ViewportPanel;
+class ObjectListPanel;
+class ObjectPropertiesPanel;
+class ObjectLibraryPanel;
+class ViewportSettingsPanel;
+class SettingsWindow;
 
 /**
  * @class MainWindow
- * @brief Главное окно приложения с dock-панелями
+ * @brief Главное окно приложения, собирающее все панели
  */
 class MainWindow : public QMainWindow
 {
@@ -25,20 +28,37 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
 
 private slots:
+    // Открыть файл проекта
     void onOpenFile();
+    
+    // Обновить заголовок окна
     void updateWindowTitle();
+    
+    // Открыть окно настроек
+    void openSettings();
 
 private:
+    // Создание виджетов и панелей
     void createWidgets();
+    
+    // Создание меню
     void createMenus();
+    
+    // Соединение сигналов
     void connectSignals();
     
-    ViewportWindow *m_viewport;
-    ObjectsListWindow *m_objectsList;
-    PropertiesWindow *m_properties;
-    LogWindow *m_log;
+    // Панели
+    ViewportPanel *m_viewport;
+    ObjectListPanel *m_objectList;
+    ObjectPropertiesPanel *m_objectProperties;
+    ObjectLibraryPanel *m_objectLibrary;
+    ViewportSettingsPanel *m_viewportSettings;
     
-    QDockWidget *m_objectsListDock;
-    QDockWidget *m_propertiesDock;
-    QDockWidget *m_logDock;
+    // Dock-панели
+    QDockWidget *m_objectListDock;
+    QDockWidget *m_objectPropertiesDock;
+    QDockWidget *m_bottomDock;
+    
+    // Окно настроек
+    SettingsWindow *m_settingsWindow;
 };

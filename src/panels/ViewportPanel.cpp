@@ -1,46 +1,52 @@
 /**
- * @file ViewportWindow.cpp
- * @brief Реализация окна холста
+ * @file ViewportPanel.cpp
+ * @brief Реализация панели холста
  */
 
-#include "ViewportWindow.h"
+#include "ViewportPanel.h"
 #include "../managers/ProjectManager.h"
 #include <QPainter>
 #include <QWheelEvent>
 
-ViewportWindow::ViewportWindow(QWidget *parent)
-    : QWidget(parent)
+ViewportPanel::ViewportPanel(QWidget *parent)
+    : BasePanel(parent)
     , m_scale(1.0)
     , m_offsetX(0)
     , m_offsetY(0)
 {
+    // Устанавливаем имя для стилизации через QSS
+    setPanelName("ViewportPanel");
+    
     setMinimumSize(200, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     
+    // Подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded,
             this, QOverload<>::of(&QWidget::update));
 }
 
-void ViewportWindow::setScale(double scale)
+void ViewportPanel::setScale(double scale)
 {
+    // Ограничиваем масштаб в разумных пределах
     m_scale = qBound(0.1, scale, 10.0);
     update();
 }
 
-double ViewportWindow::getScale() const
+double ViewportPanel::getScale() const
 {
     return m_scale;
 }
 
-void ViewportWindow::resetView()
+void ViewportPanel::resetView()
 {
+    // Сбрасываем все параметры вида
     m_scale = 1.0;
     m_offsetX = 0;
     m_offsetY = 0;
     update();
 }
 
-void ViewportWindow::paintEvent(QPaintEvent *event)
+void ViewportPanel::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
     
@@ -60,6 +66,7 @@ void ViewportWindow::paintEvent(QPaintEvent *event)
     
     double totalScale = fitScale * m_scale;
     
+    // Центрируем холст
     double offsetX = (width() - canvasW * totalScale) / 2.0 + m_offsetX;
     double offsetY = (height() - canvasH * totalScale) / 2.0 + m_offsetY;
     
@@ -83,8 +90,9 @@ void ViewportWindow::paintEvent(QPaintEvent *event)
     painter.drawRect(QRectF(offsetX, offsetY, canvasW * totalScale, canvasH * totalScale));
 }
 
-void ViewportWindow::wheelEvent(QWheelEvent *event)
+void ViewportPanel::wheelEvent(QWheelEvent *event)
 {
+    // Масштабирование при зажатом Ctrl
     if (event->modifiers() & Qt::ControlModifier) {
         const double zoomStep = 0.1;
         if (event->angleDelta().y() > 0) {

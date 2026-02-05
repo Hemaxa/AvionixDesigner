@@ -7,13 +7,14 @@
 #include "../utils/BitParser.h"
 
 StaticGroupObject::StaticGroupObject(QObject *parent)
-    : AbstractObject(parent)
+    : BaseObject(parent)
     , color(Qt::gray)
 {
 }
 
 void StaticGroupObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
+    // Парсинг координат
     if (schema.contains("x")) 
         x = BitParser::extract(hexInit, schema["x"].offset, schema["x"].size) / 10.0;
     if (schema.contains("y")) 
@@ -23,11 +24,13 @@ void StaticGroupObject::parse(const QString &hexInit, const ParamSchema &schema)
     if (schema.contains("h"))  
         height = BitParser::extract(hexInit, schema["h"].offset, schema["h"].size) / 10.0;
 
+    // Парсинг цвета
     if (schema.contains("color")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["color"].offset, schema["color"].size);
         color = BitParser::parseColor(colorVal);
     }
     
+    // Парсинг адреса
     if (schema.contains("addr")) {
         address = BitParser::extract(hexInit, schema["addr"].offset, schema["addr"].size);
     }
@@ -37,11 +40,13 @@ void StaticGroupObject::draw(QPainter &painter)
 {
     painter.save();
     
+    // Рисуем рамку группы
     QPen pen(Qt::gray, 1, Qt::DashLine);
     painter.setPen(pen);
     painter.setBrush(color.lighter(150));
     painter.drawRect(QRectF(x, y, width, height));
     
+    // Рисуем надпись
     painter.setPen(Qt::darkGray);
     painter.drawText(QRectF(x, y, width, height), Qt::AlignCenter, 
                      QString("SG#%1").arg(groupNumber));

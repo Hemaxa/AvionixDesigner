@@ -1,5 +1,5 @@
 /*
- * Темная тема для XML-Editor
+ * Тёмная тема для Avionix Designer
  * 
  * Основные цвета:
  * - Фон: #2d2d2d
@@ -11,10 +11,37 @@
 
 /* ===== Основные виджеты ===== */
 
-QMainWindow,
+QMainWindow#MainWindow,
 QWidget {
     background-color: #2d2d2d;
     color: #e0e0e0;
+}
+
+/* ===== Базовые панели ===== */
+
+#ViewportPanel {
+    background-color: #1a1a1a;
+    border: 1px solid #1a1a1a;
+}
+
+#ObjectListPanel {
+    background-color: #2d2d2d;
+    border: none;
+}
+
+#ObjectPropertiesPanel {
+    background-color: #2d2d2d;
+    border: none;
+}
+
+#ObjectLibraryPanel {
+    background-color: #252525;
+    border: 1px solid #1a1a1a;
+}
+
+#ViewportSettingsPanel {
+    background-color: #252525;
+    border: 1px solid #1a1a1a;
 }
 
 /* ===== Dock-панели ===== */
@@ -82,7 +109,8 @@ QMenu::separator {
 
 /* ===== Списки ===== */
 
-QListWidget {
+QListWidget,
+#ObjectListWidget {
     background-color: #252525;
     border: 1px solid #1a1a1a;
     outline: none;
@@ -129,6 +157,18 @@ QLineEdit:focus {
 
 QLabel {
     color: #e0e0e0;
+}
+
+#PropertiesTitleLabel {
+    font-weight: bold;
+    font-size: 13px;
+    padding: 4px 0;
+}
+
+#LibraryPlaceholderLabel,
+#SettingsPlaceholderLabel {
+    color: #808080;
+    font-style: italic;
 }
 
 /* ===== Полосы прокрутки ===== */
@@ -211,29 +251,54 @@ QPushButton:disabled {
     color: #808080;
 }
 
-/* ===== Панели инструментов ===== */
-
-QToolBar {
-    background-color: #2d2d2d;
-    border: none;
-    spacing: 4px;
-    padding: 4px;
+#ApplyButton {
+    background-color: #4a90d9;
+    color: #ffffff;
 }
 
-QToolButton {
-    background-color: transparent;
-    border: 1px solid transparent;
+#ApplyButton:hover {
+    background-color: #5a9de9;
+}
+
+/* ===== Выпадающие списки ===== */
+
+QComboBox {
+    background-color: #3d3d3d;
+    color: #e0e0e0;
+    border: 1px solid #1a1a1a;
     border-radius: 4px;
-    padding: 4px;
+    padding: 4px 8px;
 }
 
-QToolButton:hover {
-    background-color: #3a3a3a;
-    border-color: #4a4a4a;
-}
-
-QToolButton:pressed {
+QComboBox:hover {
     background-color: #4a4a4a;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #3d3d3d;
+    border: 1px solid #1a1a1a;
+    selection-background-color: #4a90d9;
+}
+
+/* ===== Группы ===== */
+
+QGroupBox {
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    margin-top: 12px;
+    padding-top: 8px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 8px;
+    color: #e0e0e0;
 }
 
 /* ===== Разделители ===== */
@@ -248,6 +313,12 @@ QSplitter::handle:horizontal {
 
 QSplitter::handle:vertical {
     height: 2px;
+}
+
+/* ===== Диалоги ===== */
+
+QDialog#SettingsWindow {
+    background-color: #2d2d2d;
 }
 
 /* ===== Статус-бар ===== */

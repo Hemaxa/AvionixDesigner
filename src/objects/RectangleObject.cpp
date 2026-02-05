@@ -7,7 +7,7 @@
 #include "../utils/BitParser.h"
 
 RectangleObject::RectangleObject(QObject *parent)
-    : AbstractObject(parent)
+    : BaseObject(parent)
     , fillColor(Qt::white)
     , strokeColor(Qt::transparent)
 {
@@ -15,6 +15,7 @@ RectangleObject::RectangleObject(QObject *parent)
 
 void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
+    // Парсинг координат
     if (schema.contains("x0")) 
         x = BitParser::extract(hexInit, schema["x0"].offset, schema["x0"].size) / 10.0;
     if (schema.contains("y0")) 
@@ -24,11 +25,13 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
     if (schema.contains("h"))  
         height = BitParser::extract(hexInit, schema["h"].offset, schema["h"].size) / 10.0;
 
+    // Парсинг цвета заливки
     if (schema.contains("color")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["color"].offset, schema["color"].size);
         fillColor = BitParser::parseColor(colorVal);
     }
 
+    // Парсинг цвета обводки
     if (schema.contains("colorb")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["colorb"].offset, schema["colorb"].size);
         strokeColor = BitParser::parseColor(colorVal);
@@ -36,10 +39,12 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
         strokeColor = Qt::transparent;
     }
 
+    // Парсинг толщины обводки
     if (schema.contains("a")) {
         strokeWidth = BitParser::extract(hexInit, schema["a"].offset, schema["a"].size) / 10.0;
     }
     
+    // Парсинг прозрачности
     if (schema.contains("alph")) {
         int rawAlpha = BitParser::extract(hexInit, schema["alph"].offset, schema["alph"].size);
         alpha = qMin(255, rawAlpha * 4);
@@ -50,6 +55,7 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 void RectangleObject::draw(QPainter &painter)
 {
     QPen pen;
+    // Настройка пера для обводки
     if (strokeWidth <= 0.05 || strokeColor.alpha() == 0) {
         pen.setStyle(Qt::NoPen);
     } else {
