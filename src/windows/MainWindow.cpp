@@ -1,8 +1,3 @@
-/**
- * @file MainWindow.cpp
- * @brief Реализация главного окна
- */
-
 #include "MainWindow.h"
 #include "SettingsWindow.h"
 #include "../panels/ViewportPanel.h"
@@ -12,33 +7,36 @@
 #include "../panels/ViewportSettingsPanel.h"
 #include "../managers/ProjectManager.h"
 #include "../managers/AppearanceManager.h"
+
 #include <QDockWidget>
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
 #include <QFileDialog>
-#include <QTimer>
+#include <QScreen>
+#include <QGuiApplication>
 #include <QSplitter>
-#include <QVBoxLayout>
+#include <QTimer>
 
-MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent)
-    , m_settingsWindow(nullptr)
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_settingsWindow(nullptr)
 {
     setWindowTitle("Avionix Designer");
     setObjectName("MainWindow");
     
-    // Применяем тёмную тему по умолчанию
+    //разрешение на вложенные dock-виджеты и анимацию
+    setDockNestingEnabled(true);
+    setAnimated(true);
+    
+    //применяем темную тему по умолчанию
     AppearanceManager::instance()->applyDarkTheme();
     
+    //служебные методы создания
     createWidgets();
     createMenus();
     connectSignals();
     
+    //занять весь допустимый экран
     showMaximized();
-    
-    // Открываем файл при запуске
-    QTimer::singleShot(100, this, &MainWindow::onOpenFile);
 }
 
 void MainWindow::onOpenFile()
@@ -50,6 +48,7 @@ void MainWindow::onOpenFile()
         "XML Files (*.xml)"
     );
     
+    //если путь не пуст, проект загружается
     if (!fileName.isEmpty()) {
         ProjectManager::instance()->loadFromFile(fileName);
         updateWindowTitle();
@@ -58,16 +57,18 @@ void MainWindow::onOpenFile()
 
 void MainWindow::updateWindowTitle()
 {
+    //изменение заголовка окна в зависимости от имени открытого файла
     auto pm = ProjectManager::instance();
     setWindowTitle(QString("Avionix Designer - %1").arg(pm->getProjectName()));
 }
 
 void MainWindow::openSettings()
 {
-    // Создаём окно настроек при первом вызове
+    //создаем окно настроек при первом вызове
     if (!m_settingsWindow) {
         m_settingsWindow = new SettingsWindow(this);
     }
+
     m_settingsWindow->show();
     m_settingsWindow->raise();
     m_settingsWindow->activateWindow();
@@ -75,68 +76,98 @@ void MainWindow::openSettings()
 
 void MainWindow::createWidgets()
 {
-    // ===== Центральная область: Viewport + нижние панели =====
-    
-    // Основной сплиттер (вертикальный) - верх/низ
-    QSplitter *mainSplitter = new QSplitter(Qt::Vertical, this);
-    mainSplitter->setObjectName("MainSplitter");
-    
-    // Холст (основная панель ~70% площади)
+    //инициализация панелей
     m_viewport = new ViewportPanel(this);
-    mainSplitter->addWidget(m_viewport);
-    
-    // Нижняя часть: ViewportSettings + ObjectLibrary
-    QSplitter *bottomSplitter = new QSplitter(Qt::Horizontal, this);
-    bottomSplitter->setObjectName("BottomSplitter");
-    
-    m_viewportSettings = new ViewportSettingsPanel(this);
-    m_objectLibrary = new ObjectLibraryPanel(this);
-    
-    bottomSplitter->addWidget(m_viewportSettings);
-    bottomSplitter->addWidget(m_objectLibrary);
-    
-    // Пропорции нижней панели 1:2
-    bottomSplitter->setStretchFactor(0, 1);
-    bottomSplitter->setStretchFactor(1, 2);
-    
-    mainSplitter->addWidget(bottomSplitter);
-    
-    // Пропорции верх/низ 3:1
-    mainSplitter->setStretchFactor(0, 3);
-    mainSplitter->setStretchFactor(1, 1);
-    
-    setCentralWidget(mainSplitter);
-    
-    // ===== Правая боковая панель (dock) =====
-    
-    // Сплиттер для правой стороны
-    QSplitter *rightSplitter = new QSplitter(Qt::Vertical, this);
-    rightSplitter->setObjectName("RightSplitter");
-    
-    // Список объектов (сверху справа)
     m_objectList = new ObjectListPanel(this);
-    rightSplitter->addWidget(m_objectList);
-    
-    // Свойства объекта (снизу справа)
     m_objectProperties = new ObjectPropertiesPanel(this);
-    rightSplitter->addWidget(m_objectProperties);
+    m_objectLibrary = new ObjectLibraryPanel(this);
+    m_viewportSettings = new ViewportSettingsPanel(this);
     
-    // Равные пропорции
-    rightSplitter->setStretchFactor(0, 1);
-    rightSplitter->setStretchFactor(1, 1);
+    //создание dock-виджетов
+    //ViewportPanel
+    m_viewportDock = new QDockWidget("Рабочая область", this);
+    m_viewportDock->setObjectName("ViewportDock");
+    m_viewportDock->setWidget(m_viewport);
+    m_viewportDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_viewportDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     
-    // Dock для правой панели
-    m_objectListDock = new QDockWidget("Панели", this);
-    m_objectListDock->setObjectName("RightPanelDock");
-    m_objectListDock->setWidget(rightSplitter);
-    m_objectListDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    m_objectListDock->setMinimumWidth(250);
+    //ObjectListPanel
+    m_objectListDock = new QDockWidget("Список объектов", this);
+    m_objectListDock->setObjectName("ObjectListDock");
+    m_objectListDock->setWidget(m_objectList);
+    m_objectListDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    
+    //ObjectPropertiesPanel
+    m_objectPropertiesDock = new QDockWidget("Свойства объекта", this);
+    m_objectPropertiesDock->setObjectName("ObjectPropertiesDock");
+    m_objectPropertiesDock->setWidget(m_objectProperties);
+    m_objectPropertiesDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    
+    //ViewportSettingsPanel
+    m_viewportSettingsDock = new QDockWidget("Настройки холста", this);
+    m_viewportSettingsDock->setObjectName("ViewportSettingsDock");
+    m_viewportSettingsDock->setWidget(m_viewportSettings);
+    m_viewportSettingsDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    
+    //ObjectLibraryPanel
+    m_objectLibraryDock = new QDockWidget("Библиотека объектов", this);
+    m_objectLibraryDock->setObjectName("ObjectLibraryDock");
+    m_objectLibraryDock->setWidget(m_objectLibrary);
+    m_objectLibraryDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    
+    //расположение панелей
+    addDockWidget(Qt::LeftDockWidgetArea, m_viewportDock);
     addDockWidget(Qt::RightDockWidgetArea, m_objectListDock);
+    
+    addDockWidget(Qt::RightDockWidgetArea, m_objectPropertiesDock);
+    splitDockWidget(m_objectListDock, m_objectPropertiesDock, Qt::Vertical);
+    
+    addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
+    addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
+    splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
+}
+
+void MainWindow::showEvent(QShowEvent *event)
+{
+    QMainWindow::showEvent(event);
+    
+    //применяем размеры только один раз при первом показе
+    if (!m_initialSizesSet) {
+        m_initialSizesSet = true;
+        //отложенный вызов для корректного применения размеров
+        QTimer::singleShot(0, this, &MainWindow::setupDockSizes);
+    }
+}
+
+void MainWindow::setupDockSizes()
+{
+    //получаем размеры окна для расчета процентов
+    int windowW = width();
+    int windowH = height();
+    
+    //ширина колонок
+    int viewportWidth = static_cast<int>(windowW * 0.8);
+    int rightPanelWidth = static_cast<int>(windowW * 0.2);
+    resizeDocks({m_viewportDock}, {viewportWidth}, Qt::Horizontal);
+    resizeDocks({m_objectListDock}, {rightPanelWidth}, Qt::Horizontal);
+    
+    //высота правых частей
+    int objectListHeight = static_cast<int>(windowH * 0.4);
+    int objectPropsHeight = static_cast<int>(windowH * 0.4);
+    resizeDocks({m_objectListDock, m_objectPropertiesDock}, {objectListHeight, objectPropsHeight}, Qt::Vertical);
+    
+    //высота нижних частей
+    int bottomHeight = static_cast<int>(windowH * 0.2);
+    resizeDocks({m_viewportSettingsDock, m_objectLibraryDock}, {bottomHeight, bottomHeight}, Qt::Vertical);
+    
+    //ширина нижних частей
+    int bottomPanelWidth = static_cast<int>(windowW * 0.375);
+    resizeDocks({m_viewportSettingsDock, m_objectLibraryDock}, {bottomPanelWidth, bottomPanelWidth}, Qt::Horizontal);
 }
 
 void MainWindow::createMenus()
 {
-    // ===== Меню "Файл" =====
+    //меню "Файл"
     QMenu *fileMenu = menuBar()->addMenu("Файл");
     
     QAction *openAction = fileMenu->addAction("Открыть...");
@@ -149,10 +180,15 @@ void MainWindow::createMenus()
     exitAction->setShortcut(QKeySequence::Quit);
     connect(exitAction, &QAction::triggered, this, &QMainWindow::close);
     
-    // ===== Меню "Вид" =====
+    //меню "Вид"
     QMenu *viewMenu = menuBar()->addMenu("Вид");
     
+    //добавляем действия для переключения видимости каждой панели
+    viewMenu->addAction(m_viewportDock->toggleViewAction());
     viewMenu->addAction(m_objectListDock->toggleViewAction());
+    viewMenu->addAction(m_objectPropertiesDock->toggleViewAction());
+    viewMenu->addAction(m_objectLibraryDock->toggleViewAction());
+    viewMenu->addAction(m_viewportSettingsDock->toggleViewAction());
     
     viewMenu->addSeparator();
     
@@ -160,7 +196,7 @@ void MainWindow::createMenus()
     resetViewAction->setShortcut(QKeySequence("Ctrl+0"));
     connect(resetViewAction, &QAction::triggered, m_viewport, &ViewportPanel::resetView);
     
-    // ===== Меню "Настройки" =====
+    //меню "Настройки"
     QMenu *settingsMenu = menuBar()->addMenu("Настройки");
     
     QAction *preferencesAction = settingsMenu->addAction("Параметры...");
@@ -170,11 +206,9 @@ void MainWindow::createMenus()
 
 void MainWindow::connectSignals()
 {
-    // Связь списка объектов с панелью свойств
-    connect(m_objectList, &ObjectListPanel::objectSelected,
-            m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
+    //связь списка объектов с панелью свойств
+    connect(m_objectList, &ObjectListPanel::objectSelected, m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
     
-    // Обновление заголовка при загрузке проекта
-    connect(ProjectManager::instance(), &ProjectManager::projectLoaded,
-            this, &MainWindow::updateWindowTitle);
+    //связь загрузки проекта с обновлением заголовка
+    connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &MainWindow::updateWindowTitle);
 }

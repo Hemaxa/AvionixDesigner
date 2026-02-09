@@ -1,14 +1,12 @@
-/**
- * @file MainWindow.h
- * @brief Главное окно приложения - сборщик панелей
- */
+//MainWindow - главное окно приложения, которое является сборщиком панелей
 
-#pragma once
+#pragma once //директива для единоразового включения заголовочного файла
 
 #include <QMainWindow>
+#include <QShowEvent>
 
+//предварительное объявление классов (forward declaration)
 class QDockWidget;
-class QSplitter;
 class ViewportPanel;
 class ObjectListPanel;
 class ObjectPropertiesPanel;
@@ -16,49 +14,58 @@ class ObjectLibraryPanel;
 class ViewportSettingsPanel;
 class SettingsWindow;
 
-/**
- * @class MainWindow
- * @brief Главное окно приложения, собирающее все панели
- */
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
     
 public:
+    //конструктор с запретом на неявное преобразование типов
     explicit MainWindow(QWidget *parent = nullptr);
 
 private slots:
-    // Открыть файл проекта
+    //метод открытия файла проекта
     void onOpenFile();
     
-    // Обновить заголовок окна
+    //метод обновления заголовока окна
     void updateWindowTitle();
     
-    // Открыть окно настроек
+    //метод открытия окна настроек
     void openSettings();
 
 private:
-    // Создание виджетов и панелей
+    //метод создания виджетов и панелей
     void createWidgets();
     
-    // Создание меню
+    //метод создания меню
     void createMenus();
     
-    // Соединение сигналов
+    //метод соединения сигналов
     void connectSignals();
     
-    // Панели
+    //метод настройки размеров dock-виджетов
+    void setupDockSizes();
+    
+protected:
+    //переопределение события показа окна для применения размеров
+    void showEvent(QShowEvent *event) override;
+    
+    //указатели на панели
     ViewportPanel *m_viewport;
     ObjectListPanel *m_objectList;
     ObjectPropertiesPanel *m_objectProperties;
     ObjectLibraryPanel *m_objectLibrary;
     ViewportSettingsPanel *m_viewportSettings;
     
-    // Dock-панели
+    //dock-виджеты для каждой панели (перетаскиваемое окно)
+    QDockWidget *m_viewportDock;
     QDockWidget *m_objectListDock;
     QDockWidget *m_objectPropertiesDock;
-    QDockWidget *m_bottomDock;
+    QDockWidget *m_objectLibraryDock;
+    QDockWidget *m_viewportSettingsDock;
     
-    // Окно настроек
+    //окно настроек
     SettingsWindow *m_settingsWindow;
+    
+    //флаг первоначальной настройки размеров
+    bool m_initialSizesSet = false;
 };

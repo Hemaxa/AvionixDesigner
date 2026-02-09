@@ -102,11 +102,12 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     return true;
 }
 
+//метод регистрации стандартых типов объектов (получение словаря поддерживаемых объектов)
 void ProjectManager::registerStandardTypes()
 {
     auto om = ObjectsManager::instance();
     
-    // Регистрируем типы объектов
+    //регистрируем типы объектов
     om->registerType("rectangle", []() { return new RectangleObject(); });
     om->registerType("rectanglea", []() { return new RectangleObject(); });
     om->registerType("rectanglee", []() { return new RectangleObject(); });

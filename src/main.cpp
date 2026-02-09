@@ -1,39 +1,30 @@
-/**
- * @file main.cpp
- * @brief Точка входа в приложение Avionix Designer
- * 
- * Инициализирует:
- * - QApplication
- * - Менеджеры (ProjectManager, AppearanceManager, ObjectsManager)
- * - Главное окно
- */
+//main - точка входа в приложение
 
-#include <QApplication>
 #include "managers/ProjectManager.h"
 #include "managers/AppearanceManager.h"
 #include "managers/ObjectsManager.h"
 #include "windows/MainWindow.h"
 
-/**
- * @brief Главная функция приложения
- */
+#include <QApplication>
+
+//главная функция приложения
 int main(int argc, char *argv[])
 {
-    // 1. Создаем приложение Qt
+    //создание приложения Qt
     QApplication app(argc, argv);
     
-    // Мета-информация приложения
+    //мета-информация о приложении
     app.setApplicationName("Avionix Designer");
     app.setOrganizationName("Avionix");
     app.setApplicationVersion("1.0");
     
-    // 2. Регистрируем стандартные типы объектов
+    //регистрируем стандартные типы объектов (получаем словарь поддерживаемых объектов)
     ProjectManager::instance()->registerStandardTypes();
     
-    // 3. Создаем и показываем главное окно
+    //создаем и показываем главное окно
     MainWindow mainWindow;
     mainWindow.show();
     
-    // 4. Запускаем цикл событий
+    //запускаем бесконечный цикл событий
     return app.exec();
 }

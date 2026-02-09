@@ -1,7 +1,4 @@
-/**
- * @file ProjectManager.h
- * @brief Менеджер проекта - хранит все данные загруженного XML
- */
+//ProjectManager - менеджер проекта, который хранит все данные загруженного XML
 
 #pragma once
 
@@ -12,10 +9,6 @@
 
 #include "../BaseObject.h"
 
-/**
- * @class ProjectManager
- * @brief Менеджер проекта (синглтон) - загрузка и хранение данных проекта
- */
 class ProjectManager : public QObject
 {
     Q_OBJECT

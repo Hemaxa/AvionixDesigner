@@ -1,96 +1,128 @@
-/**
- * @file SettingsWindow.cpp
- * @brief Реализация окна настроек
- */
-
 #include "SettingsWindow.h"
-#include "../managers/AppearanceManager.h"
+#include "../managers/AppearanceManager.h" 
+
 #include <QVBoxLayout>
-#include <QHBoxLayout>
 #include <QFormLayout>
 #include <QComboBox>
-#include <QPushButton>
+#include <QCheckBox>
+#include <QDialogButtonBox>
 #include <QLabel>
-#include <QGroupBox>
+#include <QSettings>
 
-SettingsWindow::SettingsWindow(QWidget *parent)
-    : QDialog(parent)
+SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
 {
+    //заголовок окна и имя объекта
     setWindowTitle("Настройки");
     setObjectName("SettingsWindow");
-    setMinimumSize(350, 200);
+    
+    //установка модального поведения
     setModal(true);
     
+    //фиксированный размер
+    setMinimumWidth(300);
+    
+    //служебные методы создания
     createWidgets();
-    loadCurrentSettings();
+    
+    //загрузка настроек
+    loadSettings();
 }
 
 void SettingsWindow::createWidgets()
 {
+    //вертикальный шаблон
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
-    mainLayout->setSpacing(16);
-    mainLayout->setContentsMargins(16, 16, 16, 16);
     
-    // Группа настроек внешнего вида
-    QGroupBox *appearanceGroup = new QGroupBox("Внешний вид", this);
-    appearanceGroup->setObjectName("AppearanceGroup");
+    //форма настроек
+    QFormLayout *formLayout = new QFormLayout();
     
-    QFormLayout *formLayout = new QFormLayout(appearanceGroup);
-    formLayout->setSpacing(8);
-    
-    // Выбор темы
+    //настройка темы
     m_themeCombo = new QComboBox(this);
-    m_themeCombo->setObjectName("ThemeComboBox");
-    m_themeCombo->addItem("Тёмная", "dark");
-    m_themeCombo->addItem("Светлая", "light");
-    formLayout->addRow("Тема:", m_themeCombo);
+    m_themeCombo->addItem("Тёмная");
+    m_themeCombo->addItem("Светлая");
     
-    mainLayout->addWidget(appearanceGroup);
+    // Добавляем строку в форму: Текст "Тема интерфейса:" и сам комбобокс
+    formLayout->addRow("Тема интерфейса:", m_themeCombo);
+    
+    // 2. Настройка автозагрузки (для примера)
+    m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
+    formLayout->addRow("", m_autoLoadCheck); // Пустая метка, просто чекбокс
+    
+    // Добавляем форму в главный вертикальный слой
+    mainLayout->addLayout(formLayout);
+    
+    // Добавляем пружину (stretch), которая будет толкать кнопки вниз,
+    // если окно растянут по высоте.
     mainLayout->addStretch();
     
-    // Кнопки управления
-    QHBoxLayout *buttonLayout = new QHBoxLayout();
-    buttonLayout->addStretch();
+    // -- Кнопки управления (OK / Cancel) --
+    // QDialogButtonBox сам знает, как расположить кнопки ОК и Отмена 
+    // в зависимости от ОС (на Windows ОК слева, на Mac — справа).
+    QDialogButtonBox *buttonBox = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, // Какие кнопки нужны
+        Qt::Horizontal, 
+        this
+    );
     
-    m_applyButton = new QPushButton("Применить", this);
-    m_applyButton->setObjectName("ApplyButton");
-    connect(m_applyButton, &QPushButton::clicked, this, &SettingsWindow::onApplyClicked);
-    buttonLayout->addWidget(m_applyButton);
+    // Добавляем панель с кнопками в самый низ
+    mainLayout->addWidget(buttonBox);
     
-    m_closeButton = new QPushButton("Закрыть", this);
-    m_closeButton->setObjectName("CloseButton");
-    connect(m_closeButton, &QPushButton::clicked, this, &QDialog::close);
-    buttonLayout->addWidget(m_closeButton);
+    // -- Подключение сигналов (Wiring) --
     
-    mainLayout->addLayout(buttonLayout);
+    // Если нажали "OK" (accepted) -> вызываем saveSettings()
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &SettingsWindow::saveSettings);
+    
+    // Если нажали "Cancel" (rejected) -> вызываем close() (просто закрыть)
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &SettingsWindow::close);
 }
 
-void SettingsWindow::loadCurrentSettings()
+// Метод загрузки настроек при открытии окна
+void SettingsWindow::loadSettings()
 {
-    // Определяем текущую тему по пути файла
-    QString currentPath = AppearanceManager::instance()->getCurrentStylePath();
-    if (currentPath.contains("Light")) {
-        m_themeCombo->setCurrentIndex(1);
-    } else {
-        m_themeCombo->setCurrentIndex(0);
-    }
-}
-
-void SettingsWindow::onThemeChanged(int index)
-{
-    Q_UNUSED(index);
-    // Тема применится при нажатии кнопки "Применить"
-}
-
-void SettingsWindow::onApplyClicked()
-{
-    // Получаем выбранную тему
-    QString themeKey = m_themeCombo->currentData().toString();
+    // QSettings — это "волшебная коробка". 
+    // На Windows она читает реестр, на Linux/macOS — конфиг-файлы.
+    // "Avionix" — имя организации, "Designer" — имя приложения.
+    // Они нужны, чтобы знать, где именно искать наши настройки.
+    QSettings settings("Avionix", "Designer");
     
+    // Читаем значение по ключу "theme". 
+    // Если ключа нет (первый запуск), вернем 0 (темная тема по умолчанию).
+    int themeIndex = settings.value("theme", 0).toInt();
+    
+    // Устанавливаем это значение в выпадающий список
+    m_themeCombo->setCurrentIndex(themeIndex);
+    
+    // Читаем чекбокс (по умолчанию false)
+    bool autoLoad = settings.value("autoLoad", false).toBool();
+    m_autoLoadCheck->setChecked(autoLoad);
+}
+
+// Метод сохранения настроек (вызывается по кнопке ОК)
+void SettingsWindow::saveSettings()
+{
+    // Снова открываем доступ к хранилищу настроек
+    QSettings settings("Avionix", "Designer");
+    
+    // Записываем текущий выбранный индекс из комбобокса
+    settings.setValue("theme", m_themeCombo->currentIndex());
+    
+    // Записываем состояние чекбокса
+    settings.setValue("autoLoad", m_autoLoadCheck->isChecked());
+    
+    // -- Применение изменений немедленно --
+    
+    // Получаем менеджер внешнего вида
     auto am = AppearanceManager::instance();
-    if (themeKey == "light") {
-        am->applyLightTheme();
+    
+    // Смотрим, что выбрал пользователь
+    if (m_themeCombo->currentIndex() == 0) {
+        am->applyDarkTheme();  // Включаем тёмную
     } else {
-        am->applyDarkTheme();
+        am->applyLightTheme(); // Включаем светлую
     }
+    
+    // accept() делает две вещи:
+    // 1. Закрывает окно.
+    // 2. Возвращает код результата QDialog::Accepted (если кто-то ждет ответа).
+    accept(); 
 }
