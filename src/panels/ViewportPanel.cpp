@@ -4,7 +4,7 @@
  */
 
 #include "ViewportPanel.h"
-#include "../managers/ProjectManager.h"
+#include "ProjectManager.h"
 #include <QPainter>
 #include <QWheelEvent>
 

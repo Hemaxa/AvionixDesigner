@@ -4,6 +4,7 @@
 
 #include <QMainWindow>
 #include <QShowEvent>
+#include <QCloseEvent>
 
 //предварительное объявление классов (forward declaration)
 class QDockWidget;
@@ -22,15 +23,26 @@ public:
     //конструктор с запретом на неявное преобразование типов
     explicit MainWindow(QWidget *parent = nullptr);
 
+public slots:
+    //сброс layout до стандартных значений
+    void resetToDefaultLayout();
+
 private slots:
-    //метод открытия файла проекта
+    //слот, который вызывается при открытии файла проекта
     void onOpenFile();
     
-    //метод обновления заголовока окна
+    //слот, который вызывается при обновлении заголовока окна
     void updateWindowTitle();
     
-    //метод открытия окна настроек
+    //слот, который вызывается при открытии окна настроек
     void openSettings();
+
+protected:
+    //переопределение события показа окна для применения размеров
+    void showEvent(QShowEvent *event) override;
+    
+    //переопределение события закрытия для сохранения layout
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     //метод создания виджетов и панелей
@@ -45,9 +57,9 @@ private:
     //метод настройки размеров dock-виджетов
     void setupDockSizes();
     
-protected:
-    //переопределение события показа окна для применения размеров
-    void showEvent(QShowEvent *event) override;
+    //сохранение и восстановление layout
+    void saveLayoutSettings();
+    void restoreLayoutSettings();
     
     //указатели на панели
     ViewportPanel *m_viewport;

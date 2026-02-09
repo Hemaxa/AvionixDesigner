@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "../BasePanel.h"
+#include "BasePanel.h"
 #include <QSharedPointer>
 
 class QFormLayout;

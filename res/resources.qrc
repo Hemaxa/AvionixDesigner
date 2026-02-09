@@ -1,0 +1,16 @@
+<RCC>
+    <qresource prefix="/themes">
+        <file>themes/DarkTheme.qss</file>
+        <file>themes/LightTheme.qss</file>
+        <file>themes/AvionixTheme.qss</file>
+    </qresource>
+    <qresource prefix="/icons">
+        <!-- Иконки библиотеки объектов (будут добавлены пользователем) -->
+        <!-- <file>icons/library/rectangle.svg</file> -->
+        <!-- <file>icons/library/circle.svg</file> -->
+        <!-- <file>icons/library/line.svg</file> -->
+        <!-- <file>icons/library/polygon.svg</file> -->
+        <!-- <file>icons/library/text.svg</file> -->
+        <!-- <file>icons/library/image.svg</file> -->
+    </qresource>
+</RCC>

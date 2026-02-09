@@ -1,11 +1,12 @@
 #include "SettingsWindow.h"
-#include "../managers/AppearanceManager.h" 
+#include "AppearanceManager.h" 
 
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QComboBox>
 #include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QPushButton>
 #include <QLabel>
 #include <QSettings>
 
@@ -40,89 +41,94 @@ void SettingsWindow::createWidgets()
     m_themeCombo = new QComboBox(this);
     m_themeCombo->addItem("Тёмная");
     m_themeCombo->addItem("Светлая");
+    m_themeCombo->addItem("Avionix Designer");
     
-    // Добавляем строку в форму: Текст "Тема интерфейса:" и сам комбобокс
+    //добавляем строку в форму: Текст "Тема интерфейса:" и сам комбобокс
     formLayout->addRow("Тема интерфейса:", m_themeCombo);
     
-    // 2. Настройка автозагрузки (для примера)
+    //настройка автозагрузки (для примера)
     m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
-    formLayout->addRow("", m_autoLoadCheck); // Пустая метка, просто чекбокс
+    formLayout->addRow("", m_autoLoadCheck);
     
-    // Добавляем форму в главный вертикальный слой
     mainLayout->addLayout(formLayout);
     
-    // Добавляем пружину (stretch), которая будет толкать кнопки вниз,
-    // если окно растянут по высоте.
     mainLayout->addStretch();
     
-    // -- Кнопки управления (OK / Cancel) --
-    // QDialogButtonBox сам знает, как расположить кнопки ОК и Отмена 
-    // в зависимости от ОС (на Windows ОК слева, на Mac — справа).
-    QDialogButtonBox *buttonBox = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, // Какие кнопки нужны
-        Qt::Horizontal, 
-        this
-    );
+    //кнопка сброса настроек
+    QPushButton *resetButton = new QPushButton("Сбросить все настройки", this);
+    resetButton->setObjectName("ResetButton");
+    mainLayout->addWidget(resetButton);
     
-    // Добавляем панель с кнопками в самый низ
+    mainLayout->addSpacing(8);
+    
+    //кнопки OK/Cancel
+    QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, this);
     mainLayout->addWidget(buttonBox);
     
-    // -- Подключение сигналов (Wiring) --
-    
-    // Если нажали "OK" (accepted) -> вызываем saveSettings()
+    //подключение сигналов
     connect(buttonBox, &QDialogButtonBox::accepted, this, &SettingsWindow::saveSettings);
-    
-    // Если нажали "Cancel" (rejected) -> вызываем close() (просто закрыть)
     connect(buttonBox, &QDialogButtonBox::rejected, this, &SettingsWindow::close);
+    connect(resetButton, &QPushButton::clicked, this, &SettingsWindow::resetAllSettings);
 }
 
-// Метод загрузки настроек при открытии окна
+//метод загрузки настроек при открытии окна
 void SettingsWindow::loadSettings()
 {
-    // QSettings — это "волшебная коробка". 
-    // На Windows она читает реестр, на Linux/macOS — конфиг-файлы.
-    // "Avionix" — имя организации, "Designer" — имя приложения.
-    // Они нужны, чтобы знать, где именно искать наши настройки.
+    //идентификаторы настроек
     QSettings settings("Avionix", "Designer");
     
-    // Читаем значение по ключу "theme". 
-    // Если ключа нет (первый запуск), вернем 0 (темная тема по умолчанию).
+    //чтение настройки темы и установка ее активной в поле
     int themeIndex = settings.value("theme", 0).toInt();
-    
-    // Устанавливаем это значение в выпадающий список
     m_themeCombo->setCurrentIndex(themeIndex);
     
-    // Читаем чекбокс (по умолчанию false)
+    //читаем чекбокса автозагрузки файла и его правильное отображение
     bool autoLoad = settings.value("autoLoad", false).toBool();
     m_autoLoadCheck->setChecked(autoLoad);
 }
 
-// Метод сохранения настроек (вызывается по кнопке ОК)
+//метод сохранения настроек (вызывается по кнопке ОК)
 void SettingsWindow::saveSettings()
 {
-    // Снова открываем доступ к хранилищу настроек
+    //идентификаторы настроек
     QSettings settings("Avionix", "Designer");
     
-    // Записываем текущий выбранный индекс из комбобокса
+    //записываем текущий выбранный индекс из комбобокса
     settings.setValue("theme", m_themeCombo->currentIndex());
     
-    // Записываем состояние чекбокса
+    //записываем состояние чекбокса
     settings.setValue("autoLoad", m_autoLoadCheck->isChecked());
     
-    // -- Применение изменений немедленно --
-    
-    // Получаем менеджер внешнего вида
+    //получаем менеджер внешнего вида
     auto am = AppearanceManager::instance();
     
-    // Смотрим, что выбрал пользователь
-    if (m_themeCombo->currentIndex() == 0) {
-        am->applyDarkTheme();  // Включаем тёмную
-    } else {
-        am->applyLightTheme(); // Включаем светлую
+    //смотрим, что выбрал пользователь
+    switch (m_themeCombo->currentIndex()) {
+    case 0:
+        am->applyDarkTheme();
+        break;
+    case 1:
+        am->applyLightTheme();
+        break;
+    case 2:
+        am->applyAvionixTheme();
+        break;
     }
-    
-    // accept() делает две вещи:
-    // 1. Закрывает окно.
-    // 2. Возвращает код результата QDialog::Accepted (если кто-то ждет ответа).
+
     accept(); 
+}
+
+void SettingsWindow::resetAllSettings()
+{
+    //очищаем все настройки
+    QSettings settings("Avionix", "Designer");
+    settings.clear();
+    
+    //применяем тему по умолчанию
+    AppearanceManager::instance()->applyDarkTheme();
+    
+    //перезагружаем UI с дефолтными значениями
+    loadSettings();
+    
+    //отправляем сигнал для сброса layout в MainWindow
+    emit settingsReset();
 }

@@ -4,8 +4,8 @@
  */
 
 #include "RotationObject.h"
-#include "../utils/BitParser.h"
-#include "../utils/XmlReader.h"
+#include "BitParser.h"
+#include "XmlReader.h"
 
 RotationObject::RotationObject(QObject *parent)
     : BaseObject(parent)

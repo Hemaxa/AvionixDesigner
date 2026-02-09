@@ -1,12 +1,12 @@
 #include "MainWindow.h"
 #include "SettingsWindow.h"
-#include "../panels/ViewportPanel.h"
-#include "../panels/ObjectListPanel.h"
-#include "../panels/ObjectPropertiesPanel.h"
-#include "../panels/ObjectLibraryPanel.h"
-#include "../panels/ViewportSettingsPanel.h"
-#include "../managers/ProjectManager.h"
-#include "../managers/AppearanceManager.h"
+#include "ViewportPanel.h"
+#include "ObjectListPanel.h"
+#include "ObjectPropertiesPanel.h"
+#include "ObjectLibraryPanel.h"
+#include "ViewportSettingsPanel.h"
+#include "ProjectManager.h"
+#include "AppearanceManager.h"
 
 #include <QDockWidget>
 #include <QMenuBar>
@@ -17,6 +17,7 @@
 #include <QGuiApplication>
 #include <QSplitter>
 #include <QTimer>
+#include <QSettings>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_settingsWindow(nullptr)
 {
@@ -27,13 +28,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_settingsWindow(
     setDockNestingEnabled(true);
     setAnimated(true);
     
-    //применяем темную тему по умолчанию
-    AppearanceManager::instance()->applyDarkTheme();
+    //применяем тему из настроек
+    QSettings settings("Avionix", "Designer");
+    int themeIndex = settings.value("theme", 0).toInt();
+    auto am = AppearanceManager::instance();
+    switch (themeIndex) {
+        case 0: am->applyDarkTheme(); break;
+        case 1: am->applyLightTheme(); break;
+        case 2: am->applyAvionixTheme(); break;
+        default: am->applyDarkTheme(); break;
+    }
     
     //служебные методы создания
     createWidgets();
     createMenus();
     connectSignals();
+    
+    //восстановление layout из настроек
+    restoreLayoutSettings();
     
     //занять весь допустимый экран
     showMaximized();
@@ -67,6 +79,9 @@ void MainWindow::openSettings()
     //создаем окно настроек при первом вызове
     if (!m_settingsWindow) {
         m_settingsWindow = new SettingsWindow(this);
+        //подключаем сигнал сброса настроек к сбросу layout
+        connect(m_settingsWindow, &SettingsWindow::settingsReset, 
+                this, &MainWindow::resetToDefaultLayout);
     }
 
     m_settingsWindow->show();
@@ -131,11 +146,15 @@ void MainWindow::showEvent(QShowEvent *event)
 {
     QMainWindow::showEvent(event);
     
-    //применяем размеры только один раз при первом показе
+    //применяем размеры только если нет сохранённого layout
     if (!m_initialSizesSet) {
         m_initialSizesSet = true;
-        //отложенный вызов для корректного применения размеров
-        QTimer::singleShot(0, this, &MainWindow::setupDockSizes);
+        
+        QSettings settings("Avionix", "Designer");
+        if (!settings.contains("windowState")) {
+            //отложенный вызов для корректного применения размеров
+            QTimer::singleShot(0, this, &MainWindow::setupDockSizes);
+        }
     }
 }
 
@@ -211,4 +230,41 @@ void MainWindow::connectSignals()
     
     //связь загрузки проекта с обновлением заголовка
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &MainWindow::updateWindowTitle);
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    //сохраняем layout перед закрытием
+    saveLayoutSettings();
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::saveLayoutSettings()
+{
+    QSettings settings("Avionix", "Designer");
+    settings.setValue("windowGeometry", saveGeometry());
+    settings.setValue("windowState", saveState());
+}
+
+void MainWindow::restoreLayoutSettings()
+{
+    QSettings settings("Avionix", "Designer");
+    
+    //проверяем, есть ли сохранённые настройки
+    if (settings.contains("windowGeometry")) {
+        restoreGeometry(settings.value("windowGeometry").toByteArray());
+        restoreState(settings.value("windowState").toByteArray());
+    }
+}
+
+void MainWindow::resetToDefaultLayout()
+{
+    //удаляем сохранённые настройки layout
+    QSettings settings("Avionix", "Designer");
+    settings.remove("windowGeometry");
+    settings.remove("windowState");
+    
+    //применяем стандартные размеры
+    showMaximized();
+    setupDockSizes();
 }

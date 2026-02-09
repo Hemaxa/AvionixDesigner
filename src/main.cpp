@@ -1,9 +1,9 @@
 //main - точка входа в приложение
 
-#include "managers/ProjectManager.h"
-#include "managers/AppearanceManager.h"
-#include "managers/ObjectsManager.h"
-#include "windows/MainWindow.h"
+#include "ProjectManager.h"
+#include "AppearanceManager.h"
+#include "ObjectsManager.h"
+#include "MainWindow.h"
 
 #include <QApplication>
 

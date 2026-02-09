@@ -4,7 +4,7 @@
  */
 
 #include "StaticGroupObject.h"
-#include "../utils/BitParser.h"
+#include "BitParser.h"
 
 StaticGroupObject::StaticGroupObject(QObject *parent)
     : BaseObject(parent)

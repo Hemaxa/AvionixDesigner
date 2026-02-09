@@ -33,6 +33,9 @@ public:
     // Применяет светлую тему
     void applyLightTheme();
     
+    // Применяет тему Avionix Designer
+    void applyAvionixTheme();
+    
     // Возвращает путь к текущей теме
     QString getCurrentStylePath() const;
     

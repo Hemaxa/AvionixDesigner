@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "../BasePanel.h"
+#include "BasePanel.h"
 
 class QListWidget;
 class QVBoxLayout;

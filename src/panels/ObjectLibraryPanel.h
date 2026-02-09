@@ -1,18 +1,18 @@
 /**
  * @file ObjectLibraryPanel.h
- * @brief Панель библиотеки готовых объектов (заготовка)
+ * @brief Панель библиотеки готовых объектов
  */
 
 #pragma once
 
-#include "../BasePanel.h"
+#include "BasePanel.h"
 
-class QLabel;
+class QPushButton;
+class QGridLayout;
 
 /**
  * @class ObjectLibraryPanel
- * @brief Библиотека готовых объектов для добавления на сцену
- * @note В будущем здесь появится каталог шаблонов объектов
+ * @brief Библиотека примитивов для добавления на сцену
  */
 class ObjectLibraryPanel : public BasePanel
 {
@@ -22,5 +22,16 @@ public:
     explicit ObjectLibraryPanel(QWidget *parent = nullptr);
 
 private:
-    QLabel *m_placeholderLabel;  // Заглушка
+    void createButtons();
+    QPushButton* createLibraryButton(const QString &iconPath, const QString &tooltip);
+    
+    QGridLayout *m_gridLayout;
+    
+    // Кнопки примитивов
+    QPushButton *m_rectButton;
+    QPushButton *m_circleButton;
+    QPushButton *m_lineButton;
+    QPushButton *m_polygonButton;
+    QPushButton *m_textButton;
+    QPushButton *m_imageButton;
 };

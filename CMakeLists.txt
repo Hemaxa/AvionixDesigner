@@ -54,6 +54,9 @@ qt_add_executable(AvionixDesigner
     # Утилиты (header-only)
     src/utils/BitParser.h
     src/utils/XmlReader.h
+    
+    # Ресурсы
+    res/resources.qrc
 )
 
 target_link_libraries(AvionixDesigner
@@ -64,6 +67,16 @@ target_link_libraries(AvionixDesigner
 )
 
 target_compile_features(AvionixDesigner PRIVATE cxx_std_17)
+
+# Добавляем директории для include, чтобы не использовать относительные пути
+target_include_directories(AvionixDesigner PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/managers
+    ${CMAKE_SOURCE_DIR}/src/panels
+    ${CMAKE_SOURCE_DIR}/src/objects
+    ${CMAKE_SOURCE_DIR}/src/windows
+    ${CMAKE_SOURCE_DIR}/src/utils
+)
 
 set_target_properties(AvionixDesigner PROPERTIES
     AUTOMOC ON

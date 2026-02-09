@@ -7,28 +7,28 @@
 #include <QSharedPointer>
 #include <QColor>
 
-#include "../BaseObject.h"
+#include "BaseObject.h"
 
 class ProjectManager : public QObject
 {
     Q_OBJECT
     
 public:
-    // Получение единственного экземпляра
+    //получение единственного экземпляра
     static ProjectManager* instance();
     
-    // Загружает проект из файла
+    //метод загрузки проекта из файла
     bool loadFromFile(const QString &fileName);
     
-    // Регистрирует стандартные типы объектов
+    //метод регистрации стандартных типов объектов
     void registerStandardTypes();
 
-    // Геттеры объектов
+    //геттеры объектов
     const QList<QSharedPointer<BaseObject>>& getObjects() const;
     QSharedPointer<BaseObject> getObjectAt(int index) const;
     int getObjectCount() const;
 
-    // Геттеры свойств проекта
+    //геттеры свойств проекта
     QString getProjectName() const;
     int getCanvasWidth() const;
     int getCanvasHeight() const;
@@ -36,18 +36,19 @@ public:
     QString getFilePath() const;
 
 signals:
-    void projectLoaded();                    // Проект загружен
-    void projectChanged();                   // Проект изменён
-    void logMessage(const QString &message); // Сообщение для лога
+    void projectLoaded(); //проект загружен
+    void projectChanged(); //проект изменён
+    void logMessage(const QString &message); //сообщение для лога
 
 private:
+    //конструктор
     ProjectManager();
     
-    QString m_projectName;   // Имя проекта
-    int m_canvasWidth;       // Ширина холста
-    int m_canvasHeight;      // Высота холста
-    QColor m_bgColor;        // Цвет фона
-    QString m_filePath;      // Путь к файлу
+    QString m_projectName; //имя проекта
+    int m_canvasWidth; //ширина холста
+    int m_canvasHeight; //высота холста
+    QColor m_bgColor; //цвет фона
+    QString m_filePath; //путь к файлу
 
-    QList<QSharedPointer<BaseObject>> m_objects;  // Список объектов
+    QList<QSharedPointer<BaseObject>> m_objects; //список объектов (указатели на все объекты)
 };

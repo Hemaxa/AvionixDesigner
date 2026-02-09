@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "../BaseObject.h"
+#include "BaseObject.h"
 
 /**
  * @class RectangleObject

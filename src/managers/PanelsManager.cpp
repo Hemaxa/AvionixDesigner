@@ -5,11 +5,11 @@
 
 #include "PanelsManager.h"
 #include "ProjectManager.h"
-#include "../panels/ViewportPanel.h"
-#include "../panels/ObjectListPanel.h"
-#include "../panels/ObjectPropertiesPanel.h"
-#include "../panels/ObjectLibraryPanel.h"
-#include "../panels/ViewportSettingsPanel.h"
+#include "ViewportPanel.h"
+#include "ObjectListPanel.h"
+#include "ObjectPropertiesPanel.h"
+#include "ObjectLibraryPanel.h"
+#include "ViewportSettingsPanel.h"
 
 #include <QFileDialog>
 

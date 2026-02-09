@@ -4,6 +4,7 @@
 
 #include <QDialog>
 
+//предварительное объявление классов
 class QComboBox;
 class QCheckBox;
 
@@ -15,15 +16,25 @@ public:
     //конструктор с запретом на неявное преобразование типов
     explicit SettingsWindow(QWidget *parent = nullptr);
 
+signals:
+    //сигнал сброса всех настроек
+    void settingsReset();
+
 private slots:
-    // Сохранить настройки и применить изменения
+    //сохранить настройки и применить изменения
     void saveSettings();
+    
+    //сброс всех настроек до стандартных
+    void resetAllSettings();
 
 private:
+    //метод создания виджетов и панелей
     void createWidgets();
+
+    //метод загрузки настроек
     void loadSettings();
 
     //элементы интерфейса
-    QComboBox *m_themeCombo; //выпадающий список для выбора темы
-    QCheckBox *m_autoLoadCheck; //чекбокс для автозагрузки последнего проекта
+    QComboBox *m_themeCombo;
+    QCheckBox *m_autoLoadCheck;
 };

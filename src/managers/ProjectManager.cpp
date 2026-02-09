@@ -1,16 +1,11 @@
-/**
- * @file ProjectManager.cpp
- * @brief Реализация менеджера проекта
- */
-
 #include <QFile>
 #include <QDomDocument>
 
 #include "ProjectManager.h"
 #include "ObjectsManager.h"
-#include "../objects/RectangleObject.h"
-#include "../objects/RotationObject.h"
-#include "../objects/StaticGroupObject.h"
+#include "RectangleObject.h"
+#include "RotationObject.h"
+#include "StaticGroupObject.h"
 
 ProjectManager::ProjectManager() : m_canvasWidth(0), m_canvasHeight(0), m_bgColor() {}
 
@@ -105,6 +100,7 @@ bool ProjectManager::loadFromFile(const QString &fileName)
 //метод регистрации стандартых типов объектов (получение словаря поддерживаемых объектов)
 void ProjectManager::registerStandardTypes()
 {
+    //создание экземпляра менеджера объектов
     auto om = ObjectsManager::instance();
     
     //регистрируем типы объектов
@@ -123,7 +119,7 @@ QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const
     return nullptr;
 }
 
-// Геттеры
+//геттеры
 int ProjectManager::getObjectCount() const { return m_objects.size(); }
 QString ProjectManager::getProjectName() const { return m_projectName; }
 int ProjectManager::getCanvasWidth() const { return m_canvasWidth; }

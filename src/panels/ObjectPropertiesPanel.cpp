@@ -4,8 +4,8 @@
  */
 
 #include "ObjectPropertiesPanel.h"
-#include "../managers/ProjectManager.h"
-#include "../BaseObject.h"
+#include "ProjectManager.h"
+#include "BaseObject.h"
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QLabel>

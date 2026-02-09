@@ -4,7 +4,7 @@
  */
 
 #include "RectangleObject.h"
-#include "../utils/BitParser.h"
+#include "BitParser.h"
 
 RectangleObject::RectangleObject(QObject *parent)
     : BaseObject(parent)

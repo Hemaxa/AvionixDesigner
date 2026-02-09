@@ -4,7 +4,7 @@
  */
 
 #include "ObjectListPanel.h"
-#include "../managers/ProjectManager.h"
+#include "ProjectManager.h"
 #include <QVBoxLayout>
 #include <QListWidget>
 

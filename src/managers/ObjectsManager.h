@@ -1,7 +1,4 @@
-/**
- * @file ObjectsManager.h
- * @brief Менеджер создания объектов (паттерн фабрика)
- */
+//ObjectsManager - менеджер создания объектов по принципу фабрики
 
 #pragma once
 
@@ -11,24 +8,20 @@
 #include <QDomElement>
 #include <functional>
 
-#include "../BaseObject.h"
+#include "BaseObject.h"
 
-/**
- * @class ObjectsManager
- * @brief Фабрика для создания объектов по типу (синглтон)
- */
 class ObjectsManager : public QObject
 {
     Q_OBJECT
     
 public:
-    // Тип функции-конструктора объекта
+    //получение единственного экземпляра
+    static ObjectsManager* instance();
+
+    //тип функции-конструктора объекта
     using ObjectCreator = std::function<BaseObject*()>;
     
-    // Получение единственного экземпляра
-    static ObjectsManager* instance();
-    
-    // Регистрирует тип объекта
+    //метод регистрации конкретного типа объекта
     void registerType(const QString &typeName, ObjectCreator creator);
     
     // Создаёт объект по имени типа
@@ -45,5 +38,5 @@ public:
 
 private:
     ObjectsManager() = default;
-    QMap<QString, ObjectCreator> m_creators;  // Карта типов и их конструкторов
+    QMap<QString, ObjectCreator> m_creators;  //карта типов и их конструкторов
 };
