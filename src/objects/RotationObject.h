@@ -40,7 +40,7 @@ public:
     void draw(QPainter &painter) override;
     
     // Возвращает имя типа
-    QString typeName() const override;
+    QString getTypeName() const override;
     
     // Возвращает свойства
     QList<QPair<QString, QString>> getProperties() const override;

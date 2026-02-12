@@ -46,7 +46,7 @@ void ObjectListPanel::refreshList()
         
         QString text = QString("%1. %2")
             .arg(i + 1)
-            .arg(obj->typeName());
+            .arg(obj->getTypeName());
         
         QListWidgetItem *item = new QListWidgetItem(text);
         item->setData(Qt::UserRole, i);

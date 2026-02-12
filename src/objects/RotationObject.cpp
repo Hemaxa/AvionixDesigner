@@ -98,7 +98,7 @@ void RotationObject::draw(QPainter &painter)
     painter.restore();
 }
 
-QString RotationObject::typeName() const
+QString RotationObject::getTypeName() const
 {
     return "RotationObject";
 }

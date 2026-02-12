@@ -1,29 +1,21 @@
-/**
- * @file RectangleObject.cpp
- * @brief Реализация прямоугольного объекта
- */
-
 #include "RectangleObject.h"
 #include "BitParser.h"
 
-RectangleObject::RectangleObject(QObject *parent)
-    : BaseObject(parent)
-    , fillColor(Qt::white)
-    , strokeColor(Qt::transparent)
-{
-}
+RectangleObject::RectangleObject(QObject *parent) : BaseObject(parent), fillColor(Qt::white), strokeColor(Qt::transparent) {}
 
 void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
-    // Парсинг координат
+    //парсинг координат
+    //если в XML сказано, что у прямоугольника есть параметр "x0"
     if (schema.contains("x0")) 
-        x = BitParser::extract(hexInit, schema["x0"].offset, schema["x0"].size) / 10.0;
+    // BitParser вырезает биты по инструкции и мы делим на 10.0 (фиксированная точка)
+        x = BitParser::extract(hexInit, schema["x0"].offset, schema["x0"].size);
     if (schema.contains("y0")) 
-        y = BitParser::extract(hexInit, schema["y0"].offset, schema["y0"].size) / 10.0;
+        y = BitParser::extract(hexInit, schema["y0"].offset, schema["y0"].size);
     if (schema.contains("w"))  
-        width = BitParser::extract(hexInit, schema["w"].offset, schema["w"].size) / 10.0;
+        width = BitParser::extract(hexInit, schema["w"].offset, schema["w"].size);
     if (schema.contains("h"))  
-        height = BitParser::extract(hexInit, schema["h"].offset, schema["h"].size) / 10.0;
+        height = BitParser::extract(hexInit, schema["h"].offset, schema["h"].size);
 
     // Парсинг цвета заливки
     if (schema.contains("color")) {
@@ -41,7 +33,7 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 
     // Парсинг толщины обводки
     if (schema.contains("a")) {
-        strokeWidth = BitParser::extract(hexInit, schema["a"].offset, schema["a"].size) / 10.0;
+        strokeWidth = BitParser::extract(hexInit, schema["a"].offset, schema["a"].size);
     }
     
     // Парсинг прозрачности
@@ -67,7 +59,7 @@ void RectangleObject::draw(QPainter &painter)
     painter.drawRect(QRectF(x, y, width, height));
 }
 
-QString RectangleObject::typeName() const
+QString RectangleObject::getTypeName() const
 {
     return "Rectangle";
 }

@@ -1,44 +1,31 @@
-/**
- * @file RectangleObject.h
- * @brief Прямоугольный объект с заливкой и обводкой
- */
+//RectangleObject - класс прямоугольного объекта с заливкой и обводкой
 
 #pragma once
 
 #include "BaseObject.h"
 
-/**
- * @class RectangleObject
- * @brief Прямоугольник с заливкой, обводкой и опциональной прозрачностью
- */
+//наследуемся от базового класса объекта
 class RectangleObject : public BaseObject
 {
     Q_OBJECT
     
 public:
-    double x = 0;            // Координата X
-    double y = 0;            // Координата Y
-    double width = 0;        // Ширина
-    double height = 0;       // Высота
-    QColor fillColor;        // Цвет заливки
-    QColor strokeColor;      // Цвет обводки
-    double strokeWidth = 0;  // Толщина обводки
-    int alpha = 255;         // Прозрачность
+    //параметры объекта прямоугольник
+    double x = 0; //координата X
+    double y = 0; //координата Y
+    double width = 0; //ширина
+    double height = 0; //высота
+    QColor fillColor; //цвет заливки
+    QColor strokeColor; //цвет обводки
+    double strokeWidth = 0; //толщина обводки
+    int alpha = 255; //прозрачность
     
     explicit RectangleObject(QObject *parent = nullptr);
     
-    // Парсит параметры из HEX-строки
+    //переопределение виртуальных методов из базового класса
     void parse(const QString &hexInit, const ParamSchema &schema) override;
-    
-    // Отрисовывает прямоугольник
     void draw(QPainter &painter) override;
-    
-    // Возвращает имя типа
-    QString typeName() const override;
-    
-    // Возвращает свойства для отображения
+    QString getTypeName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
-    
-    // Возвращает ограничивающий прямоугольник
     QRectF getBoundingRect() const override;
 };

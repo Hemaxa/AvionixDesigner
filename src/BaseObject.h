@@ -1,8 +1,5 @@
-/**
- * @file BaseObject.h
- * @brief Базовый абстрактный класс для всех графических объектов
- */
-
+//BaseObject - базовый абстрактный класс для всех графических объектов
+ 
 #pragma once
 
 #include <QObject>
@@ -11,55 +8,41 @@
 #include <QString>
 #include <QDomElement>
 
-/**
- * @struct ParamInfo
- * @brief Информация о параметре в битовой схеме
- */
+//структура одного конкретного параметра в битовой схеме
 struct ParamInfo 
 {
-    int offset;  // Смещение в битах
-    int size;    // Размер в битах
+    int offset; //смещение в битах
+    int size; //размер в битах
 };
 
-// Тип для схемы параметров
+//тип для схемы параметров
 using ParamSchema = QMap<QString, ParamInfo>;
 
-/**
- * @class BaseObject
- * @brief Базовый класс для всех графических объектов сцены
- */
 class BaseObject : public QObject
 {
     Q_OBJECT
     
 public:
-    explicit BaseObject(QObject *parent = nullptr) 
-        : QObject(parent) 
-    {}
-    
+    //виртуальные методы должны быть переопределены в классах наследниках
+    //объект знает, какие у него должны быть параметры, сам их читает и сам по ним себя отрисовывает
+
+    explicit BaseObject(QObject *parent = nullptr) : QObject(parent) {}
     virtual ~BaseObject() = default;
     
-    // Парсит основные параметры из HEX-строки
+    //виртуальный метод, который парсит основные параметры из HEX-строки
     virtual void parse(const QString &hexInit, const ParamSchema &schema) = 0;
     
-    // Парсит дополнительные данные из XML-элемента
-    virtual void parseExtraData(const QDomElement &element) 
-    { 
-        Q_UNUSED(element); 
-    }
+    //виртуальный метод, который парсит дополнительные данные из XML-элемента
+    virtual void parseExtraData(const QDomElement &element) { Q_UNUSED(element); }
     
-    // Отрисовывает объект на холсте
+    //виртуальный метод, который отрисовывает объект на холсте
     virtual void draw(QPainter &painter) = 0;
     
-    // Возвращает тип объекта
-    virtual QString typeName() const = 0;
-    
-    // Возвращает список свойств объекта
-    virtual QList<QPair<QString, QString>> getProperties() const = 0;
-    
-    // Возвращает ограничивающий прямоугольник
-    virtual QRectF getBoundingRect() const = 0;
+    //геттеры для свойств объекта
+    virtual QString getTypeName() const = 0; //возвращает тип объекта
+    virtual QList<QPair<QString, QString>> getProperties() const = 0; //возвращает список свойств объекта
+    virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
 
 signals:
-    void changed();  // Сигнал об изменении объекта
+    void changed();  //сигнал об изменении объекта
 };

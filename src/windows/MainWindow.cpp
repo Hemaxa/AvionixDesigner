@@ -80,8 +80,7 @@ void MainWindow::openSettings()
     if (!m_settingsWindow) {
         m_settingsWindow = new SettingsWindow(this);
         //подключаем сигнал сброса настроек к сбросу layout
-        connect(m_settingsWindow, &SettingsWindow::settingsReset, 
-                this, &MainWindow::resetToDefaultLayout);
+        connect(m_settingsWindow, &SettingsWindow::settingsReset, this, &MainWindow::resetToDefaultLayout);
     }
 
     m_settingsWindow->show();

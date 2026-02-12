@@ -54,7 +54,7 @@ void StaticGroupObject::draw(QPainter &painter)
     painter.restore();
 }
 
-QString StaticGroupObject::typeName() const
+QString StaticGroupObject::getTypeName() const
 {
     return "StaticGroup";
 }

@@ -68,7 +68,7 @@ void ObjectPropertiesPanel::showProperties(QSharedPointer<BaseObject> obj)
     }
     
     // Показываем тип объекта
-    m_titleLabel->setText(obj->typeName());
+    m_titleLabel->setText(obj->getTypeName());
     
     // Добавляем свойства
     const auto props = obj->getProperties();
