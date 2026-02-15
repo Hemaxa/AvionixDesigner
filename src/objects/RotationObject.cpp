@@ -15,21 +15,21 @@ RotationObject::RotationObject(QObject *parent)
 
 void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
-    // Парсинг границ
-    if (schema.contains("left")) 
-        left = BitParser::extract(hexInit, schema["left"].offset, schema["left"].size) / 10.0;
-    if (schema.contains("top")) 
-        top = BitParser::extract(hexInit, schema["top"].offset, schema["top"].size) / 10.0;
-    if (schema.contains("right")) 
-        right = BitParser::extract(hexInit, schema["right"].offset, schema["right"].size) / 10.0;
-    if (schema.contains("bottom")) 
-        bottom = BitParser::extract(hexInit, schema["bottom"].offset, schema["bottom"].size) / 10.0;
-    
-    // Парсинг центра вращения
+    // Парсинг центра вращения (пиксельные координаты)
     if (schema.contains("xrot")) 
-        xRot = BitParser::extract(hexInit, schema["xrot"].offset, schema["xrot"].size) / 10.0;
+        xRot = BitParser::extract(hexInit, schema["xrot"].offset, schema["xrot"].size);
     if (schema.contains("yrot")) 
-        yRot = BitParser::extract(hexInit, schema["yrot"].offset, schema["yrot"].size) / 10.0;
+        yRot = BitParser::extract(hexInit, schema["yrot"].offset, schema["yrot"].size);
+
+    // Парсинг смещений от точки вращения (знаковые пиксельные расстояния)
+    if (schema.contains("top")) 
+        top = BitParser::extractSigned(hexInit, schema["top"].offset, schema["top"].size);
+    if (schema.contains("left")) 
+        left = BitParser::extractSigned(hexInit, schema["left"].offset, schema["left"].size);
+    if (schema.contains("bottom")) 
+        bottom = BitParser::extractSigned(hexInit, schema["bottom"].offset, schema["bottom"].size);
+    if (schema.contains("right")) 
+        right = BitParser::extractSigned(hexInit, schema["right"].offset, schema["right"].size);
 
     // Парсинг цвета
     if (schema.contains("color")) {
@@ -37,7 +37,7 @@ void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
         color = BitParser::parseColor(colorVal);
     }
 
-    // Парсинг синуса и косинуса
+    // Парсинг синуса и косинуса (знаковые, с фиксированной точкой xx.xxxxxxxxxxxxxxxx)
     if (schema.contains("sin")) {
         sinVal = BitParser::extractSigned(hexInit, schema["sin"].offset, schema["sin"].size);
     }
@@ -89,11 +89,9 @@ void RotationObject::draw(QPainter &painter)
 
     painter.save();
     
-    // Применяем трансформации
-    painter.translate(xRot, yRot);
-    painter.translate(-xRot, -yRot);
-
-    painter.drawImage(QPointF(left, top), maskImage);
+    // left/top/right/bottom — смещения от точки вращения (xRot, yRot)
+    // Позиция изображения = точка вращения + смещение до левого верхнего угла
+    painter.drawImage(QPointF(xRot + left, yRot + top), maskImage);
 
     painter.restore();
 }
@@ -106,12 +104,14 @@ QString RotationObject::getTypeName() const
 QList<QPair<QString, QString>> RotationObject::getProperties() const
 {
     QList<QPair<QString, QString>> props = {
-        {"Left", QString::number(left, 'f', 1)},
-        {"Top", QString::number(top, 'f', 1)},
-        {"Right", QString::number(right, 'f', 1)},
-        {"Bottom", QString::number(bottom, 'f', 1)},
-        {"X вращения", QString::number(xRot, 'f', 1)},
-        {"Y вращения", QString::number(yRot, 'f', 1)},
+        {"X вращения", QString::number(xRot)},
+        {"Y вращения", QString::number(yRot)},
+        {"Top (смещ.)", QString::number(top)},
+        {"Left (смещ.)", QString::number(left)},
+        {"Bottom (смещ.)", QString::number(bottom)},
+        {"Right (смещ.)", QString::number(right)},
+        {"Позиция X", QString::number(xRot + left)},
+        {"Позиция Y", QString::number(yRot + top)},
         {"Цвет", color.name()}
     };
     
@@ -124,7 +124,8 @@ QList<QPair<QString, QString>> RotationObject::getProperties() const
 
 QRectF RotationObject::getBoundingRect() const
 {
-    return QRectF(left, top, right - left, bottom - top);
+    // Абсолютные координаты = точка вращения + смещения
+    return QRectF(xRot + left, yRot + top, right - left, bottom - top);
 }
 
 bool RotationObject::setObjectProperty(const QString &name, const QString &value)

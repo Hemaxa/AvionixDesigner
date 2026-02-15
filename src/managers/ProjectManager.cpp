@@ -7,6 +7,7 @@
 #include "RectangleObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "DebugDumper.h"
 
 ProjectManager::ProjectManager() : m_canvasWidth(0), m_canvasHeight(0), m_bgColor() {}
 
@@ -72,6 +73,10 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     QDomElement objectsEl = root.firstChildElement("objects");
     QDomNode objNode = objectsEl.isNull() ? root.firstChild() : objectsEl.firstChild();
     
+    //списки для отладочного дампа
+    QList<QDomElement> debugElements;
+    QStringList debugTypes;
+    
     while (!objNode.isNull()) {
         QDomElement objEl = objNode.toElement();
         QString tagName = objEl.tagName();
@@ -86,6 +91,10 @@ bool ProjectManager::loadFromFile(const QString &fileName)
                 obj->parse(hexInit, schemas[tagName]);
                 obj->parseExtraData(objEl);
                 m_objects.append(QSharedPointer<BaseObject>(obj));
+                
+                //сохраняем данные для дампа
+                debugElements.append(objEl);
+                debugTypes.append(tagName);
             }
         }
         
@@ -93,6 +102,11 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     }
     
     emit logMessage(tr("Загружено объектов: %1").arg(m_objects.size()));
+    
+    //формируем отладочный дамп парсинга
+    DebugDumper::dumpToFile(fileName, m_objects, schemas, debugElements, debugTypes);
+    emit logMessage(tr("Отладочный дамп сформирован"));
+    
     emit projectLoaded();
     
     return true;

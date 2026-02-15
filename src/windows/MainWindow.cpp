@@ -82,6 +82,11 @@ void MainWindow::onOpenFile()
     }
 }
 
+void MainWindow::onSaveFile()
+{
+    ProjectManager::instance()->saveToFile();
+}
+
 void MainWindow::updateWindowTitle()
 {
     //изменение заголовка окна в зависимости от имени открытого файла
@@ -207,6 +212,10 @@ void MainWindow::createMenus()
     openAction->setShortcut(QKeySequence::Open);
     connect(openAction, &QAction::triggered, this, &MainWindow::onOpenFile);
     
+    QAction *saveAction = fileMenu->addAction("Сохранить");
+    saveAction->setShortcut(QKeySequence::Save);
+    connect(saveAction, &QAction::triggered, this, &MainWindow::onSaveFile);
+    
     fileMenu->addSeparator();
     
     QAction *exitAction = fileMenu->addAction("Выход");
@@ -245,11 +254,8 @@ void MainWindow::connectSignals()
     //связь загрузки проекта с обновлением заголовка
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &MainWindow::updateWindowTitle);
     
-    //связь изменения свойств с перерисовкой и сохранением
+    //связь изменения свойств с перерисовкой (без автосохранения в файл)
     connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, m_viewport, QOverload<>::of(&QWidget::update));
-    connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, []() {
-        ProjectManager::instance()->saveToFile();
-    });
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
