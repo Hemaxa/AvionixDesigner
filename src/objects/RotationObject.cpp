@@ -126,3 +126,28 @@ QRectF RotationObject::getBoundingRect() const
 {
     return QRectF(left, top, right - left, bottom - top);
 }
+
+bool RotationObject::setObjectProperty(const QString &name, const QString &value)
+{
+    bool ok = false;
+    
+    if (name == "Left") {
+        left = value.toDouble(&ok);
+    } else if (name == "Top") {
+        top = value.toDouble(&ok);
+    } else if (name == "Right") {
+        right = value.toDouble(&ok);
+    } else if (name == "Bottom") {
+        bottom = value.toDouble(&ok);
+    } else if (name == "X вращения") {
+        xRot = value.toDouble(&ok);
+    } else if (name == "Y вращения") {
+        yRot = value.toDouble(&ok);
+    } else if (name == "Цвет") {
+        color = QColor(value);
+        ok = color.isValid();
+    }
+    
+    if (ok) emit changed();
+    return ok;
+}

@@ -8,14 +8,14 @@
 #include "BasePanel.h"
 #include <QSharedPointer>
 
-class QFormLayout;
+class QTableWidget;
 class QLabel;
 class QScrollArea;
 class BaseObject;
 
 /**
  * @class ObjectPropertiesPanel
- * @brief Виджет отображения свойств выбранного объекта
+ * @brief Виджет отображения и редактирования свойств выбранного объекта
  */
 class ObjectPropertiesPanel : public BasePanel
 {
@@ -34,14 +34,24 @@ public slots:
     // Очищает панель свойств
     void clearProperties();
 
+signals:
+    // Сигнал об изменении свойства объекта
+    void propertyChanged();
+
+private slots:
+    // Обработка изменения ячейки таблицы
+    void onCellChanged(int row, int column);
+
 private:
-    // Добавляет свойство в форму
-    void addProperty(const QString &name, const QString &value);
+    // Заполняет таблицу свойствами объекта
+    void populateTable(const QList<QPair<QString, QString>> &props);
     
-    // Очищает форму
-    void clearForm();
+    // Очищает таблицу
+    void clearTable();
     
-    QLabel *m_titleLabel;       // Заголовок панели
-    QFormLayout *m_formLayout;  // Layout для свойств
-    QScrollArea *m_scrollArea;  // Область прокрутки
+    QLabel *m_titleLabel;                       // Заголовок панели
+    QTableWidget *m_tableWidget;                // Таблица свойств
+    QScrollArea *m_scrollArea;                  // Область прокрутки
+    QSharedPointer<BaseObject> m_currentObject; // Текущий объект
+    bool m_updating = false;                    // Флаг программного обновления
 };

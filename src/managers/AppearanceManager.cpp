@@ -26,6 +26,7 @@ AppearanceManager::AppearanceManager()
     m_colors["success"] = QColor(0x4c, 0xaf, 0x50);
     m_colors["border"] = QColor(0x1a, 0x1a, 0x1a);
     m_colors["hover"] = QColor(0x3a, 0x3a, 0x3a);
+    m_colors["viewport"] = QColor(0x1a, 0x1a, 0x1a);
 }
 
 AppearanceManager* AppearanceManager::instance()
@@ -63,6 +64,8 @@ void AppearanceManager::applyDarkTheme()
     // Обновляем палитру цветов
     m_colors["background"] = QColor(0x2d, 0x2d, 0x2d);
     m_colors["foreground"] = QColor(0xe0, 0xe0, 0xe0);
+    m_colors["accent"] = QColor(0x4a, 0x90, 0xd9);
+    m_colors["viewport"] = QColor(0x1a, 0x1a, 0x1a);
 }
 
 void AppearanceManager::applyLightTheme()
@@ -75,6 +78,8 @@ void AppearanceManager::applyLightTheme()
     // Обновляем палитру цветов
     m_colors["background"] = QColor(0xf5, 0xf5, 0xf5);
     m_colors["foreground"] = QColor(0x2d, 0x2d, 0x2d);
+    m_colors["accent"] = QColor(0x25, 0x63, 0xeb);
+    m_colors["viewport"] = QColor(0xe5, 0xe5, 0xe5);
 }
 
 void AppearanceManager::applyAvionixTheme()
@@ -88,6 +93,7 @@ void AppearanceManager::applyAvionixTheme()
     m_colors["background"] = QColor(0x1e, 0x1e, 0x1e);
     m_colors["foreground"] = QColor(0xe0, 0xe0, 0xe0);
     m_colors["accent"] = QColor(0x00, 0xd4, 0xff);
+    m_colors["viewport"] = QColor(0x15, 0x15, 0x15);
 }
 
 QString AppearanceManager::getCurrentStylePath() const

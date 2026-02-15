@@ -5,6 +5,7 @@
 
 #include "ViewportPanel.h"
 #include "ProjectManager.h"
+#include "AppearanceManager.h"
 #include <QPainter>
 #include <QWheelEvent>
 
@@ -22,6 +23,10 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     
     // Подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded,
+            this, QOverload<>::of(&QWidget::update));
+    
+    // Подключаемся к сигналу смены темы для перерисовки
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged,
             this, QOverload<>::of(&QWidget::update));
 }
 
@@ -53,8 +58,8 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     auto pm = ProjectManager::instance();
     
-    // Заливаем фон виджета темно-серым
-    painter.fillRect(rect(), QColor(0x1a, 0x1a, 0x1a));
+    // Заливаем фон виджета цветом из текущей темы
+    painter.fillRect(rect(), AppearanceManager::instance()->getColor("viewport"));
     
     int canvasW = pm->getCanvasWidth();
     int canvasH = pm->getCanvasHeight();

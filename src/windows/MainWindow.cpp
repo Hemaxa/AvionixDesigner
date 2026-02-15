@@ -13,6 +13,7 @@
 #include <QMenu>
 #include <QAction>
 #include <QFileDialog>
+#include <QFile>
 #include <QScreen>
 #include <QGuiApplication>
 #include <QSplitter>
@@ -47,6 +48,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_settingsWindow(
     //восстановление layout из настроек
     restoreLayoutSettings();
     
+    //автозагрузка последнего проекта
+    if (settings.value("autoLoad", false).toBool()) {
+        QString lastProject = settings.value("lastProject").toString();
+        if (!lastProject.isEmpty() && QFile::exists(lastProject)) {
+            ProjectManager::instance()->loadFromFile(lastProject);
+            updateWindowTitle();
+        }
+    }
+    
     //занять весь допустимый экран
     showMaximized();
 }
@@ -63,6 +73,11 @@ void MainWindow::onOpenFile()
     //если путь не пуст, проект загружается
     if (!fileName.isEmpty()) {
         ProjectManager::instance()->loadFromFile(fileName);
+        
+        //сохраняем путь к последнему открытому проекту
+        QSettings settings("Avionix", "Designer");
+        settings.setValue("lastProject", fileName);
+        
         updateWindowTitle();
     }
 }
@@ -229,6 +244,12 @@ void MainWindow::connectSignals()
     
     //связь загрузки проекта с обновлением заголовка
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &MainWindow::updateWindowTitle);
+    
+    //связь изменения свойств с перерисовкой и сохранением
+    connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, m_viewport, QOverload<>::of(&QWidget::update));
+    connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, []() {
+        ProjectManager::instance()->saveToFile();
+    });
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

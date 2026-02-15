@@ -35,8 +35,10 @@ public:
     // Возвращает имя типа
     QString getTypeName() const override;
     
-    // Возвращает свойства
     QList<QPair<QString, QString>> getProperties() const override;
+    
+    // Устанавливает свойство по имени
+    bool setObjectProperty(const QString &name, const QString &value) override;
     
     // Возвращает ограничивающий прямоугольник
     QRectF getBoundingRect() const override;

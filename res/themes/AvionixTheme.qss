@@ -350,6 +350,33 @@ QCheckBox::indicator:checked {
     border-color: #00d4ff;
 }
 
+/* ===== Таблицы ===== */
+
+QTableWidget {
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+    border: 1px solid #2a2a2a;
+    gridline-color: #2a2a2a;
+    outline: none;
+}
+
+QTableWidget::item {
+    padding: 4px 8px;
+}
+
+QTableWidget::item:selected {
+    background-color: #00d4ff;
+    color: #000000;
+}
+
+QHeaderView::section {
+    background-color: #252525;
+    color: #e0e0e0;
+    padding: 4px 8px;
+    border: 1px solid #2a2a2a;
+    font-weight: bold;
+}
+
 /* ===== Группы ===== */
 
 QGroupBox {

@@ -7,9 +7,10 @@
 #include "ProjectManager.h"
 #include "BaseObject.h"
 #include <QVBoxLayout>
-#include <QFormLayout>
 #include <QLabel>
 #include <QScrollArea>
+#include <QTableWidget>
+#include <QHeaderView>
 
 ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent)
     : BasePanel(parent)
@@ -40,16 +41,25 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent)
     m_titleLabel->setObjectName("PropertiesTitleLabel");
     containerLayout->addWidget(m_titleLabel);
     
-    // Форма для свойств
-    m_formLayout = new QFormLayout();
-    m_formLayout->setSpacing(6);
-    m_formLayout->setLabelAlignment(Qt::AlignRight);
-    containerLayout->addLayout(m_formLayout);
+    // Таблица свойств (2 колонки: Параметр, Значение)
+    m_tableWidget = new QTableWidget(0, 2, container);
+    m_tableWidget->setObjectName("PropertiesTable");
+    m_tableWidget->setHorizontalHeaderLabels({"Параметр", "Значение"});
+    m_tableWidget->horizontalHeader()->setStretchLastSection(true);
+    m_tableWidget->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_tableWidget->verticalHeader()->setVisible(false);
+    m_tableWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tableWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableWidget->setAlternatingRowColors(true);
+    containerLayout->addWidget(m_tableWidget);
     
     containerLayout->addStretch();
     
     m_scrollArea->setWidget(container);
     mainLayout->addWidget(m_scrollArea);
+    
+    // Подключаем сигнал редактирования
+    connect(m_tableWidget, &QTableWidget::cellChanged, this, &ObjectPropertiesPanel::onCellChanged);
 }
 
 void ObjectPropertiesPanel::showObjectProperties(int index)
@@ -60,7 +70,8 @@ void ObjectPropertiesPanel::showObjectProperties(int index)
 
 void ObjectPropertiesPanel::showProperties(QSharedPointer<BaseObject> obj)
 {
-    clearForm();
+    clearTable();
+    m_currentObject = obj;
     
     if (!obj) {
         m_titleLabel->setText("Объект не выбран");
@@ -70,35 +81,72 @@ void ObjectPropertiesPanel::showProperties(QSharedPointer<BaseObject> obj)
     // Показываем тип объекта
     m_titleLabel->setText(obj->getTypeName());
     
-    // Добавляем свойства
-    const auto props = obj->getProperties();
-    for (const auto &prop : props) {
-        addProperty(prop.first, prop.second);
-    }
+    // Заполняем таблицу свойствами
+    populateTable(obj->getProperties());
 }
 
 void ObjectPropertiesPanel::clearProperties()
 {
-    clearForm();
+    clearTable();
+    m_currentObject.reset();
     m_titleLabel->setText("Свойства объекта");
 }
 
-void ObjectPropertiesPanel::addProperty(const QString &name, const QString &value)
+void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &props)
 {
-    QLabel *valueLabel = new QLabel(value);
-    valueLabel->setObjectName("PropertyValueLabel");
-    valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_formLayout->addRow(name + ":", valueLabel);
+    // Блокируем сигналы чтобы программное заполнение не вызывало onCellChanged
+    m_updating = true;
+    
+    m_tableWidget->setRowCount(props.size());
+    
+    for (int i = 0; i < props.size(); ++i) {
+        // Колонка "Параметр" — только для чтения
+        QTableWidgetItem *nameItem = new QTableWidgetItem(props[i].first);
+        nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+        m_tableWidget->setItem(i, 0, nameItem);
+        
+        // Колонка "Значение" — редактируемая
+        QTableWidgetItem *valueItem = new QTableWidgetItem(props[i].second);
+        m_tableWidget->setItem(i, 1, valueItem);
+    }
+    
+    m_updating = false;
 }
 
-void ObjectPropertiesPanel::clearForm()
+void ObjectPropertiesPanel::clearTable()
 {
-    // Удаляем все элементы из формы
-    while (m_formLayout->count() > 0) {
-        QLayoutItem *item = m_formLayout->takeAt(0);
-        if (item->widget()) {
-            delete item->widget();
+    m_updating = true;
+    m_tableWidget->setRowCount(0);
+    m_updating = false;
+}
+
+void ObjectPropertiesPanel::onCellChanged(int row, int column)
+{
+    // Игнорируем программные изменения и изменения в колонке имён
+    if (m_updating || column != 1 || !m_currentObject) return;
+    
+    // Получаем имя параметра и новое значение
+    QTableWidgetItem *nameItem = m_tableWidget->item(row, 0);
+    QTableWidgetItem *valueItem = m_tableWidget->item(row, 1);
+    if (!nameItem || !valueItem) return;
+    
+    QString propName = nameItem->text();
+    QString newValue = valueItem->text();
+    
+    // Устанавливаем свойство объекта
+    if (m_currentObject->setObjectProperty(propName, newValue)) {
+        // Перерисовка при изменении
+        emit propertyChanged();
+    } else {
+        // Если не удалось — возвращаем старое значение
+        m_updating = true;
+        const auto props = m_currentObject->getProperties();
+        for (const auto &prop : props) {
+            if (prop.first == propName) {
+                valueItem->setText(prop.second);
+                break;
+            }
         }
-        delete item;
+        m_updating = false;
     }
 }

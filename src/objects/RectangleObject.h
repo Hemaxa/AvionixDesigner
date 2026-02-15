@@ -27,5 +27,6 @@ public:
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
+    bool setObjectProperty(const QString &name, const QString &value) override;
     QRectF getBoundingRect() const override;
 };

@@ -76,3 +76,28 @@ QRectF StaticGroupObject::getBoundingRect() const
 {
     return QRectF(x, y, width, height);
 }
+
+bool StaticGroupObject::setObjectProperty(const QString &name, const QString &value)
+{
+    bool ok = false;
+    
+    if (name == "X") {
+        x = value.toDouble(&ok);
+    } else if (name == "Y") {
+        y = value.toDouble(&ok);
+    } else if (name == "Ширина") {
+        width = value.toDouble(&ok);
+    } else if (name == "Высота") {
+        height = value.toDouble(&ok);
+    } else if (name == "Цвет") {
+        color = QColor(value);
+        ok = color.isValid();
+    } else if (name == "Адрес") {
+        address = value.toInt(&ok);
+    } else if (name == "Номер группы") {
+        groupNumber = value.toInt(&ok);
+    }
+    
+    if (ok) emit changed();
+    return ok;
+}

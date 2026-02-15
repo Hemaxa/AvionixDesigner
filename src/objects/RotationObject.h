@@ -1,17 +1,10 @@
-/**
- * @file RotationObject.h
- * @brief Растровый объект с маской и поддержкой вращения
- */
+//RotationObject - растровый объект с маской и поддержкой вращения
 
 #pragma once
 
 #include "BaseObject.h"
 #include <QImage>
 
-/**
- * @class RotationObject
- * @brief Объект с растровой маской и вращением
- */
 class RotationObject : public BaseObject
 {
     Q_OBJECT
@@ -42,8 +35,10 @@ public:
     // Возвращает имя типа
     QString getTypeName() const override;
     
-    // Возвращает свойства
     QList<QPair<QString, QString>> getProperties() const override;
+    
+    // Устанавливает свойство по имени
+    bool setObjectProperty(const QString &name, const QString &value) override;
     
     // Возвращает ограничивающий прямоугольник
     QRectF getBoundingRect() const override;

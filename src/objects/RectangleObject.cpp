@@ -82,3 +82,32 @@ QRectF RectangleObject::getBoundingRect() const
 {
     return QRectF(x, y, width, height);
 }
+
+bool RectangleObject::setObjectProperty(const QString &name, const QString &value)
+{
+    bool ok = false;
+    
+    if (name == "X") {
+        x = value.toDouble(&ok);
+    } else if (name == "Y") {
+        y = value.toDouble(&ok);
+    } else if (name == "Ширина") {
+        width = value.toDouble(&ok);
+    } else if (name == "Высота") {
+        height = value.toDouble(&ok);
+    } else if (name == "Заливка") {
+        fillColor = QColor(value);
+        ok = fillColor.isValid();
+    } else if (name == "Обводка") {
+        strokeColor = QColor(value);
+        ok = strokeColor.isValid();
+    } else if (name == "Толщина") {
+        strokeWidth = value.toDouble(&ok);
+    } else if (name == "Прозрачность") {
+        alpha = value.toInt(&ok);
+        if (ok) fillColor.setAlpha(alpha);
+    }
+    
+    if (ok) emit changed();
+    return ok;
+}

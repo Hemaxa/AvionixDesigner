@@ -1,5 +1,6 @@
 #include <QFile>
 #include <QDomDocument>
+#include <QTextStream>
 
 #include "ProjectManager.h"
 #include "ObjectsManager.h"
@@ -109,6 +110,64 @@ void ProjectManager::registerStandardTypes()
     om->registerType("rectanglee", []() { return new RectangleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
+}
+
+bool ProjectManager::saveToFile()
+{
+    if (m_filePath.isEmpty()) return false;
+    
+    // Переоткрываем оригинальный XML
+    QFile file(m_filePath);
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    
+    QDomDocument doc;
+    if (!doc.setContent(&file)) {
+        file.close();
+        return false;
+    }
+    file.close();
+    
+    QDomElement root = doc.documentElement();
+    
+    // Парсим схемы для определения типов объектов
+    QDomElement objectsEl = root.firstChildElement("objects");
+    QDomNode objNode = objectsEl.isNull() ? root.firstChild() : objectsEl.firstChild();
+    
+    int objIdx = 0;
+    while (!objNode.isNull() && objIdx < m_objects.size()) {
+        QDomElement objEl = objNode.toElement();
+        if (!objEl.isNull()) {
+            auto obj = m_objects[objIdx];
+            
+            // Удаляем старый элемент overrides если есть
+            QDomElement oldOverrides = objEl.firstChildElement("overrides");
+            if (!oldOverrides.isNull()) {
+                objEl.removeChild(oldOverrides);
+            }
+            
+            // Добавляем overrides с текущими значениями свойств
+            QDomElement overrides = doc.createElement("overrides");
+            const auto props = obj->getProperties();
+            for (const auto &prop : props) {
+                overrides.setAttribute(prop.first, prop.second);
+            }
+            objEl.appendChild(overrides);
+            
+            objIdx++;
+        }
+        objNode = objNode.nextSibling();
+    }
+    
+    // Записываем XML обратно в файл
+    QFile outFile(m_filePath);
+    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    
+    QTextStream stream(&outFile);
+    doc.save(stream, 4);
+    outFile.close();
+    
+    emit logMessage(tr("Проект сохранён: %1").arg(m_filePath));
+    return true;
 }
 
 QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const

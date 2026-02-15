@@ -20,6 +20,9 @@ public:
     //метод загрузки проекта из файла
     bool loadFromFile(const QString &fileName);
     
+    //метод сохранения проекта в файл
+    bool saveToFile();
+    
     //метод регистрации стандартных типов объектов
     void registerStandardTypes();
 
