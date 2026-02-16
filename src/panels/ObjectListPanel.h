@@ -1,7 +1,4 @@
-/**
- * @file ObjectListPanel.h
- * @brief Панель со списком объектов проекта
- */
+//ObjectListPanel - панель со списком объектов проекта
 
 #pragma once
 
@@ -10,10 +7,6 @@
 class QListWidget;
 class QVBoxLayout;
 
-/**
- * @class ObjectListPanel
- * @brief Виджет списка объектов сцены
- */
 class ObjectListPanel : public BasePanel
 {
     Q_OBJECT
@@ -21,17 +14,17 @@ class ObjectListPanel : public BasePanel
 public:
     explicit ObjectListPanel(QWidget *parent = nullptr);
     
-    // Обновляет список объектов из проекта
+    //обновляет список объектов из проекта
     void refreshList();
 
 signals:
-    // Сигнал выбора объекта по индексу
+    //сигнал выбора объекта по индексу
     void objectSelected(int index);
 
 private slots:
-    // Обработчик смены выбранной строки
+    //обработчик смены выбранной строки
     void onRowChanged(int row);
 
 private:
-    QListWidget *m_listWidget;  // Виджет списка
+    QListWidget *m_listWidget; //виджет списка
 };

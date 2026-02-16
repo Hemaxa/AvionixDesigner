@@ -1,36 +1,28 @@
-/**
- * @file ObjectListPanel.cpp
- * @brief Реализация панели списка объектов
- */
-
 #include "ObjectListPanel.h"
 #include "ProjectManager.h"
 #include <QVBoxLayout>
 #include <QListWidget>
 
-ObjectListPanel::ObjectListPanel(QWidget *parent)
-    : BasePanel(parent)
+ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent)
 {
-    // Устанавливаем имя для стилизации через QSS
+    //устанавливаем имя для стилизации через QSS
     setPanelName("ObjectListPanel");
     
-    // Создаем layout
+    //создаем layout
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     
-    // Создаем виджет списка
+    //создаем виджет списка
     m_listWidget = new QListWidget(this);
     m_listWidget->setObjectName("ObjectListWidget");
     m_listWidget->setMinimumWidth(150);
     layout->addWidget(m_listWidget);
     
-    // Подключаем сигналы
-    connect(ProjectManager::instance(), &ProjectManager::projectLoaded,
-            this, &ObjectListPanel::refreshList);
+    //подключаем сигналы
+    connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &ObjectListPanel::refreshList);
     
-    connect(m_listWidget, &QListWidget::currentRowChanged,
-            this, &ObjectListPanel::onRowChanged);
+    connect(m_listWidget, &QListWidget::currentRowChanged, this, &ObjectListPanel::onRowChanged);
 }
 
 void ObjectListPanel::refreshList()
@@ -40,7 +32,7 @@ void ObjectListPanel::refreshList()
     auto pm = ProjectManager::instance();
     const auto &objects = pm->getObjects();
     
-    // Заполняем список объектами
+    //заполняем список объектами
     for (int i = 0; i < objects.size(); ++i) {
         const auto &obj = objects[i];
         

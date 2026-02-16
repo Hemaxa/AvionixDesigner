@@ -1,8 +1,3 @@
-/**
- * @file ObjectsManager.cpp
- * @brief Реализация менеджера создания объектов
- */
-
 #include "ObjectsManager.h"
 
 ObjectsManager* ObjectsManager::instance()
@@ -18,7 +13,7 @@ void ObjectsManager::registerType(const QString &typeName, ObjectCreator creator
 
 BaseObject* ObjectsManager::createObject(const QString &typeName)
 {
-    // Создаём объект через зарегистрированный конструктор
+    //создаём объект через зарегистрированный конструктор
     if (m_creators.contains(typeName)) {
         return m_creators[typeName]();
     }
@@ -36,7 +31,7 @@ QMap<QString, ParamSchema> ObjectsManager::parseSchemas(const QDomElement &param
     
     if (parametersNode.isNull()) return schemas;
     
-    // Проходим по всем типам объектов
+    //проходим по всем типам объектов
     QDomNode typeNode = parametersNode.firstChild();
     while (!typeNode.isNull()) {
         QDomElement typeEl = typeNode.toElement();
@@ -44,7 +39,7 @@ QMap<QString, ParamSchema> ObjectsManager::parseSchemas(const QDomElement &param
             QString typeName = typeEl.tagName();
             ParamSchema schema;
             
-            // Читаем все параметры типа
+            //читаем все параметры типа
             QDomNode paramNode = typeEl.firstChild();
             while (!paramNode.isNull()) {
                 QDomElement paramEl = paramNode.toElement();

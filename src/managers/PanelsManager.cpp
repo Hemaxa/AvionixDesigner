@@ -1,8 +1,3 @@
-/**
- * @file PanelsManager.cpp
- * @brief Реализация менеджера панелей
- */
-
 #include "PanelsManager.h"
 #include "ProjectManager.h"
 #include "ViewportPanel.h"
@@ -28,19 +23,10 @@ PanelsManager* PanelsManager::instance()
 
 void PanelsManager::createPanels()
 {
-    // Создаём панель холста
     m_viewport = new ViewportPanel();
-    
-    // Создаём панель списка объектов
     m_objectList = new ObjectListPanel();
-    
-    // Создаём панель свойств
     m_objectProperties = new ObjectPropertiesPanel();
-    
-    // Создаём панель библиотеки объектов
     m_objectLibrary = new ObjectLibraryPanel();
-    
-    // Создаём панель настроек сцены
     m_viewportSettings = new ViewportSettingsPanel();
     
     connectSignals();
@@ -57,7 +43,6 @@ void PanelsManager::showAllPanels()
 
 void PanelsManager::closeAllPanels()
 {
-    // Удаляем все панели
     if (m_viewport) { delete m_viewport; m_viewport = nullptr; }
     if (m_objectList) { delete m_objectList; m_objectList = nullptr; }
     if (m_objectProperties) { delete m_objectProperties; m_objectProperties = nullptr; }
@@ -67,13 +52,9 @@ void PanelsManager::closeAllPanels()
 
 void PanelsManager::connectSignals()
 {
-    // Связь списка объектов с панелью свойств
-    connect(m_objectList, &ObjectListPanel::objectSelected,
-            m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
+    connect(m_objectList, &ObjectListPanel::objectSelected, m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
     
-    // Обновление списка при загрузке проекта
-    connect(ProjectManager::instance(), &ProjectManager::projectLoaded,
-            m_objectList, &ObjectListPanel::refreshList);
+    connect(ProjectManager::instance(), &ProjectManager::projectLoaded, m_objectList, &ObjectListPanel::refreshList);
 }
 
 void PanelsManager::onOpenFile()

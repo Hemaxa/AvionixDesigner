@@ -1,4 +1,4 @@
-//RotationObject - растровый объект с маской и поддержкой вращения
+//RotationObject - класс растрового объекта с маской и поддержкой вращения
 
 #pragma once
 
@@ -10,36 +10,30 @@ class RotationObject : public BaseObject
     Q_OBJECT
     
 public:
-    double left = 0;     // Левая граница
-    double top = 0;      // Верхняя граница
-    double right = 0;    // Правая граница
-    double bottom = 0;   // Нижняя граница
-    double xRot = 0;     // Центр вращения X
-    double yRot = 0;     // Центр вращения Y
-    double sinVal = 0;   // Синус угла
-    double cosVal = 0;   // Косинус угла
-    QColor color;        // Цвет объекта
-    QImage maskImage;    // Растровая маска
+    //параметры объекта
+    double left = 0; //левая граница
+    double top = 0; //верхняя граница
+    double right = 0; //правая граница
+    double bottom = 0; //нижняя граница
+    double xRot = 0; //центр вращения X
+    double yRot = 0; //центр вращения Y
+    double sinVal = 0; //синус угла
+    double cosVal = 0; //косинус угла
+    QColor color; //цвет объекта
+    QImage maskImage; //растровая маска
     
     explicit RotationObject(QObject *parent = nullptr);
     
-    // Парсит параметры из HEX-строки
+    //переопределение виртуальных методов из базового класса
     void parse(const QString &hexInit, const ParamSchema &schema) override;
-    
-    // Парсит дополнительные данные (маска)
-    void parseExtraData(const QDomElement &element) override;
-    
-    // Отрисовывает объект
     void draw(QPainter &painter) override;
-    
-    // Возвращает имя типа
     QString getTypeName() const override;
-    
     QList<QPair<QString, QString>> getProperties() const override;
-    
-    // Устанавливает свойство по имени
     bool setObjectProperty(const QString &name, const QString &value) override;
-    
-    // Возвращает ограничивающий прямоугольник
+    void parseExtraData(const QDomElement &element) override;
+    QMap<QString, quint32> serializeParams() const override;
     QRectF getBoundingRect() const override;
+    
+    //метод, который возвращает угол вращения в градусах, вычисленный из sinVal/cosVal
+    double getAngleDegrees() const;
 };

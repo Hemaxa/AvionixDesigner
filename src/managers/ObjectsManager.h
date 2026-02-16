@@ -24,16 +24,16 @@ public:
     //метод регистрации конкретного типа объекта
     void registerType(const QString &typeName, ObjectCreator creator);
     
-    // Создаёт объект по имени типа
+    //создает объект по имени типа
     BaseObject* createObject(const QString &typeName);
     
-    // Проверяет, зарегистрирован ли тип
+    //проверяет, зарегистрирован ли тип
     bool hasType(const QString &typeName) const;
     
-    // Парсит схемы параметров из секции <parameters>
+    //парсит схемы параметров из секции <parameters>
     QMap<QString, ParamSchema> parseSchemas(const QDomElement &parametersNode);
     
-    // Возвращает список зарегистрированных типов
+    //возвращает список зарегистрированных типов
     QStringList registeredTypes() const;
 
 private:

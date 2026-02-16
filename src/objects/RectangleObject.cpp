@@ -8,7 +8,7 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
     //парсинг координат
     //если в XML сказано, что у прямоугольника есть параметр "x0"
     if (schema.contains("x0")) 
-    // BitParser вырезает биты по инструкции и мы делим на 10.0 (фиксированная точка)
+        // BitParser вырезает биты по инструкции
         x = BitParser::extract(hexInit, schema["x0"].offset, schema["x0"].size);
     if (schema.contains("y0")) 
         y = BitParser::extract(hexInit, schema["y0"].offset, schema["y0"].size);
@@ -17,26 +17,27 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
     if (schema.contains("h"))  
         height = BitParser::extract(hexInit, schema["h"].offset, schema["h"].size);
 
-    // Парсинг цвета заливки
+    //парсинг цвета заливки
     if (schema.contains("color")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["color"].offset, schema["color"].size);
         fillColor = BitParser::parseColor(colorVal);
     }
 
-    // Парсинг цвета обводки
+    //парсинг цвета обводки
     if (schema.contains("colorb")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["colorb"].offset, schema["colorb"].size);
         strokeColor = BitParser::parseColor(colorVal);
-    } else {
+    }
+    else {
         strokeColor = Qt::transparent;
     }
 
-    // Парсинг толщины обводки
+    //парсинг толщины обводки
     if (schema.contains("a")) {
         strokeWidth = BitParser::extract(hexInit, schema["a"].offset, schema["a"].size);
     }
     
-    // Парсинг прозрачности
+    //парсинг прозрачности
     if (schema.contains("alph")) {
         int rawAlpha = BitParser::extract(hexInit, schema["alph"].offset, schema["alph"].size);
         alpha = qMin(255, rawAlpha * 4);
@@ -47,15 +48,24 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 void RectangleObject::draw(QPainter &painter)
 {
     QPen pen;
-    // Настройка пера для обводки
+    //настройка пера для обводки
     if (strokeWidth <= 0.05 || strokeColor.alpha() == 0) {
         pen.setStyle(Qt::NoPen);
-    } else {
+    }
+    else {
         pen.setColor(strokeColor);
         pen.setWidthF(strokeWidth);
     }
     painter.setPen(pen);
-    painter.setBrush(fillColor);
+    
+    //настройка цвета заливки
+    //если заливка полностью прозрачна — рисуем только контур
+    if (fillColor.alpha() == 0) {
+        painter.setBrush(Qt::NoBrush);
+    }
+    else {
+        painter.setBrush(fillColor);
+    }
     painter.drawRect(QRectF(x, y, width, height));
 }
 
@@ -89,25 +99,46 @@ bool RectangleObject::setObjectProperty(const QString &name, const QString &valu
     
     if (name == "X") {
         x = value.toDouble(&ok);
-    } else if (name == "Y") {
+    }
+    else if (name == "Y") {
         y = value.toDouble(&ok);
-    } else if (name == "Ширина") {
+    }
+    else if (name == "Ширина") {
         width = value.toDouble(&ok);
-    } else if (name == "Высота") {
+    }
+    else if (name == "Высота") {
         height = value.toDouble(&ok);
-    } else if (name == "Заливка") {
+    }
+    else if (name == "Заливка") {
         fillColor = QColor(value);
         ok = fillColor.isValid();
-    } else if (name == "Обводка") {
+    }
+    else if (name == "Обводка") {
         strokeColor = QColor(value);
         ok = strokeColor.isValid();
-    } else if (name == "Толщина") {
+    }
+    else if (name == "Толщина") {
         strokeWidth = value.toDouble(&ok);
-    } else if (name == "Прозрачность") {
+    }
+    else if (name == "Прозрачность") {
         alpha = value.toInt(&ok);
         if (ok) fillColor.setAlpha(alpha);
     }
     
     if (ok) emit changed();
     return ok;
+}
+
+QMap<QString, quint32> RectangleObject::serializeParams() const
+{
+    return {
+        {"x0", static_cast<quint32>(x)},
+        {"y0", static_cast<quint32>(y)},
+        {"w", static_cast<quint32>(width)},
+        {"h", static_cast<quint32>(height)},
+        {"color", BitParser::colorToBgr(fillColor)},
+        {"colorb", BitParser::colorToBgr(strokeColor)},
+        {"a", static_cast<quint32>(strokeWidth)},
+        {"alph", static_cast<quint32>(qMin(255, alpha) / 4)}
+    };
 }

@@ -1,16 +1,9 @@
-/**
- * @file ViewportPanel.h
- * @brief Панель холста для отображения объектов
- */
+//ViewportPanel - панель рабочей области прилосжения
 
 #pragma once
 
 #include "BasePanel.h"
 
-/**
- * @class ViewportPanel
- * @brief Виджет холста для отрисовки объектов сцены
- */
 class ViewportPanel : public BasePanel
 {
     Q_OBJECT
@@ -18,24 +11,24 @@ class ViewportPanel : public BasePanel
 public:
     explicit ViewportPanel(QWidget *parent = nullptr);
     
-    // Устанавливает масштаб отображения
+    //устанавливает масштаб отображения
     void setScale(double scale);
     
-    // Возвращает текущий масштаб
+    //возвращает текущий масштаб
     double getScale() const;
     
-    // Сбрасывает вид к начальному состоянию
+    //сбрасывает вид к начальному состоянию
     void resetView();
 
 protected:
-    // Отрисовка панели
+    //отрисовка панели
     void paintEvent(QPaintEvent *event) override;
     
-    // Обработка колеса мыши для масштабирования
+    //обработка колеса мыши для масштабирования
     void wheelEvent(QWheelEvent *event) override;
 
 private:
-    double m_scale;    // Текущий масштаб
-    double m_offsetX;  // Смещение по X
-    double m_offsetY;  // Смещение по Y
+    double m_scale; //текущий масштаб
+    double m_offsetX; //смещение по X
+    double m_offsetY; //смещение по Y
 };

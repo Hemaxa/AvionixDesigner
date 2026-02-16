@@ -1,7 +1,5 @@
-/**
- * @file ObjectLibraryPanel.h
- * @brief Панель библиотеки готовых объектов
- */
+//ObjectLibraryPanel - панель библиотеки готовых объектов
+
 
 #pragma once
 
@@ -10,10 +8,6 @@
 class QPushButton;
 class QGridLayout;
 
-/**
- * @class ObjectLibraryPanel
- * @brief Библиотека примитивов для добавления на сцену
- */
 class ObjectLibraryPanel : public BasePanel
 {
     Q_OBJECT
@@ -27,7 +21,7 @@ private:
     
     QGridLayout *m_gridLayout;
     
-    // Кнопки примитивов
+    //кнопки примитивов
     QPushButton *m_rectButton;
     QPushButton *m_circleButton;
     QPushButton *m_lineButton;

@@ -1,7 +1,4 @@
-/**
- * @file ObjectPropertiesPanel.h
- * @brief Панель свойств выбранного объекта
- */
+//ObjectPropertiesPanel - панель свойств выбранного объекта
 
 #pragma once
 
@@ -13,10 +10,6 @@ class QLabel;
 class QScrollArea;
 class BaseObject;
 
-/**
- * @class ObjectPropertiesPanel
- * @brief Виджет отображения и редактирования свойств выбранного объекта
- */
 class ObjectPropertiesPanel : public BasePanel
 {
     Q_OBJECT
@@ -25,33 +18,33 @@ public:
     explicit ObjectPropertiesPanel(QWidget *parent = nullptr);
     
 public slots:
-    // Показывает свойства объекта по индексу
+    //показывает свойства объекта по индексу
     void showObjectProperties(int index);
     
-    // Показывает свойства переданного объекта
+    //показывает свойства переданного объекта
     void showProperties(QSharedPointer<BaseObject> obj);
     
-    // Очищает панель свойств
+    //очищает панель свойств
     void clearProperties();
 
 signals:
-    // Сигнал об изменении свойства объекта
+    //сигнал об изменении свойства объекта
     void propertyChanged();
 
 private slots:
-    // Обработка изменения ячейки таблицы
+    //обработка изменения ячейки таблицы
     void onCellChanged(int row, int column);
 
 private:
-    // Заполняет таблицу свойствами объекта
+    //заполняет таблицу свойствами объекта
     void populateTable(const QList<QPair<QString, QString>> &props);
     
-    // Очищает таблицу
+    //очищает таблицу
     void clearTable();
     
-    QLabel *m_titleLabel;                       // Заголовок панели
-    QTableWidget *m_tableWidget;                // Таблица свойств
-    QScrollArea *m_scrollArea;                  // Область прокрутки
-    QSharedPointer<BaseObject> m_currentObject; // Текущий объект
-    bool m_updating = false;                    // Флаг программного обновления
+    QLabel *m_titleLabel; //заголовок панели
+    QTableWidget *m_tableWidget; //таблица свойств
+    QScrollArea *m_scrollArea; //область прокрутки
+    QSharedPointer<BaseObject> m_currentObject; //текущий объект
+    bool m_updating = false; //флаг программного обновления
 };

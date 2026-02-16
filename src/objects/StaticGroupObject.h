@@ -1,72 +1,51 @@
-/**
- * @file StaticGroupObject.h
- * @brief Статическая группа объектов с несколькими состояниями
- * 
- * Каждое состояние задаётся отдельной init-строкой и содержит
- * свои координаты, размеры, цвет и адрес в блочной памяти.
- * Маска (растровые данные) общая для всех состояний.
- */
+//StaticGroupObject - класс группы статических растровых объектов с несколькими состояниями
 
 #pragma once
 
 #include "BaseObject.h"
 #include <QImage>
 
-/**
- * @struct GroupState
- * @brief Одно состояние статической группы
- */
+//одно состояние статической группы
+//состояния можно использовать как для разных объектов, так и для изменения вида одного объекта, через вкл/выкл нужных состояний
 struct GroupState
 {
-    int x = 0;          // Пиксельная координата X левого верхнего угла
-    int y = 0;          // Пиксельная координата Y левого верхнего угла
-    int w = 0;          // Ширина габаритного прямоугольника
-    int h = 0;          // Высота габаритного прямоугольника
-    int addr = 0;       // Адрес смещения в блочной памяти
-    QColor color;       // Цвет
-    bool enabled = false; // Разрешение видимости
+    int x = 0; //пиксельная координата X левого верхнего угла
+    int y = 0; //пиксельная координата Y левого верхнего угла
+    int w = 0; //ширина габаритного прямоугольника
+    int h = 0; //высота габаритного прямоугольника
+    int addr = 0; //адрес смещения в блочной памяти
+    QColor color; //цвет
+    bool enabled = false; //разрешение видимости (вкл/выкл состояния)
 };
 
-/**
- * @class StaticGroupObject
- * @brief Группа со статическими состояниями (до 8)
- */
 class StaticGroupObject : public BaseObject
 {
     Q_OBJECT
     
 public:
-    QList<GroupState> states;     // Список состояний
-    int groupNumber = 0;         // Номер группы (атрибут nomber)
-    int activeState = 0;         // Текущее активное состояние для отображения
-    QImage maskImage;            // Растровая маска (общая для всех состояний)
+    QList<GroupState> states; //список состояний
+    int groupNumber = 0; //номер группы (атрибут nomber)
+    QList<QImage> maskImages; //растровые маски (по одной на состояние)
     
     explicit StaticGroupObject(QObject *parent = nullptr);
     
-    // Парсит параметры первого состояния из HEX-строки
+    //переопределение виртуальных методов из базового класса
     void parse(const QString &hexInit, const ParamSchema &schema) override;
-    
-    // Парсит дополнительные данные: остальные init-строки, маску, атрибут nomber
-    void parseExtraData(const QDomElement &element) override;
-    
-    // Отрисовывает группу
     void draw(QPainter &painter) override;
-    
-    // Возвращает имя типа
     QString getTypeName() const override;
-    
     QList<QPair<QString, QString>> getProperties() const override;
-    
-    // Устанавливает свойство по имени
     bool setObjectProperty(const QString &name, const QString &value) override;
-    
-    // Возвращает ограничивающий прямоугольник
+    void parseExtraData(const QDomElement &element) override;
+    QMap<QString, quint32> serializeParams() const override;
     QRectF getBoundingRect() const override;
 
+    //сереализация параметров конкретного состояния
+    QMap<QString, quint32> serializeState(int stateIndex) const;
+
 private:
-    // Парсит одно состояние из HEX-строки по схеме
+    //парсит одно состояние из HEX-строки по схеме
     GroupState parseState(const QString &hexInit, const ParamSchema &schema);
     
-    // Схема параметров (сохраняется при первом вызове parse)
+    //схема параметров (сохраняется при первом вызове parse)
     ParamSchema m_schema;
 };

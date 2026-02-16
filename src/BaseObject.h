@@ -38,13 +38,16 @@ public:
     //виртуальный метод, который отрисовывает объект на холсте
     virtual void draw(QPainter &painter) = 0;
     
-    //геттеры для свойств объекта
+    //виртуальные геттеры для свойств объекта
     virtual QString getTypeName() const = 0; //возвращает тип объекта
     virtual QList<QPair<QString, QString>> getProperties() const = 0; //возвращает список свойств объекта
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
     
     //устанавливает значение свойства по имени, возвращает true при успехе
     virtual bool setObjectProperty(const QString &name, const QString &value) { Q_UNUSED(name); Q_UNUSED(value); return false; }
+
+    //возвращает карту {имя_параметра_схемы → сырое значение} для сериализации в HEX
+    virtual QMap<QString, quint32> serializeParams() const { return {}; }
 
 signals:
     void changed();  //сигнал об изменении объекта

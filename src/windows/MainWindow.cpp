@@ -256,6 +256,9 @@ void MainWindow::connectSignals()
     
     //связь изменения свойств с перерисовкой (без автосохранения в файл)
     connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, m_viewport, QOverload<>::of(&QWidget::update));
+    
+    //связь изменения цвета фона с перерисовкой
+    connect(m_viewportSettings, &ViewportSettingsPanel::bgColorChanged, m_viewport, QOverload<>::of(&QWidget::update));
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

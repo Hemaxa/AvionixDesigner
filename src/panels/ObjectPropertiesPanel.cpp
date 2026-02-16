@@ -1,8 +1,3 @@
-/**
- * @file ObjectPropertiesPanel.cpp
- * @brief Реализация панели свойств объекта
- */
-
 #include "ObjectPropertiesPanel.h"
 #include "ProjectManager.h"
 #include "BaseObject.h"
@@ -12,23 +7,22 @@
 #include <QTableWidget>
 #include <QHeaderView>
 
-ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent)
-    : BasePanel(parent)
+ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent)
 {
-    // Устанавливаем имя для стилизации через QSS
+    //устанавливаем имя для стилизации через QSS
     setPanelName("ObjectPropertiesPanel");
     
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
     
-    // Создаем область прокрутки
+    //создаем область прокрутки
     m_scrollArea = new QScrollArea(this);
     m_scrollArea->setObjectName("PropertiesScrollArea");
     m_scrollArea->setWidgetResizable(true);
     m_scrollArea->setFrameShape(QFrame::NoFrame);
     
-    // Создаем контейнер для содержимого
+    //создаем контейнер для содержимого
     QWidget *container = new QWidget();
     container->setObjectName("PropertiesContainer");
     
@@ -36,12 +30,12 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent)
     containerLayout->setContentsMargins(8, 8, 8, 8);
     containerLayout->setSpacing(8);
     
-    // Заголовок панели
+    //заголовок панели
     m_titleLabel = new QLabel("Свойства объекта", container);
     m_titleLabel->setObjectName("PropertiesTitleLabel");
     containerLayout->addWidget(m_titleLabel);
     
-    // Таблица свойств (2 колонки: Параметр, Значение)
+    //таблица свойств (2 колонки: Параметр, Значение)
     m_tableWidget = new QTableWidget(0, 2, container);
     m_tableWidget->setObjectName("PropertiesTable");
     m_tableWidget->setHorizontalHeaderLabels({"Параметр", "Значение"});
@@ -51,14 +45,13 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent)
     m_tableWidget->setSelectionMode(QAbstractItemView::SingleSelection);
     m_tableWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableWidget->setAlternatingRowColors(true);
+    m_tableWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     containerLayout->addWidget(m_tableWidget);
-    
-    containerLayout->addStretch();
     
     m_scrollArea->setWidget(container);
     mainLayout->addWidget(m_scrollArea);
     
-    // Подключаем сигнал редактирования
+    //подключаем сигнал редактирования
     connect(m_tableWidget, &QTableWidget::cellChanged, this, &ObjectPropertiesPanel::onCellChanged);
 }
 
@@ -78,10 +71,10 @@ void ObjectPropertiesPanel::showProperties(QSharedPointer<BaseObject> obj)
         return;
     }
     
-    // Показываем тип объекта
+    //показываем тип объекта
     m_titleLabel->setText(obj->getTypeName());
     
-    // Заполняем таблицу свойствами
+    //заполняем таблицу свойствами
     populateTable(obj->getProperties());
 }
 
@@ -94,18 +87,18 @@ void ObjectPropertiesPanel::clearProperties()
 
 void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &props)
 {
-    // Блокируем сигналы чтобы программное заполнение не вызывало onCellChanged
+    //блокируем сигналы чтобы программное заполнение не вызывало onCellChanged
     m_updating = true;
     
     m_tableWidget->setRowCount(props.size());
     
     for (int i = 0; i < props.size(); ++i) {
-        // Колонка "Параметр" — только для чтения
+        //колонка "Параметр" — только для чтения
         QTableWidgetItem *nameItem = new QTableWidgetItem(props[i].first);
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
         m_tableWidget->setItem(i, 0, nameItem);
         
-        // Колонка "Значение" — редактируемая
+        //колонка "Значение" — редактируемая
         QTableWidgetItem *valueItem = new QTableWidgetItem(props[i].second);
         m_tableWidget->setItem(i, 1, valueItem);
     }
@@ -122,10 +115,10 @@ void ObjectPropertiesPanel::clearTable()
 
 void ObjectPropertiesPanel::onCellChanged(int row, int column)
 {
-    // Игнорируем программные изменения и изменения в колонке имён
+    //игнорируем программные изменения и изменения в колонке имён
     if (m_updating || column != 1 || !m_currentObject) return;
     
-    // Получаем имя параметра и новое значение
+    //получаем имя параметра и новое значение
     QTableWidgetItem *nameItem = m_tableWidget->item(row, 0);
     QTableWidgetItem *valueItem = m_tableWidget->item(row, 1);
     if (!nameItem || !valueItem) return;
@@ -133,12 +126,12 @@ void ObjectPropertiesPanel::onCellChanged(int row, int column)
     QString propName = nameItem->text();
     QString newValue = valueItem->text();
     
-    // Устанавливаем свойство объекта
+    //устанавливаем свойство объекта
     if (m_currentObject->setObjectProperty(propName, newValue)) {
-        // Перерисовка при изменении
+        //перерисовка при изменении
         emit propertyChanged();
     } else {
-        // Если не удалось — возвращаем старое значение
+        //если не удалось — возвращаем старое значение
         m_updating = true;
         const auto props = m_currentObject->getProperties();
         for (const auto &prop : props) {

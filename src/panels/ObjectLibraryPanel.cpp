@@ -1,40 +1,34 @@
-/**
- * @file ObjectLibraryPanel.cpp
- * @brief Реализация панели библиотеки объектов
- */
-
 #include "ObjectLibraryPanel.h"
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QPushButton>
 #include <QIcon>
 
-ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent)
-    : BasePanel(parent)
+ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
 {
-    // Устанавливаем имя для стилизации через QSS
+    //устанавливаем имя для стилизации через QSS
     setPanelName("ObjectLibraryPanel");
     
-    // Главный layout
+    //главный layout
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(8, 8, 8, 8);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
     mainLayout->setSpacing(8);
     
-    // Создаём сетку кнопок
+    //создаём сетку кнопок
     createButtons();
     
-    // Добавляем растяжку в конец
+    //добавляем растяжку в конец
     mainLayout->addStretch();
 }
 
 void ObjectLibraryPanel::createButtons()
 {
-    // Создаём grid layout для кнопок
+    //создаём grid layout для кнопок
     m_gridLayout = new QGridLayout();
     m_gridLayout->setSpacing(6);
     
-    // Пути к иконкам (будут добавлены пользователем в res/icons/library/)
-    // Иконки загружаются из ресурсов Qt (:/ prefix)
+    //пути к иконкам
+    //иконки загружаются из ресурсов Qt (:/ prefix)
     m_rectButton = createLibraryButton(":/icons/icons/library/rectangle.svg", "Прямоугольник");
     m_circleButton = createLibraryButton(":/icons/icons/library/circle.svg", "Круг");
     m_lineButton = createLibraryButton(":/icons/icons/library/line.svg", "Линия");
@@ -42,7 +36,7 @@ void ObjectLibraryPanel::createButtons()
     m_textButton = createLibraryButton(":/icons/icons/library/text.svg", "Текст");
     m_imageButton = createLibraryButton(":/icons/icons/library/image.svg", "Изображение");
     
-    // Размещаем кнопки в сетке 2x3
+    //размещаем кнопки в сетке 2x3
     m_gridLayout->addWidget(m_rectButton, 0, 0);
     m_gridLayout->addWidget(m_circleButton, 0, 1);
     m_gridLayout->addWidget(m_lineButton, 0, 2);
@@ -50,7 +44,7 @@ void ObjectLibraryPanel::createButtons()
     m_gridLayout->addWidget(m_textButton, 1, 1);
     m_gridLayout->addWidget(m_imageButton, 1, 2);
     
-    // Добавляем grid в главный layout
+    //добавляем grid в главный layout
     static_cast<QVBoxLayout*>(layout())->insertLayout(0, m_gridLayout);
 }
 
@@ -60,18 +54,18 @@ QPushButton* ObjectLibraryPanel::createLibraryButton(const QString &iconPath, co
     button->setObjectName("LibraryButton");
     button->setToolTip(tooltip);
     
-    // Квадратная кнопка 48x48
+    //квадратная кнопка 48x48
     button->setFixedSize(48, 48);
     
-    // Пытаемся загрузить иконку
+    //пытаемся загрузить иконку
     QIcon icon(iconPath);
     if (!icon.isNull() && !icon.availableSizes().isEmpty()) {
-        // Иконка найдена — устанавливаем её
+        //иконка найдена — устанавливаем её
         button->setIcon(icon);
         button->setIconSize(QSize(28, 28));
-    } else {
-        // Иконка не найдена — показываем первую букву tooltip как заглушку
-        // (пользователь заменит на свои иконки)
+    }
+    else {
+        //иконка не найдена — показываем первую букву tooltip как заглушку
         QString fallbackText = tooltip.isEmpty() ? "?" : tooltip.left(1).toUpper();
         button->setText(fallbackText);
         QFont font = button->font();

@@ -37,6 +37,9 @@ public:
     int getCanvasHeight() const;
     QColor getBackgroundColor() const;
     QString getFilePath() const;
+    
+    //сеттер цвета фона
+    void setBackgroundColor(const QColor &color);
 
 signals:
     void projectLoaded(); //проект загружен
@@ -54,4 +57,6 @@ private:
     QString m_filePath; //путь к файлу
 
     QList<QSharedPointer<BaseObject>> m_objects; //список объектов (указатели на все объекты)
+    QMap<QString, ParamSchema> m_schemas; //схемы параметров для всех типов объектов
+    QMap<QString, QString> m_schemaAliases; //маппинг тегов на схемы (rectangle_a → rectangle)
 };

@@ -7,6 +7,7 @@
 #include "RectangleObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "BitParser.h"
 #include "DebugDumper.h"
 
 ProjectManager::ProjectManager() : m_canvasWidth(0), m_canvasHeight(0), m_bgColor() {}
@@ -24,14 +25,14 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     
     emit logMessage(tr("Загрузка: %1").arg(fileName));
     
-    // Открываем файл
+    //открываем файл
     QFile file(fileName);
     if (!file.open(QIODevice::ReadOnly)) {
         emit logMessage(tr("ОШИБКА: Не удалось открыть файл"));
         return false;
     }
     
-    // Парсим XML
+    //парсим XML
     QDomDocument doc;
     QDomDocument::ParseResult result = doc.setContent(&file);
     if (!result) {
@@ -41,15 +42,15 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     }
     file.close();
     
-    // Получаем корневой элемент
+    //получаем корневой элемент
     QDomElement root = doc.documentElement();
     
-    // Читаем метаданные проекта
+    //читаем метаданные проекта
     m_projectName = root.attribute("name", "Untitled");
     m_canvasWidth = root.attribute("width", "640").toInt();
     m_canvasHeight = root.attribute("height", "480").toInt();
     
-    // Парсим цвет фона
+    //парсим цвет фона
     QString bgStr = root.attribute("bgcolor", "#0");
     if (bgStr.startsWith("#")) {
         bool ok;
@@ -61,35 +62,44 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     
     emit logMessage(tr("Проект: %1 (%2x%3)").arg(m_projectName).arg(m_canvasWidth).arg(m_canvasHeight));
     
-    // Парсим схемы параметров
+    //парсим схемы параметров и сохраняем для использования при сохранении
     QDomElement paramsEl = root.firstChildElement("parameters");
-    QMap<QString, ParamSchema> schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
+    m_schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
     
-    for (const QString &type : schemas.keys()) {
-        emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(schemas[type].size()));
+    //маппинг тегов на схемы параметров (для тегов без собственной схемы)
+    m_schemaAliases.clear();
+    m_schemaAliases["rectangle_a"] = "rectangle";
+    //m_schemaAliases["rectangle_e"] = "rectangle";
+    
+    for (const QString &type : m_schemas.keys()) {
+        emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(m_schemas[type].size()));
     }
     
-    // Парсим объекты
+    //парсим объекты
     QDomElement objectsEl = root.firstChildElement("objects");
     QDomNode objNode = objectsEl.isNull() ? root.firstChild() : objectsEl.firstChild();
     
     //списки для отладочного дампа
     QList<QDomElement> debugElements;
     QStringList debugTypes;
-    
+
     while (!objNode.isNull()) {
         QDomElement objEl = objNode.toElement();
         QString tagName = objEl.tagName();
         
-        if (schemas.contains(tagName)) {
+        //определяем имя схемы (может отличаться от tagName)
+        QString schemaName = m_schemaAliases.value(tagName, tagName);
+        
+        if (m_schemas.contains(schemaName)) {
             QString hexInit = objEl.firstChildElement("init").text().trimmed();
             
-            // Создаём объект через фабрику
+            //создаем объект через фабрику
             BaseObject *obj = ObjectsManager::instance()->createObject(tagName);
             
             if (obj && !hexInit.isEmpty()) {
-                obj->parse(hexInit, schemas[tagName]);
+                obj->parse(hexInit, m_schemas[schemaName]);
                 obj->parseExtraData(objEl);
+                
                 m_objects.append(QSharedPointer<BaseObject>(obj));
                 
                 //сохраняем данные для дампа
@@ -104,7 +114,7 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     emit logMessage(tr("Загружено объектов: %1").arg(m_objects.size()));
     
     //формируем отладочный дамп парсинга
-    DebugDumper::dumpToFile(fileName, m_objects, schemas, debugElements, debugTypes);
+    DebugDumper::dumpToFile(fileName, m_objects, m_schemas, debugElements, debugTypes);
     emit logMessage(tr("Отладочный дамп сформирован"));
     
     emit projectLoaded();
@@ -120,8 +130,8 @@ void ProjectManager::registerStandardTypes()
     
     //регистрируем типы объектов
     om->registerType("rectangle", []() { return new RectangleObject(); });
-    om->registerType("rectanglea", []() { return new RectangleObject(); });
-    om->registerType("rectanglee", []() { return new RectangleObject(); });
+    om->registerType("rectangle_a", []() { return new RectangleObject(); });
+    om->registerType("rectangle_e", []() { return new RectangleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
 }
@@ -130,7 +140,7 @@ bool ProjectManager::saveToFile()
 {
     if (m_filePath.isEmpty()) return false;
     
-    // Переоткрываем оригинальный XML
+    //переоткрываем оригинальный XML
     QFile file(m_filePath);
     if (!file.open(QIODevice::ReadOnly)) return false;
     
@@ -143,7 +153,11 @@ bool ProjectManager::saveToFile()
     
     QDomElement root = doc.documentElement();
     
-    // Парсим схемы для определения типов объектов
+    //обновляем bgcolor
+    uint bgVal = (m_bgColor.blue() << 16) | (m_bgColor.green() << 8) | m_bgColor.red();
+    root.setAttribute("bgcolor", QString("#%1").arg(bgVal, 0, 16));
+    
+    //обходим XML-объекты и обновляем <init> HEX-строки
     QDomElement objectsEl = root.firstChildElement("objects");
     QDomNode objNode = objectsEl.isNull() ? root.firstChild() : objectsEl.firstChild();
     
@@ -151,28 +165,70 @@ bool ProjectManager::saveToFile()
     while (!objNode.isNull() && objIdx < m_objects.size()) {
         QDomElement objEl = objNode.toElement();
         if (!objEl.isNull()) {
-            auto obj = m_objects[objIdx];
+            QString tagName = objEl.tagName();
+            QString schemaName = m_schemaAliases.value(tagName, tagName);
             
-            // Удаляем старый элемент overrides если есть
-            QDomElement oldOverrides = objEl.firstChildElement("overrides");
-            if (!oldOverrides.isNull()) {
-                objEl.removeChild(oldOverrides);
+            if (m_schemas.contains(schemaName)) {
+                const ParamSchema &schema = m_schemas[schemaName];
+                auto obj = m_objects[objIdx];
+                
+                //получаем карту параметров от объекта
+                QMap<QString, quint32> params = obj->serializeParams();
+                
+                //обновляем первый <init>
+                QDomElement initEl = objEl.firstChildElement("init");
+                if (!initEl.isNull() && !params.isEmpty()) {
+                    QString hexStr = initEl.text().trimmed();
+                    
+                    //инжектируем каждый параметр обратно в HEX-строку
+                    for (auto it = params.constBegin(); it != params.constEnd(); ++it) {
+                        if (schema.contains(it.key())) {
+                            const ParamInfo &info = schema[it.key()];
+                            BitParser::inject(hexStr, info.offset, info.size, it.value());
+                        }
+                    }
+                    
+                    //обновляем текстовое содержимое <init>
+                    QDomNode textNode = initEl.firstChild();
+                    if (!textNode.isNull() && textNode.isText()) {
+                        textNode.setNodeValue(hexStr);
+                    }
+                }
+                
+                //для StaticGroupObject обновляем дополнительные <init> элементы
+                auto staticGroup = dynamic_cast<StaticGroupObject*>(obj.data());
+                if (staticGroup && staticGroup->states.size() > 1) {
+                    QDomElement extraInit = initEl.isNull() ? QDomElement() : initEl.nextSiblingElement("init");
+                    int stateIdx = 1;
+                    
+                    while (!extraInit.isNull() && stateIdx < staticGroup->states.size()) {
+                        QMap<QString, quint32> stateParams = staticGroup->serializeState(stateIdx);
+                        QString hexStr = extraInit.text().trimmed();
+                        
+                        for (auto it = stateParams.constBegin(); it != stateParams.constEnd(); ++it) {
+                            if (schema.contains(it.key())) {
+                                const ParamInfo &info = schema[it.key()];
+                                BitParser::inject(hexStr, info.offset, info.size, it.value());
+                            }
+                        }
+                        
+                        QDomNode textNode = extraInit.firstChild();
+                        if (!textNode.isNull() && textNode.isText()) {
+                            textNode.setNodeValue(hexStr);
+                        }
+                        
+                        extraInit = extraInit.nextSiblingElement("init");
+                        stateIdx++;
+                    }
+                }
+                
+                objIdx++;
             }
-            
-            // Добавляем overrides с текущими значениями свойств
-            QDomElement overrides = doc.createElement("overrides");
-            const auto props = obj->getProperties();
-            for (const auto &prop : props) {
-                overrides.setAttribute(prop.first, prop.second);
-            }
-            objEl.appendChild(overrides);
-            
-            objIdx++;
         }
         objNode = objNode.nextSibling();
     }
     
-    // Записываем XML обратно в файл
+    //записываем XML обратно в файл
     QFile outFile(m_filePath);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
     
@@ -200,3 +256,12 @@ int ProjectManager::getCanvasHeight() const { return m_canvasHeight; }
 QColor ProjectManager::getBackgroundColor() const { return m_bgColor; }
 QString ProjectManager::getFilePath() const { return m_filePath; }
 const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }
+
+//сеттеры
+void ProjectManager::setBackgroundColor(const QColor &color)
+{
+    if (m_bgColor != color) {
+        m_bgColor = color;
+        emit projectChanged();
+    }
+}

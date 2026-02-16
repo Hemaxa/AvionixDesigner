@@ -1,10 +1,4 @@
-/**
- * @file XmlReader.h
- * @brief Вспомогательные функции для безопасной работы с XML
- * 
- * Обертка над QDomDocument и QDomElement для безопасного чтения
- * атрибутов с поддержкой значений по умолчанию.
- */
+//XmlReader - вспомогательные функции для безопасной работы с XML
 
 #pragma once
 
@@ -12,14 +6,10 @@
 #include <QDomElement>
 #include <QColor>
 
-/**
- * @class XmlReader
- * @brief Помощник для работы с XML документами
- */
 class XmlReader
 {
 public:
-    // Читает целочисленный атрибут
+    //читает целочисленный атрибут
     static int readInt(const QDomElement &element, const QString &name, int defaultValue = 0)
     {
         if (!element.hasAttribute(name)) 
@@ -30,7 +20,7 @@ public:
         return ok ? value : defaultValue;
     }
     
-    // Читает вещественный атрибут
+    //читает вещественный атрибут
     static double readDouble(const QDomElement &element, const QString &name, double defaultValue = 0.0)
     {
         if (!element.hasAttribute(name)) 
@@ -41,51 +31,50 @@ public:
         return ok ? value : defaultValue;
     }
     
-    // Читает строковый атрибут
+    //читает строковый атрибут
     static QString readString(const QDomElement &element, const QString &name, 
                               const QString &defaultValue = QString())
     {
         return element.attribute(name, defaultValue);
     }
     
-    // Читает цвет из атрибута в формате "#RGB" или "#RRGGBB"
-    static QColor readColor(const QDomElement &element, const QString &name,
-                            const QColor &defaultColor = Qt::black)
+    //читает цвет из атрибута в формате "#RGB" или "#RRGGBB"
+    static QColor readColor(const QDomElement &element, const QString &name, const QColor &defaultColor = Qt::black)
     {
         if (!element.hasAttribute(name))
             return defaultColor;
         
         QString colorStr = element.attribute(name);
         
-        // Поддержка формата "#0" или "#FF00FF"
+        //поддержка форматов цветов
         if (colorStr.startsWith("#")) {
             bool ok;
             uint colorVal = colorStr.mid(1).toUInt(&ok, 16);
             if (ok) {
-                // Если короткий формат (один символ), это индекс палитры
+                //если короткий формат (один символ), это индекс палитры
                 if (colorStr.length() <= 2) {
                     int gray = colorVal * 17;
                     return QColor(gray, gray, gray);
                 }
-                // Стандартный RGB формат
+                //стандартный RGB формат
                 return QColor((colorVal >> 16) & 0xFF, 
                               (colorVal >> 8) & 0xFF, 
                               colorVal & 0xFF);
             }
         }
         
-        // Попытка распознать именованный цвет Qt
+        //попытка распознать именованный цвет Qt
         QColor color(colorStr);
         return color.isValid() ? color : defaultColor;
     }
     
-    // Находит первый дочерний элемент с указанным именем
+    //находит первый дочерний элемент с указанным именем
     static QDomElement findChild(const QDomElement &parent, const QString &tagName)
     {
         return parent.firstChildElement(tagName);
     }
     
-    // Читает текстовое содержимое дочернего элемента
+    //читает текстовое содержимое дочернего элемента
     static QString readChildText(const QDomElement &parent, const QString &tagName)
     {
         QDomElement child = parent.firstChildElement(tagName);

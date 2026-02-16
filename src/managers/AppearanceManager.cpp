@@ -1,22 +1,17 @@
-/**
- * @file AppearanceManager.cpp
- * @brief Реализация менеджера внешнего вида
- */
-
 #include "AppearanceManager.h"
 #include <QApplication>
 #include <QFile>
 
 AppearanceManager::AppearanceManager()
 {
-    // Инициализация шрифтов
+    //инициализация шрифтов
     m_monoFont = QFont("Menlo", 11);
     m_monoFont.setStyleHint(QFont::Monospace);
     
     m_uiFont = QFont("SF Pro", 13);
     m_uiFont.setStyleHint(QFont::SansSerif);
     
-    // Инициализация палитры цветов (тёмная тема по умолчанию)
+    //инициализация палитры цветов (тёмная тема по умолчанию)
     m_colors["background"] = QColor(0x2d, 0x2d, 0x2d);
     m_colors["foreground"] = QColor(0xe0, 0xe0, 0xe0);
     m_colors["accent"] = QColor(0x4a, 0x90, 0xd9);
@@ -56,12 +51,12 @@ bool AppearanceManager::loadStyleSheet(const QString &filePath)
 
 void AppearanceManager::applyDarkTheme()
 {
-    // Загружаем тёмную тему из ресурсов
+    //загружаем тёмную тему из ресурсов
     if (!loadStyleSheet(":/themes/themes/DarkTheme.qss")) {
         qWarning("AppearanceManager: Не удалось загрузить DarkTheme.qss");
     }
     
-    // Обновляем палитру цветов
+    //обновляем палитру цветов
     m_colors["background"] = QColor(0x2d, 0x2d, 0x2d);
     m_colors["foreground"] = QColor(0xe0, 0xe0, 0xe0);
     m_colors["accent"] = QColor(0x4a, 0x90, 0xd9);
@@ -70,12 +65,12 @@ void AppearanceManager::applyDarkTheme()
 
 void AppearanceManager::applyLightTheme()
 {
-    // Загружаем светлую тему из ресурсов
+    //загружаем светлую тему из ресурсов
     if (!loadStyleSheet(":/themes/themes/LightTheme.qss")) {
         qWarning("AppearanceManager: Не удалось загрузить LightTheme.qss");
     }
     
-    // Обновляем палитру цветов
+    //обновляем палитру цветов
     m_colors["background"] = QColor(0xf5, 0xf5, 0xf5);
     m_colors["foreground"] = QColor(0x2d, 0x2d, 0x2d);
     m_colors["accent"] = QColor(0x25, 0x63, 0xeb);
@@ -84,12 +79,12 @@ void AppearanceManager::applyLightTheme()
 
 void AppearanceManager::applyAvionixTheme()
 {
-    // Загружаем тему Avionix Designer из ресурсов
+    //загружаем тему Avionix Designer из ресурсов
     if (!loadStyleSheet(":/themes/themes/AvionixTheme.qss")) {
         qWarning("AppearanceManager: Не удалось загрузить AvionixTheme.qss");
     }
     
-    // Обновляем палитру цветов с циановым акцентом
+    //обновляем палитру цветов с циановым акцентом
     m_colors["background"] = QColor(0x1e, 0x1e, 0x1e);
     m_colors["foreground"] = QColor(0xe0, 0xe0, 0xe0);
     m_colors["accent"] = QColor(0x00, 0xd4, 0xff);

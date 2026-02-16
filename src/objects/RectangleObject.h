@@ -1,4 +1,4 @@
-//RectangleObject - класс прямоугольного объекта с заливкой и обводкой
+//RectangleObject - класс векторного прямоугольного объекта с заливкой и обводкой
 
 #pragma once
 
@@ -10,7 +10,7 @@ class RectangleObject : public BaseObject
     Q_OBJECT
     
 public:
-    //параметры объекта прямоугольник
+    //параметры объекта
     double x = 0; //координата X
     double y = 0; //координата Y
     double width = 0; //ширина
@@ -28,5 +28,6 @@ public:
     QString getTypeName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
     bool setObjectProperty(const QString &name, const QString &value) override;
+    QMap<QString, quint32> serializeParams() const override;
     QRectF getBoundingRect() const override;
 };

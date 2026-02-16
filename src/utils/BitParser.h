@@ -72,4 +72,48 @@ public:
         }
         return static_cast<qint32>(raw);
     }
+
+    //метод, обратный extract() — записывает числовое значение в HEX-строку
+    //по заданному смещению (offset) и размеру (size) в битах
+    static void inject(QString &hexString, int offset, int size, quint32 value)
+    {
+        int len = hexString.length();
+
+        for (int i = 0; i < size; ++i) {
+            int targetBitIndex = offset + i;
+            int charIndex = len - 1 - (targetBitIndex / 4);
+
+            if (charIndex < 0) break;
+
+            int bitInChar = targetBitIndex % 4;
+
+            //читаем текущее значение HEX-символа
+            QChar ch = hexString[charIndex];
+            int val = 0;
+            if (ch >= '0' && ch <= '9')
+                val = ch.toLatin1() - '0';
+            else if (ch >= 'A' && ch <= 'F')
+                val = ch.toLatin1() - 'A' + 10;
+            else if (ch >= 'a' && ch <= 'f')
+                val = ch.toLatin1() - 'a' + 10;
+
+            //устанавливаем или сбрасываем нужный бит
+            if ((value >> i) & 1) {
+                val |= (1 << bitInChar);
+            } else {
+                val &= ~(1 << bitInChar);
+            }
+
+            //записываем обратно в HEX-строку (верхний регистр)
+            hexString[charIndex] = "0123456789ABCDEF"[val];
+        }
+    }
+
+    //метод, обратный parseColor() — конвертирует QColor в BGR значение
+    static quint32 colorToBgr(const QColor &color)
+    {
+        return static_cast<quint32>(color.red())
+             | (static_cast<quint32>(color.green()) << 8)
+             | (static_cast<quint32>(color.blue()) << 16);
+    }
 };

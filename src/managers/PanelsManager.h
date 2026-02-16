@@ -1,7 +1,4 @@
-/**
- * @file PanelsManager.h
- * @brief Менеджер панелей приложения (синглтон)
- */
+//PanelsManager - менеджер панелей приложения
 
 #pragma once
 
@@ -13,28 +10,24 @@ class ObjectPropertiesPanel;
 class ObjectLibraryPanel;
 class ViewportSettingsPanel;
 
-/**
- * @class PanelsManager
- * @brief Менеджер панелей приложения
- */
 class PanelsManager : public QObject
 {
     Q_OBJECT
 
 public:
-    // Получение единственного экземпляра
+    //получение единственного экземпляра
     static PanelsManager* instance();
 
-    // Создаёт все панели приложения
+    //создаёт все панели приложения
     void createPanels();
     
-    // Показывает все панели
+    //показывает все панели
     void showAllPanels();
     
-    // Закрывает все панели
+    //закрывает все панели
     void closeAllPanels();
 
-    // Геттеры панелей
+    //геттеры панелей
     ViewportPanel* viewport() const { return m_viewport; }
     ObjectListPanel* objectList() const { return m_objectList; }
     ObjectPropertiesPanel* objectProperties() const { return m_objectProperties; }
@@ -42,14 +35,14 @@ public:
     ViewportSettingsPanel* viewportSettings() const { return m_viewportSettings; }
 
 public slots:
-    // Обработчик открытия файла
+    //обработчик открытия файла
     void onOpenFile();
 
 private:
     PanelsManager();
     ~PanelsManager();
     
-    // Соединяет сигналы между панелями
+    //соединяет сигналы между панелями
     void connectSignals();
 
     ViewportPanel *m_viewport = nullptr;

@@ -17,19 +17,12 @@
 class DebugDumper
 {
 public:
-    /**
-     * @brief Формирует текстовый файл с результатами парсинга всех объектов
-     * @param filePath - путь к исходному XML-файлу проекта
-     * @param objects - список распарсенных объектов
-     * @param schemas - карта битовых схем для каждого типа
-     * @param objectElements - список DOM-элементов объектов (для извлечения HEX-строк)
-     * @param objectTypes - список имён типов объектов (tagName из XML)
-     */
+    //формирует текстовый файл с результатами парсинга всех объектов
     static void dumpToFile(const QString &filePath,
-                           const QList<QSharedPointer<BaseObject>> &objects,
-                           const QMap<QString, ParamSchema> &schemas,
-                           const QList<QDomElement> &objectElements,
-                           const QStringList &objectTypes)
+                            const QList<QSharedPointer<BaseObject>> &objects,
+                            const QMap<QString, ParamSchema> &schemas,
+                            const QList<QDomElement> &objectElements,
+                            const QStringList &objectTypes)
     {
         //определяем путь к выходному файлу: tests/<имя_файла>_debug.txt
         QFileInfo fi(filePath);
