@@ -130,7 +130,8 @@ void ObjectPropertiesPanel::onCellChanged(int row, int column)
     if (m_currentObject->setObjectProperty(propName, newValue)) {
         //перерисовка при изменении
         emit propertyChanged();
-    } else {
+    }
+    else {
         //если не удалось — возвращаем старое значение
         m_updating = true;
         const auto props = m_currentObject->getProperties();

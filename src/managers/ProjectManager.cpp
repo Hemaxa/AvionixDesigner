@@ -131,7 +131,7 @@ void ProjectManager::registerStandardTypes()
     //регистрируем типы объектов
     om->registerType("rectangle", []() { return new RectangleObject(); });
     om->registerType("rectangle_a", []() { return new RectangleObject(); });
-    om->registerType("rectangle_e", []() { return new RectangleObject(); });
+    //om->registerType("rectangle_e", []() { return new RectangleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
 }

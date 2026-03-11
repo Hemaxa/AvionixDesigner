@@ -14,7 +14,7 @@ class ProjectManager : public QObject
     Q_OBJECT
     
 public:
-    //получение единственного экземпляра
+    //получение создания единственного экземпляра класса
     static ProjectManager* instance();
     
     //метод загрузки проекта из файла
@@ -42,6 +42,7 @@ public:
     void setBackgroundColor(const QColor &color);
 
 signals:
+    //сигналы, информирующие об изменении проекта
     void projectLoaded(); //проект загружен
     void projectChanged(); //проект изменён
     void logMessage(const QString &message); //сообщение для лога
