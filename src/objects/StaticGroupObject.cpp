@@ -188,16 +188,55 @@ QRectF StaticGroupObject::getBoundingRect() const
     
     //объединяем прямоугольники всех включённых состояний
     QRectF result;
+    bool first = true;
     for (const GroupState &s : states) {
         if (!s.enabled) continue;
         QRectF r(s.x, s.y, s.w, s.h);
-        if (result.isNull())
+        if (first) {
             result = r;
-        else
+            first = false;
+        } else {
             result = result.united(r);
+        }
     }
     
     return result;
+}
+
+void StaticGroupObject::moveBy(double dx, double dy)
+{
+    // Двигаем все состояния вместе
+    for (GroupState &s : states) {
+        s.x += dx;
+        s.y += dy;
+    }
+    emit changed();
+}
+
+void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
+{
+    // Ресайз логично применять только если активно 1 состояние или как масштабирование?
+    // Пока сделаем ресайз всех состояний пропорционально
+    for (GroupState &s : states) {
+        if (edgeFlags & 1) { // Left
+            s.x += dx;
+            s.w -= dx;
+        }
+        if (edgeFlags & 2) { // Right
+            s.w += dx;
+        }
+        if (edgeFlags & 4) { // Top
+            s.y += dy;
+            s.h -= dy;
+        }
+        if (edgeFlags & 8) { // Bottom
+            s.h += dy;
+        }
+        
+        if (s.w < 1.0) s.w = 1.0;
+        if (s.h < 1.0) s.h = 1.0;
+    }
+    emit changed();
 }
 
 bool StaticGroupObject::setObjectProperty(const QString &name, const QString &value)
@@ -206,6 +245,32 @@ bool StaticGroupObject::setObjectProperty(const QString &name, const QString &va
     
     if (name == "Номер группы") {
         groupNumber = value.toInt(&ok);
+    }
+    else if (name.startsWith("Состояние ")) {
+        // Парсинг "Состояние N: Свойство"
+        int colonIdx = name.indexOf(':');
+        if (colonIdx > 0) {
+            QString stateStr = name.mid(10, colonIdx - 10);
+            int stateIdx = stateStr.toInt(&ok);
+            if (ok && stateIdx >= 0 && stateIdx < states.size()) {
+                QString prop = name.mid(colonIdx + 2).trimmed();
+                GroupState &s = states[stateIdx];
+                
+                if (prop == "X") s.x = value.toDouble(&ok);
+                else if (prop == "Y") s.y = value.toDouble(&ok);
+                else if (prop == "Ширина") s.w = value.toDouble(&ok);
+                else if (prop == "Высота") s.h = value.toDouble(&ok);
+                else if (prop == "Адрес") s.addr = value.toInt(&ok);
+                else if (prop == "Цвет") {
+                    s.color = QColor(value);
+                    ok = s.color.isValid();
+                }
+                else if (prop == "Видимость") {
+                    if (value.toLower() == "да" || value.toLower() == "yes" || value == "1") { s.enabled = true; ok = true; }
+                    else if (value.toLower() == "нет" || value.toLower() == "no" || value == "0") { s.enabled = false; ok = true; }
+                }
+            }
+        }
     }
     
     if (ok) emit changed();

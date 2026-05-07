@@ -93,6 +93,37 @@ QRectF RectangleObject::getBoundingRect() const
     return QRectF(x, y, width, height);
 }
 
+void RectangleObject::moveBy(double dx, double dy)
+{
+    x += dx;
+    y += dy;
+    emit changed();
+}
+
+void RectangleObject::resizeBy(int edgeFlags, double dx, double dy)
+{
+    //edgeFlags (1=Left, 2=Right, 4=Top, 8=Bottom)
+    if (edgeFlags & 1) { // Left
+        x += dx;
+        width -= dx;
+    }
+    if (edgeFlags & 2) { // Right
+        width += dx;
+    }
+    if (edgeFlags & 4) { // Top
+        y += dy;
+        height -= dy;
+    }
+    if (edgeFlags & 8) { // Bottom
+        height += dy;
+    }
+    
+    if (width < 1.0) width = 1.0;
+    if (height < 1.0) height = 1.0;
+    
+    emit changed();
+}
+
 bool RectangleObject::setObjectProperty(const QString &name, const QString &value)
 {
     bool ok = false;

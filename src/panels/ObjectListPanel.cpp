@@ -46,6 +46,16 @@ void ObjectListPanel::refreshList()
     }
 }
 
+void ObjectListPanel::selectRow(int index)
+{
+    if (index >= 0 && index < m_listWidget->count()) {
+        m_listWidget->setCurrentRow(index);
+    } else {
+        m_listWidget->clearSelection();
+        m_listWidget->setCurrentRow(-1);
+    }
+}
+
 void ObjectListPanel::onRowChanged(int row)
 {
     if (row >= 0) {

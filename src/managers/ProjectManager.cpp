@@ -1,6 +1,7 @@
 #include <QFile>
 #include <QDomDocument>
 #include <QTextStream>
+#include <QFileInfo>
 
 #include "ProjectManager.h"
 #include "ObjectsManager.h"
@@ -136,9 +137,10 @@ void ProjectManager::registerStandardTypes()
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
 }
 
-bool ProjectManager::saveToFile()
+bool ProjectManager::saveToFile(const QString &targetFile)
 {
     if (m_filePath.isEmpty()) return false;
+    QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
     
     //переоткрываем оригинальный XML
     QFile file(m_filePath);
@@ -229,14 +231,21 @@ bool ProjectManager::saveToFile()
     }
     
     //записываем XML обратно в файл
-    QFile outFile(m_filePath);
+    QFile outFile(outPath);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
     
     QTextStream stream(&outFile);
     doc.save(stream, 4);
     outFile.close();
     
-    emit logMessage(tr("Проект сохранён: %1").arg(m_filePath));
+    if (!targetFile.isEmpty() && targetFile != m_filePath) {
+        m_filePath = targetFile;
+        QFileInfo fi(targetFile);
+        m_projectName = fi.baseName();
+        emit projectLoaded(); // Обновляем заголовок и UI
+    }
+    
+    emit logMessage(tr("Проект сохранён: %1").arg(outPath));
     return true;
 }
 

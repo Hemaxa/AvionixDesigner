@@ -140,6 +140,65 @@ QRectF RotationObject::getBoundingRect() const
     return QRectF(xRot + left, yRot + top, right - left, bottom - top);
 }
 
+bool RotationObject::contains(const QPointF &point) const
+{
+    // Учитываем поворот для определения попадания мыши
+    QTransform transform;
+    transform.translate(xRot, yRot);
+    transform.rotate(getAngleDegrees());
+    
+    // Инвертируем трансформацию, чтобы перевести точку клика в локальные координаты
+    QTransform invTransform = transform.inverted();
+    QPointF localPoint = invTransform.map(point);
+    
+    QRectF localRect(left, top, right - left, bottom - top);
+    return localRect.contains(localPoint);
+}
+
+void RotationObject::moveBy(double dx, double dy)
+{
+    xRot += dx;
+    yRot += dy;
+    emit changed();
+}
+
+void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
+{
+    // Так как размеры хранятся как смещения (top, left, bottom, right),
+    // нам нужно учитывать текущий поворот.
+    // Проще всего конвертировать dx, dy в локальные координаты.
+    double angleRad = qDegreesToRadians(-getAngleDegrees()); // Обратный поворот
+    double localDx = dx * qCos(angleRad) - dy * qSin(angleRad);
+    double localDy = dx * qSin(angleRad) + dy * qCos(angleRad);
+    
+    if (edgeFlags & 1) { // Left
+        left += localDx;
+        if (left >= right) left = right - 1;
+    }
+    if (edgeFlags & 2) { // Right
+        right += localDx;
+        if (right <= left) right = left + 1;
+    }
+    if (edgeFlags & 4) { // Top
+        top += localDy;
+        if (top >= bottom) top = bottom - 1;
+    }
+    if (edgeFlags & 8) { // Bottom
+        bottom += localDy;
+        if (bottom <= top) bottom = top + 1;
+    }
+    
+    emit changed();
+}
+
+void RotationObject::setRotation(double angle)
+{
+    double angleRad = qDegreesToRadians(angle);
+    sinVal = qRound(qSin(angleRad) * 65536.0);
+    cosVal = qRound(qCos(angleRad) * 65536.0);
+    emit changed();
+}
+
 bool RotationObject::setObjectProperty(const QString &name, const QString &value)
 {
     bool ok = false;

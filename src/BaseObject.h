@@ -42,6 +42,13 @@ public:
     virtual QString getTypeName() const = 0; //возвращает тип объекта
     virtual QList<QPair<QString, QString>> getProperties() const = 0; //возвращает список свойств объекта
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
+
+    //геометрия и взаимодействие
+    virtual bool contains(const QPointF &point) const { return getBoundingRect().contains(point); }
+    virtual void moveBy(double dx, double dy) { Q_UNUSED(dx); Q_UNUSED(dy); }
+    virtual void resizeBy(int edgeFlags, double dx, double dy) { Q_UNUSED(edgeFlags); Q_UNUSED(dx); Q_UNUSED(dy); }
+    virtual void setRotation(double angle) { Q_UNUSED(angle); }
+
     
     //устанавливает значение свойства по имени, возвращает true при успехе
     virtual bool setObjectProperty(const QString &name, const QString &value) { Q_UNUSED(name); Q_UNUSED(value); return false; }

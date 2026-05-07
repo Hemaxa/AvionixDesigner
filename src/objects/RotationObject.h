@@ -29,10 +29,17 @@ public:
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
+    QRectF getBoundingRect() const override;
+    
+    // Взаимодействие
+    bool contains(const QPointF &point) const override;
+    void moveBy(double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void setRotation(double angle) override;
+    
     bool setObjectProperty(const QString &name, const QString &value) override;
     void parseExtraData(const QDomElement &element) override;
     QMap<QString, quint32> serializeParams() const override;
-    QRectF getBoundingRect() const override;
     
     //метод, который возвращает угол вращения в градусах, вычисленный из sinVal/cosVal
     double getAngleDegrees() const;

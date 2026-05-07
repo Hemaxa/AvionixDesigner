@@ -87,6 +87,24 @@ void MainWindow::onSaveFile()
     ProjectManager::instance()->saveToFile();
 }
 
+void MainWindow::onSaveFileAs()
+{
+    auto pm = ProjectManager::instance();
+    if (pm->getFilePath().isEmpty()) return;
+    
+    QString fileName = QFileDialog::getSaveFileName(
+        this,
+        "Сохранить проект как...",
+        pm->getFilePath(),
+        "XML Files (*.xml)"
+    );
+    
+    if (!fileName.isEmpty()) {
+        pm->saveToFile(fileName);
+        updateWindowTitle();
+    }
+}
+
 void MainWindow::updateWindowTitle()
 {
     //изменение заголовка окна в зависимости от имени открытого файла
@@ -215,6 +233,10 @@ void MainWindow::createMenus()
     QAction *saveAction = fileMenu->addAction("Сохранить");
     saveAction->setShortcut(QKeySequence::Save);
     connect(saveAction, &QAction::triggered, this, &MainWindow::onSaveFile);
+    
+    QAction *saveAsAction = fileMenu->addAction("Сохранить как...");
+    saveAsAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
+    connect(saveAsAction, &QAction::triggered, this, &MainWindow::onSaveFileAs);
     
     fileMenu->addSeparator();
     

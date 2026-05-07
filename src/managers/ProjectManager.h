@@ -21,7 +21,7 @@ public:
     bool loadFromFile(const QString &fileName);
     
     //метод сохранения проекта в файл
-    bool saveToFile();
+    bool saveToFile(const QString &targetFile = QString());
     
     //метод регистрации стандартных типов объектов
     void registerStandardTypes();
