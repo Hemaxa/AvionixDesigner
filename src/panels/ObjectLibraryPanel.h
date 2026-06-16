@@ -5,8 +5,11 @@
 
 #include "BasePanel.h"
 
-class QPushButton;
+#include <QList>
+
 class QGridLayout;
+class QLabel;
+class QToolButton;
 
 class ObjectLibraryPanel : public BasePanel
 {
@@ -15,17 +18,15 @@ class ObjectLibraryPanel : public BasePanel
 public:
     explicit ObjectLibraryPanel(QWidget *parent = nullptr);
 
+signals:
+    void objectRequested(const QString &typeName);
+
 private:
     void createButtons();
-    QPushButton* createLibraryButton(const QString &iconPath, const QString &tooltip);
+    QToolButton* createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title, const QString &subtitle);
     
-    QGridLayout *m_gridLayout;
+    QGridLayout *m_gridLayout = nullptr;
+    QLabel *m_descriptionLabel = nullptr;
     
-    //кнопки примитивов
-    QPushButton *m_rectButton;
-    QPushButton *m_circleButton;
-    QPushButton *m_lineButton;
-    QPushButton *m_polygonButton;
-    QPushButton *m_textButton;
-    QPushButton *m_imageButton;
+    QList<QToolButton*> m_libraryCards;
 };

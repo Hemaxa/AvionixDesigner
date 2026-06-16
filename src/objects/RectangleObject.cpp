@@ -74,6 +74,11 @@ QString RectangleObject::getTypeName() const
     return "Rectangle";
 }
 
+QString RectangleObject::getDisplayName() const
+{
+    return "Прямоугольник";
+}
+
 QList<QPair<QString, QString>> RectangleObject::getProperties() const
 {
     return {

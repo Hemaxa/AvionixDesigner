@@ -176,7 +176,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         // Рисуем выделение
         if (i == m_selectedIndex) {
             QRectF rect = objects[i]->getBoundingRect();
-            bool canRotate = objects[i]->getTypeName() == "RotationObject";
+            bool canRotate = objects[i]->supportsRotationHandle();
             drawManipulators(painter, rect, canRotate);
         }
     }
@@ -216,7 +216,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
             auto obj = pm->getObjectAt(m_selectedIndex);
             QRectF rect = obj->getBoundingRect();
-            bool canRotate = obj->getTypeName() == "RotationObject";
+            bool canRotate = obj->supportsRotationHandle();
             
             int hit = hitTestManipulators(canvasPos, rect, canRotate);
             if (hit == 100) {
@@ -286,7 +286,7 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             obj->resizeBy(m_resizeEdgeFlags, dx, dy);
             emit objectChanged();
             update();
-        } else if (m_dragMode == Rotate && obj->getTypeName() == "RotationObject") {
+        } else if (m_dragMode == Rotate && obj->supportsRotationHandle()) {
             QRectF rect = obj->getBoundingRect();
             QPointF center = rect.center();
             double angleRad = qAtan2(canvasPos.y() - center.y(), canvasPos.x() - center.x());

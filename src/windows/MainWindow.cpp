@@ -272,12 +272,37 @@ void MainWindow::connectSignals()
 {
     //связь списка объектов с панелью свойств
     connect(m_objectList, &ObjectListPanel::objectSelected, m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
+    connect(m_objectList, &ObjectListPanel::objectSelected, m_viewport, &ViewportPanel::setSelectedIndex);
+    
+    //связь холста со списком и свойствами
+    connect(m_viewport, &ViewportPanel::objectSelected, m_objectList, &ObjectListPanel::selectRow);
+    connect(m_viewport, &ViewportPanel::objectSelected, m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
     
     //связь загрузки проекта с обновлением заголовка
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &MainWindow::updateWindowTitle);
+    connect(ProjectManager::instance(), &ProjectManager::projectLoaded, m_objectProperties, &ObjectPropertiesPanel::clearProperties);
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, m_objectList, &ObjectListPanel::refreshList);
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, m_viewport, QOverload<>::of(&QWidget::update));
     
     //связь изменения свойств с перерисовкой (без автосохранения в файл)
     connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, m_viewport, QOverload<>::of(&QWidget::update));
+    
+    //связь изменений от манипуляторов с обновлением панели свойств
+    connect(m_viewport, &ViewportPanel::objectChanged, this, [this]() {
+        m_objectProperties->showObjectProperties(m_viewport->getSelectedIndex());
+    });
+
+    //создание объекта из библиотеки
+    connect(m_objectLibrary, &ObjectLibraryPanel::objectRequested, this, [this](const QString &typeName) {
+        const int index = ProjectManager::instance()->addObject(typeName);
+        if (index >= 0) {
+            m_objectList->refreshList();
+            m_objectList->selectRow(index);
+            m_viewport->setSelectedIndex(index);
+            m_objectProperties->showObjectProperties(index);
+            m_viewport->update();
+        }
+    });
     
     //связь изменения цвета фона с перерисовкой
     connect(m_viewportSettings, &ViewportSettingsPanel::bgColorChanged, m_viewport, QOverload<>::of(&QWidget::update));

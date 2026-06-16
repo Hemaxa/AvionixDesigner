@@ -28,8 +28,10 @@ public:
     void parse(const QString &hexInit, const ParamSchema &schema) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
+    QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
+    bool supportsRotationHandle() const override { return true; }
     
     // Взаимодействие
     bool contains(const QPointF &point) const override;

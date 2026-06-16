@@ -8,6 +8,7 @@
 class QTableWidget;
 class QLabel;
 class QScrollArea;
+class QStackedWidget;
 class BaseObject;
 
 class ObjectPropertiesPanel : public BasePanel
@@ -43,8 +44,11 @@ private:
     void clearTable();
     
     QLabel *m_titleLabel; //заголовок панели
+    QLabel *m_subtitleLabel; //подзаголовок панели
+    QLabel *m_emptyStateLabel; //заглушка пустого состояния
     QTableWidget *m_tableWidget; //таблица свойств
     QScrollArea *m_scrollArea; //область прокрутки
+    QStackedWidget *m_contentStack; //переключатель состояний панели
     QSharedPointer<BaseObject> m_currentObject; //текущий объект
     bool m_updating = false; //флаг программного обновления
 };

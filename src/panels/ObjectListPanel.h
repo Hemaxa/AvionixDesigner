@@ -3,6 +3,7 @@
 #pragma once
 
 #include "BasePanel.h"
+#include <QModelIndex>
 
 class QListWidget;
 class QVBoxLayout;
@@ -27,7 +28,9 @@ signals:
 private slots:
     //обработчик смены выбранной строки
     void onRowChanged(int row);
+    void onRowsMoved(const QModelIndex &parent, int start, int end, const QModelIndex &destination, int row);
 
 private:
     QListWidget *m_listWidget; //виджет списка
+    bool m_refreshing = false;
 };

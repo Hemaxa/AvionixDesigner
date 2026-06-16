@@ -26,6 +26,12 @@ public:
     //метод регистрации стандартных типов объектов
     void registerStandardTypes();
 
+    //добавляет новый объект в проект и возвращает его индекс
+    int addObject(const QString &typeName);
+    
+    //переставляет объекты в проекте по новому порядку индексов
+    bool reorderObjects(const QList<int> &order);
+
     //геттеры объектов
     const QList<QSharedPointer<BaseObject>>& getObjects() const;
     QSharedPointer<BaseObject> getObjectAt(int index) const;
@@ -58,6 +64,7 @@ private:
     QString m_filePath; //путь к файлу
 
     QList<QSharedPointer<BaseObject>> m_objects; //список объектов (указатели на все объекты)
+    QStringList m_objectTags; //исходные xml-теги объектов в том же порядке
     QMap<QString, ParamSchema> m_schemas; //схемы параметров для всех типов объектов
     QMap<QString, QString> m_schemaAliases; //маппинг тегов на схемы (rectangle_a → rectangle)
 };

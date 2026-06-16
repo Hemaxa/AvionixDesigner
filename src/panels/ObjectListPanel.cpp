@@ -2,6 +2,8 @@
 #include "ProjectManager.h"
 #include <QVBoxLayout>
 #include <QListWidget>
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
 
 ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent)
 {
@@ -17,16 +19,26 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent)
     m_listWidget = new QListWidget(this);
     m_listWidget->setObjectName("ObjectListWidget");
     m_listWidget->setMinimumWidth(150);
+    m_listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_listWidget->setDragEnabled(true);
+    m_listWidget->setAcceptDrops(true);
+    m_listWidget->setDropIndicatorShown(true);
+    m_listWidget->setDragDropMode(QAbstractItemView::InternalMove);
+    m_listWidget->setDefaultDropAction(Qt::MoveAction);
     layout->addWidget(m_listWidget);
     
     //подключаем сигналы
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &ObjectListPanel::refreshList);
     
     connect(m_listWidget, &QListWidget::currentRowChanged, this, &ObjectListPanel::onRowChanged);
+    connect(m_listWidget->model(), &QAbstractItemModel::rowsMoved, this, &ObjectListPanel::onRowsMoved);
 }
 
 void ObjectListPanel::refreshList()
 {
+    m_refreshing = true;
+    const QSignalBlocker blocker(m_listWidget);
+    const int selectedRow = m_listWidget->currentRow();
     m_listWidget->clear();
     
     auto pm = ProjectManager::instance();
@@ -38,12 +50,17 @@ void ObjectListPanel::refreshList()
         
         QString text = QString("%1. %2")
             .arg(i + 1)
-            .arg(obj->getTypeName());
+            .arg(obj->getDisplayName());
         
         QListWidgetItem *item = new QListWidgetItem(text);
         item->setData(Qt::UserRole, i);
         m_listWidget->addItem(item);
     }
+
+    if (selectedRow >= 0 && selectedRow < m_listWidget->count()) {
+        m_listWidget->setCurrentRow(selectedRow);
+    }
+    m_refreshing = false;
 }
 
 void ObjectListPanel::selectRow(int index)
@@ -58,7 +75,47 @@ void ObjectListPanel::selectRow(int index)
 
 void ObjectListPanel::onRowChanged(int row)
 {
-    if (row >= 0) {
-        emit objectSelected(row);
+    if (m_refreshing)
+        return;
+
+    emit objectSelected(row);
+}
+
+void ObjectListPanel::onRowsMoved(const QModelIndex &parent, int start, int end, const QModelIndex &destination, int row)
+{
+    Q_UNUSED(parent);
+    Q_UNUSED(start);
+    Q_UNUSED(end);
+    Q_UNUSED(destination);
+    Q_UNUSED(row);
+
+    if (m_refreshing)
+        return;
+
+    QList<int> order;
+    order.reserve(m_listWidget->count());
+    int selectedSourceIndex = -1;
+
+    if (QListWidgetItem *currentItem = m_listWidget->currentItem()) {
+        selectedSourceIndex = currentItem->data(Qt::UserRole).toInt();
     }
+
+    for (int row = 0; row < m_listWidget->count(); ++row) {
+        QListWidgetItem *item = m_listWidget->item(row);
+        order.append(item->data(Qt::UserRole).toInt());
+    }
+
+    if (!ProjectManager::instance()->reorderObjects(order))
+        return;
+
+    int newSelectedRow = -1;
+    for (int row = 0; row < order.size(); ++row) {
+        if (order[row] == selectedSourceIndex) {
+            newSelectedRow = row;
+            break;
+        }
+    }
+
+    selectRow(newSelectedRow);
+    emit objectSelected(newSelectedRow);
 }

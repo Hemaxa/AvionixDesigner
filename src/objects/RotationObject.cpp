@@ -103,6 +103,11 @@ QString RotationObject::getTypeName() const
     return "RotationObject";
 }
 
+QString RotationObject::getDisplayName() const
+{
+    return "Rotation Group";
+}
+
 double RotationObject::getAngleDegrees() const
 {
     //sinVal и cosVal — значения с фиксированной точкой xx.xxxxxxxxxxxxxxxx

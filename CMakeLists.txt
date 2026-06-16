@@ -44,6 +44,8 @@ qt_add_executable(AvionixDesigner
     src/objects/RotationObject.cpp
     src/objects/StaticGroupObject.h
     src/objects/StaticGroupObject.cpp
+    src/objects/AviaHorizonObject.h
+    src/objects/AviaHorizonObject.cpp
     
     # Окна
     src/windows/MainWindow.h

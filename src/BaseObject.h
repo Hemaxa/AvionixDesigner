@@ -40,8 +40,10 @@ public:
     
     //виртуальные геттеры для свойств объекта
     virtual QString getTypeName() const = 0; //возвращает тип объекта
+    virtual QString getDisplayName() const { return getTypeName(); } //отображаемое имя для UI
     virtual QList<QPair<QString, QString>> getProperties() const = 0; //возвращает список свойств объекта
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
+    virtual bool supportsRotationHandle() const { return false; }
 
     //геометрия и взаимодействие
     virtual bool contains(const QPointF &point) const { return getBoundingRect().contains(point); }

@@ -155,6 +155,11 @@ QString StaticGroupObject::getTypeName() const
     return "StaticGroup";
 }
 
+QString StaticGroupObject::getDisplayName() const
+{
+    return "Static";
+}
+
 QList<QPair<QString, QString>> StaticGroupObject::getProperties() const
 {
     QList<QPair<QString, QString>> props;
