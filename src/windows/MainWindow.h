@@ -8,12 +8,14 @@
 
 //предварительное объявление классов (forward declaration)
 class QDockWidget;
+class QAction;
 class ViewportPanel;
 class ObjectListPanel;
 class ObjectPropertiesPanel;
 class ObjectLibraryPanel;
 class ViewportSettingsPanel;
 class SettingsWindow;
+class NewProjectDialog;
 
 class MainWindow : public QMainWindow
 {
@@ -28,6 +30,9 @@ public slots:
     void resetToDefaultLayout();
 
 private slots:
+    //слот создания нового проекта
+    void onNewProject();
+
     //слот, который вызывается при открытии файла проекта
     void onOpenFile();
     
@@ -42,6 +47,9 @@ private slots:
     
     //слот, который вызывается при открытии окна настроек
     void openSettings();
+
+    //создание нового объекта указанного типа
+    void createObjectOfType(const QString &typeName);
 
 protected:
     //переопределение события показа окна для применения размеров
@@ -62,6 +70,9 @@ private:
     
     //метод настройки размеров dock-виджетов
     void setupDockSizes();
+
+    //создаёт действие с горячей клавишей
+    QAction* createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member);
     
     //сохранение и восстановление layout
     void saveLayoutSettings();
@@ -83,6 +94,7 @@ private:
     
     //окно настроек
     SettingsWindow *m_settingsWindow;
+    NewProjectDialog *m_newProjectDialog = nullptr;
     
     //флаг первоначальной настройки размеров
     bool m_initialSizesSet = false;

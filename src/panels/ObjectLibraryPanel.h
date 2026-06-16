@@ -23,7 +23,7 @@ signals:
 
 private:
     void createButtons();
-    QToolButton* createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title, const QString &subtitle);
+    QToolButton* createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title);
     
     QGridLayout *m_gridLayout = nullptr;
     QLabel *m_descriptionLabel = nullptr;

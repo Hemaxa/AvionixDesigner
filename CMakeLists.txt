@@ -46,10 +46,14 @@ qt_add_executable(AvionixDesigner
     src/objects/StaticGroupObject.cpp
     src/objects/AviaHorizonObject.h
     src/objects/AviaHorizonObject.cpp
+    src/objects/TextObject.h
+    src/objects/TextObject.cpp
     
     # Окна
     src/windows/MainWindow.h
     src/windows/MainWindow.cpp
+    src/windows/NewProjectDialog.h
+    src/windows/NewProjectDialog.cpp
     src/windows/SettingsWindow.h
     src/windows/SettingsWindow.cpp
     

@@ -13,7 +13,7 @@ cmake ..
 
 cmake --build .
 
-./AvionixDesigner.app/Contents/MacOS/AvionixDesigner
+./build/AvionixDesigner.app/Contents/MacOS/AvionixDesigner
 ```
 
 ## Структура проекта

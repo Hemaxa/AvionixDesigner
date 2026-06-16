@@ -48,6 +48,9 @@ public:
     //сереализация параметров конкретного состояния
     QMap<QString, quint32> serializeState(int stateIndex) const;
 
+protected:
+    void rebuildStateAddresses();
+
 private:
     //парсит одно состояние из HEX-строки по схеме
     GroupState parseState(const QString &hexInit, const ParamSchema &schema);

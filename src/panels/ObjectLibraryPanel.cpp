@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPixmap>
+#include <QSizePolicy>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -35,15 +36,15 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
     setPanelName("ObjectLibraryPanel");
 
     auto *mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(16, 16, 16, 16);
-    mainLayout->setSpacing(14);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    mainLayout->setSpacing(8);
 
-    auto *titleLabel = new QLabel("Поддерживаемые объекты", this);
+    auto *titleLabel = new QLabel("Объекты", this);
     titleLabel->setObjectName("LibraryTitleLabel");
     mainLayout->addWidget(titleLabel);
 
     m_descriptionLabel = new QLabel(
-        "В библиотеке оставлены только те модули, которые приложение уже умеет корректно читать и сохранять в XML.",
+        "Быстрое добавление поддерживаемых примитивов.",
         this
     );
     m_descriptionLabel->setObjectName("LibraryDescriptionLabel");
@@ -65,35 +66,39 @@ void ObjectLibraryPanel::createButtons()
         QString typeName;
         QString iconPath;
         QString title;
-        QString subtitle;
     };
 
     const QList<LibraryItem> items = {
-        {"aviagorizont", ":/icons/icons/library/aviahorizon.svg", "Авиагоризонт", "Линия горизонта, небо и земля"},
-        {"rectangle", ":/icons/icons/library/rectangle.svg", "Прямоугольник", "Векторный примитив"},
-        {"staticgroup", ":/icons/icons/library/staticgroup.svg", "Static", "Растровая группа состояний"},
-        {"rotationobject", ":/icons/icons/library/rotationgroup.svg", "Rotation Group", "Поворотная растровая маска"}
+        {"rectangle", ":/icons/icons/library/rectangle.svg", "Прямоугольник"},
+        {"staticgroup", ":/icons/icons/library/staticgroup.svg", "Static"},
+        {"rotationobject", ":/icons/icons/library/rotationgroup.svg", "Rotation Group"},
+        {"aviagorizont", ":/icons/icons/library/aviahorizon.svg", "Авиагоризонт"},
+        {"text", ":/icons/icons/library/text.svg", "Текст"}
     };
 
     for (int i = 0; i < items.size(); ++i) {
         const auto &item = items[i];
-        QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title, item.subtitle);
+        QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title);
         m_libraryCards.append(card);
-        m_gridLayout->addWidget(card, i, 0);
+        m_gridLayout->addWidget(card, i / 3, i % 3);
     }
 
-    m_gridLayout->setColumnStretch(0, 1);
+    for (int col = 0; col < 3; ++col) {
+        m_gridLayout->setColumnStretch(col, 1);
+    }
 }
 
-QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title, const QString &subtitle)
+QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title)
 {
     auto *button = new QToolButton(this);
     button->setObjectName("LibraryCard");
-    button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    button->setMinimumHeight(74);
-    button->setIconSize(QSize(38, 38));
-    button->setText(title + "\n" + subtitle);
+    button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    button->setMinimumSize(QSize(52, 52));
+    button->setMaximumSize(QSize(64, 64));
+    button->setIconSize(QSize(28, 28));
+    button->setToolTip(title);
+    button->setStatusTip(title);
 
     QIcon icon(iconPath);
     if (icon.isNull()) {

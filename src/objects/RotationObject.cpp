@@ -169,6 +169,9 @@ void RotationObject::moveBy(double dx, double dy)
 
 void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
 {
+    const double oldWidth = qMax(1.0, right - left);
+    const double oldHeight = qMax(1.0, bottom - top);
+
     // Так как размеры хранятся как смещения (top, left, bottom, right),
     // нам нужно учитывать текущий поворот.
     // Проще всего конвертировать dx, dy в локальные координаты.
@@ -191,6 +194,12 @@ void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
     if (edgeFlags & 8) { // Bottom
         bottom += localDy;
         if (bottom <= top) bottom = top + 1;
+    }
+
+    const int newWidth = qMax(1, qRound(right - left));
+    const int newHeight = qMax(1, qRound(bottom - top));
+    if (!maskImage.isNull() && (qRound(oldWidth) != newWidth || qRound(oldHeight) != newHeight)) {
+        maskImage = maskImage.scaled(newWidth, newHeight, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     }
     
     emit changed();
@@ -245,6 +254,7 @@ bool RotationObject::setObjectProperty(const QString &name, const QString &value
 
 QMap<QString, quint32> RotationObject::serializeParams() const
 {
+    const int width = qMax(1, qRound(right - left));
     return {
         {"xrot", static_cast<quint32>(xRot)},
         {"yrot", static_cast<quint32>(yRot)},
@@ -252,6 +262,7 @@ QMap<QString, quint32> RotationObject::serializeParams() const
         {"left", static_cast<quint32>(static_cast<qint32>(left))},
         {"bottom", static_cast<quint32>(static_cast<qint32>(bottom))},
         {"right", static_cast<quint32>(static_cast<qint32>(right))},
+        {"sq", static_cast<quint32>(qCeil(width / 8.0))},
         {"color", BitParser::colorToBgr(color)},
         {"sin", static_cast<quint32>(sinVal)},
         {"cos", static_cast<quint32>(cosVal)}

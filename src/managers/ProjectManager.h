@@ -19,6 +19,9 @@ public:
     
     //метод загрузки проекта из файла
     bool loadFromFile(const QString &fileName);
+
+    //создаёт новый пустой проект
+    bool createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath = QString());
     
     //метод сохранения проекта в файл
     bool saveToFile(const QString &targetFile = QString());

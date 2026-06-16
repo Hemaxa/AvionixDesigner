@@ -18,7 +18,7 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent)
     //создаем виджет списка
     m_listWidget = new QListWidget(this);
     m_listWidget->setObjectName("ObjectListWidget");
-    m_listWidget->setMinimumWidth(150);
+    m_listWidget->setMinimumWidth(110);
     m_listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
     m_listWidget->setDragEnabled(true);
     m_listWidget->setAcceptDrops(true);

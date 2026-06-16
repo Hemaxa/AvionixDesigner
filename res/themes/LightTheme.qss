@@ -109,7 +109,7 @@ QListWidget::item:selected {
 #LibraryTitleLabel,
 #PropertiesTitleLabel {
     color: #111827;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
 }
 
@@ -123,8 +123,8 @@ QListWidget::item:selected {
 #LibraryCard {
     background-color: #ffffff;
     border: 1px solid #d6deea;
-    border-radius: 18px;
-    padding: 14px 12px;
+    border-radius: 14px;
+    padding: 6px;
     text-align: center;
     font-weight: 600;
 }

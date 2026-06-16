@@ -220,27 +220,70 @@ void StaticGroupObject::moveBy(double dx, double dy)
 
 void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
 {
-    // Ресайз логично применять только если активно 1 состояние или как масштабирование?
-    // Пока сделаем ресайз всех состояний пропорционально
-    for (GroupState &s : states) {
-        if (edgeFlags & 1) { // Left
-            s.x += dx;
-            s.w -= dx;
-        }
-        if (edgeFlags & 2) { // Right
-            s.w += dx;
-        }
-        if (edgeFlags & 4) { // Top
-            s.y += dy;
-            s.h -= dy;
-        }
-        if (edgeFlags & 8) { // Bottom
-            s.h += dy;
-        }
-        
-        if (s.w < 1.0) s.w = 1.0;
-        if (s.h < 1.0) s.h = 1.0;
+    if (states.isEmpty())
+        return;
+
+    const QRectF oldBounds = getBoundingRect();
+    if (oldBounds.isEmpty())
+        return;
+
+    QRectF newBounds = oldBounds;
+    if (edgeFlags & 1) {
+        newBounds.setLeft(newBounds.left() + dx);
     }
+    if (edgeFlags & 2) {
+        newBounds.setRight(newBounds.right() + dx);
+    }
+    if (edgeFlags & 4) {
+        newBounds.setTop(newBounds.top() + dy);
+    }
+    if (edgeFlags & 8) {
+        newBounds.setBottom(newBounds.bottom() + dy);
+    }
+
+    if (newBounds.width() < 1.0) {
+        if (edgeFlags & 1)
+            newBounds.setLeft(newBounds.right() - 1.0);
+        else
+            newBounds.setRight(newBounds.left() + 1.0);
+    }
+    if (newBounds.height() < 1.0) {
+        if (edgeFlags & 4)
+            newBounds.setTop(newBounds.bottom() - 1.0);
+        else
+            newBounds.setBottom(newBounds.top() + 1.0);
+    }
+
+    const double scaleX = newBounds.width() / oldBounds.width();
+    const double scaleY = newBounds.height() / oldBounds.height();
+
+    for (int i = 0; i < states.size(); ++i) {
+        GroupState &s = states[i];
+        const QRectF stateRect(s.x, s.y, s.w, s.h);
+
+        const double relativeLeft = stateRect.left() - oldBounds.left();
+        const double relativeTop = stateRect.top() - oldBounds.top();
+        const double relativeRight = stateRect.right() - oldBounds.left();
+        const double relativeBottom = stateRect.bottom() - oldBounds.top();
+
+        const QRectF scaledRect(
+            newBounds.left() + relativeLeft * scaleX,
+            newBounds.top() + relativeTop * scaleY,
+            qMax(1.0, stateRect.width() * scaleX),
+            qMax(1.0, stateRect.height() * scaleY)
+        );
+
+        s.x = qRound(scaledRect.left());
+        s.y = qRound(scaledRect.top());
+        s.w = qMax(1, qRound(qMax(1.0, relativeRight * scaleX - relativeLeft * scaleX)));
+        s.h = qMax(1, qRound(qMax(1.0, relativeBottom * scaleY - relativeTop * scaleY)));
+
+        if (i < maskImages.size() && !maskImages[i].isNull()) {
+            maskImages[i] = maskImages[i].scaled(s.w, s.h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        }
+    }
+
+    rebuildStateAddresses();
     emit changed();
 }
 
@@ -301,4 +344,13 @@ QMap<QString, quint32> StaticGroupObject::serializeState(int stateIndex) const
         {"color", BitParser::colorToBgr(s.color)},
         {"enb", s.enabled ? 1u : 0u}
     };
+}
+
+void StaticGroupObject::rebuildStateAddresses()
+{
+    int nextAddr = 0;
+    for (GroupState &state : states) {
+        state.addr = nextAddr;
+        nextAddr += qMax(1, state.w) * qMax(1, state.h);
+    }
 }

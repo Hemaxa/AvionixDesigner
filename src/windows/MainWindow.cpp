@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "NewProjectDialog.h"
 #include "SettingsWindow.h"
 #include "ViewportPanel.h"
 #include "ObjectListPanel.h"
@@ -14,9 +15,6 @@
 #include <QAction>
 #include <QFileDialog>
 #include <QFile>
-#include <QScreen>
-#include <QGuiApplication>
-#include <QSplitter>
 #include <QTimer>
 #include <QSettings>
 
@@ -28,6 +26,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_settingsWindow(
     //разрешение на вложенные dock-виджеты и анимацию
     setDockNestingEnabled(true);
     setAnimated(true);
+    setDockOptions(dockOptions() | QMainWindow::AllowTabbedDocks | QMainWindow::GroupedDragging);
     
     //применяем тему из настроек
     QSettings settings("Avionix", "Designer");
@@ -61,6 +60,40 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_settingsWindow(
     showMaximized();
 }
 
+void MainWindow::onNewProject()
+{
+    if (!m_newProjectDialog) {
+        m_newProjectDialog = new NewProjectDialog(this);
+    }
+
+    if (m_newProjectDialog->exec() != QDialog::Accepted)
+        return;
+
+    const QString name = m_newProjectDialog->projectName();
+    const QString filePath = m_newProjectDialog->filePath();
+
+    ProjectManager::instance()->createNewProject(
+        name,
+        m_newProjectDialog->canvasWidth(),
+        m_newProjectDialog->canvasHeight(),
+        m_newProjectDialog->backgroundColor(),
+        filePath
+    );
+
+    if (!filePath.isEmpty()) {
+        ProjectManager::instance()->saveToFile(filePath);
+        QSettings settings("Avionix", "Designer");
+        settings.setValue("lastProject", filePath);
+    }
+
+    m_objectList->refreshList();
+    m_objectList->selectRow(-1);
+    m_objectProperties->clearProperties();
+    m_viewport->setSelectedIndex(-1);
+    m_viewport->resetView();
+    updateWindowTitle();
+}
+
 void MainWindow::onOpenFile()
 {
     QString fileName = QFileDialog::getOpenFileName(
@@ -84,23 +117,30 @@ void MainWindow::onOpenFile()
 
 void MainWindow::onSaveFile()
 {
-    ProjectManager::instance()->saveToFile();
+    auto pm = ProjectManager::instance();
+    if (pm->getFilePath().isEmpty()) {
+        onSaveFileAs();
+        return;
+    }
+
+    pm->saveToFile();
 }
 
 void MainWindow::onSaveFileAs()
 {
     auto pm = ProjectManager::instance();
-    if (pm->getFilePath().isEmpty()) return;
-    
+
     QString fileName = QFileDialog::getSaveFileName(
         this,
         "Сохранить проект как...",
-        pm->getFilePath(),
+        pm->getFilePath().isEmpty() ? pm->getProjectName() + ".xml" : pm->getFilePath(),
         "XML Files (*.xml)"
     );
     
     if (!fileName.isEmpty()) {
         pm->saveToFile(fileName);
+        QSettings settings("Avionix", "Designer");
+        settings.setValue("lastProject", fileName);
         updateWindowTitle();
     }
 }
@@ -141,31 +181,35 @@ void MainWindow::createWidgets()
     m_viewportDock->setObjectName("ViewportDock");
     m_viewportDock->setWidget(m_viewport);
     m_viewportDock->setAllowedAreas(Qt::AllDockWidgetAreas);
-    m_viewportDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    m_viewportDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     
     //ObjectListPanel
     m_objectListDock = new QDockWidget("Список объектов", this);
     m_objectListDock->setObjectName("ObjectListDock");
     m_objectListDock->setWidget(m_objectList);
     m_objectListDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_objectListDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     
     //ObjectPropertiesPanel
     m_objectPropertiesDock = new QDockWidget("Свойства объекта", this);
     m_objectPropertiesDock->setObjectName("ObjectPropertiesDock");
     m_objectPropertiesDock->setWidget(m_objectProperties);
     m_objectPropertiesDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_objectPropertiesDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     
     //ViewportSettingsPanel
     m_viewportSettingsDock = new QDockWidget("Настройки холста", this);
     m_viewportSettingsDock->setObjectName("ViewportSettingsDock");
     m_viewportSettingsDock->setWidget(m_viewportSettings);
     m_viewportSettingsDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_viewportSettingsDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     
     //ObjectLibraryPanel
     m_objectLibraryDock = new QDockWidget("Библиотека объектов", this);
     m_objectLibraryDock->setObjectName("ObjectLibraryDock");
     m_objectLibraryDock->setWidget(m_objectLibrary);
     m_objectLibraryDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_objectLibraryDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     
     //расположение панелей
     addDockWidget(Qt::LeftDockWidgetArea, m_viewportDock);
@@ -176,7 +220,8 @@ void MainWindow::createWidgets()
     
     addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
-    splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
+    tabifyDockWidget(m_viewportSettingsDock, m_objectLibraryDock);
+    m_viewportSettingsDock->raise();
 }
 
 void MainWindow::showEvent(QShowEvent *event)
@@ -202,23 +247,19 @@ void MainWindow::setupDockSizes()
     int windowH = height();
     
     //ширина колонок
-    int viewportWidth = static_cast<int>(windowW * 0.8);
-    int rightPanelWidth = static_cast<int>(windowW * 0.2);
+    int viewportWidth = static_cast<int>(windowW * 0.76);
+    int rightPanelWidth = static_cast<int>(windowW * 0.24);
     resizeDocks({m_viewportDock}, {viewportWidth}, Qt::Horizontal);
     resizeDocks({m_objectListDock}, {rightPanelWidth}, Qt::Horizontal);
     
     //высота правых частей
-    int objectListHeight = static_cast<int>(windowH * 0.4);
-    int objectPropsHeight = static_cast<int>(windowH * 0.4);
+    int objectListHeight = static_cast<int>(windowH * 0.38);
+    int objectPropsHeight = static_cast<int>(windowH * 0.42);
     resizeDocks({m_objectListDock, m_objectPropertiesDock}, {objectListHeight, objectPropsHeight}, Qt::Vertical);
     
     //высота нижних частей
-    int bottomHeight = static_cast<int>(windowH * 0.2);
-    resizeDocks({m_viewportSettingsDock, m_objectLibraryDock}, {bottomHeight, bottomHeight}, Qt::Vertical);
-    
-    //ширина нижних частей
-    int bottomPanelWidth = static_cast<int>(windowW * 0.375);
-    resizeDocks({m_viewportSettingsDock, m_objectLibraryDock}, {bottomPanelWidth, bottomPanelWidth}, Qt::Horizontal);
+    int bottomHeight = static_cast<int>(windowH * 0.13);
+    resizeDocks({m_viewportDock, m_viewportSettingsDock}, {windowH - bottomHeight, bottomHeight}, Qt::Vertical);
 }
 
 void MainWindow::createMenus()
@@ -226,23 +267,28 @@ void MainWindow::createMenus()
     //меню "Файл"
     QMenu *fileMenu = menuBar()->addMenu("Файл");
     
-    QAction *openAction = fileMenu->addAction("Открыть...");
-    openAction->setShortcut(QKeySequence::Open);
-    connect(openAction, &QAction::triggered, this, &MainWindow::onOpenFile);
-    
-    QAction *saveAction = fileMenu->addAction("Сохранить");
-    saveAction->setShortcut(QKeySequence::Save);
-    connect(saveAction, &QAction::triggered, this, &MainWindow::onSaveFile);
-    
-    QAction *saveAsAction = fileMenu->addAction("Сохранить как...");
-    saveAsAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
-    connect(saveAsAction, &QAction::triggered, this, &MainWindow::onSaveFileAs);
+    fileMenu->addAction(createAction("Создать...", QKeySequence::New, this, SLOT(onNewProject())));
+    fileMenu->addAction(createAction("Открыть...", QKeySequence::Open, this, SLOT(onOpenFile())));
+    fileMenu->addAction(createAction("Сохранить", QKeySequence::Save, this, SLOT(onSaveFile())));
+    fileMenu->addAction(createAction("Сохранить как...", QKeySequence::SaveAs, this, SLOT(onSaveFileAs())));
     
     fileMenu->addSeparator();
     
-    QAction *exitAction = fileMenu->addAction("Выход");
-    exitAction->setShortcut(QKeySequence::Quit);
-    connect(exitAction, &QAction::triggered, this, &QMainWindow::close);
+    fileMenu->addAction(createAction("Выход", QKeySequence::Quit, this, SLOT(close())));
+
+    QMenu *objectsMenu = menuBar()->addMenu("Объекты");
+    auto addObjectAction = [this, objectsMenu](const QString &title, const QKeySequence &shortcut, const QString &typeName) {
+        QAction *action = objectsMenu->addAction(title);
+        action->setShortcut(shortcut);
+        connect(action, &QAction::triggered, this, [this, typeName]() {
+            createObjectOfType(typeName);
+        });
+    };
+    addObjectAction("Прямоугольник", QKeySequence("Alt+1"), "rectangle");
+    addObjectAction("Static", QKeySequence("Alt+2"), "staticgroup");
+    addObjectAction("Rotation Group", QKeySequence("Alt+3"), "rotationobject");
+    addObjectAction("Авиагоризонт", QKeySequence("Alt+4"), "aviagorizont");
+    addObjectAction("Текст", QKeySequence("Alt+5"), "text");
     
     //меню "Вид"
     QMenu *viewMenu = menuBar()->addMenu("Вид");
@@ -263,9 +309,7 @@ void MainWindow::createMenus()
     //меню "Настройки"
     QMenu *settingsMenu = menuBar()->addMenu("Настройки");
     
-    QAction *preferencesAction = settingsMenu->addAction("Параметры...");
-    preferencesAction->setShortcut(QKeySequence("Ctrl+,"));
-    connect(preferencesAction, &QAction::triggered, this, &MainWindow::openSettings);
+    settingsMenu->addAction(createAction("Параметры...", QKeySequence("Ctrl+,"), this, SLOT(openSettings())));
 }
 
 void MainWindow::connectSignals()
@@ -293,16 +337,7 @@ void MainWindow::connectSignals()
     });
 
     //создание объекта из библиотеки
-    connect(m_objectLibrary, &ObjectLibraryPanel::objectRequested, this, [this](const QString &typeName) {
-        const int index = ProjectManager::instance()->addObject(typeName);
-        if (index >= 0) {
-            m_objectList->refreshList();
-            m_objectList->selectRow(index);
-            m_viewport->setSelectedIndex(index);
-            m_objectProperties->showObjectProperties(index);
-            m_viewport->update();
-        }
-    });
+    connect(m_objectLibrary, &ObjectLibraryPanel::objectRequested, this, &MainWindow::createObjectOfType);
     
     //связь изменения цвета фона с перерисовкой
     connect(m_viewportSettings, &ViewportSettingsPanel::bgColorChanged, m_viewport, QOverload<>::of(&QWidget::update));
@@ -343,4 +378,26 @@ void MainWindow::resetToDefaultLayout()
     //применяем стандартные размеры
     showMaximized();
     setupDockSizes();
+}
+
+void MainWindow::createObjectOfType(const QString &typeName)
+{
+    const int index = ProjectManager::instance()->addObject(typeName);
+    if (index < 0)
+        return;
+
+    m_objectList->refreshList();
+    m_objectList->selectRow(index);
+    m_viewport->setSelectedIndex(index);
+    m_objectProperties->showObjectProperties(index);
+    m_viewport->update();
+}
+
+QAction* MainWindow::createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member)
+{
+    QAction *action = new QAction(text, this);
+    action->setShortcut(shortcut);
+    connect(action, SIGNAL(triggered()), receiver, member);
+    addAction(action);
+    return action;
 }

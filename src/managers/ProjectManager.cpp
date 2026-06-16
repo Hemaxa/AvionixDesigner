@@ -12,6 +12,7 @@
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
 #include "AviaHorizonObject.h"
+#include "TextObject.h"
 #include "BitParser.h"
 #include "DebugDumper.h"
 
@@ -31,6 +32,8 @@ QString canonicalSchemaName(const QString &typeName)
         return "rectangle";
     if (typeName == "aviahorizont")
         return "aviagorizont";
+    if (typeName == "text")
+        return "staticgroup";
     return typeName;
 }
 
@@ -40,6 +43,8 @@ QString canonicalObjectTag(const QString &typeName)
         return "rectangle";
     if (typeName == "aviahorizont")
         return "aviagorizont";
+    if (typeName == "text")
+        return "staticgroup";
     return typeName;
 }
 
@@ -157,6 +162,12 @@ QString serializeMaskData(const QImage &image)
     return values.join(", ");
 }
 
+QString formatProjectColor(const QColor &color)
+{
+    const uint bgVal = (color.blue() << 16) | (color.green() << 8) | color.red();
+    return QString("#%1").arg(bgVal, 0, 16);
+}
+
 QString serializeStaticGroupData(const StaticGroupObject *group)
 {
     if (!group || group->states.isEmpty()) {
@@ -243,6 +254,82 @@ QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const
     }
 
     return objEl;
+}
+
+QDomDocument buildProjectDocument(const QString &projectName,
+                                  int canvasWidth,
+                                  int canvasHeight,
+                                  const QColor &backgroundColor,
+                                  const QMap<QString, ParamSchema> &schemas,
+                                  const QMap<QString, QString> &schemaAliases,
+                                  const QList<QSharedPointer<BaseObject>> &objects,
+                                  const QStringList &objectTags)
+{
+    QDomDocument doc;
+    doc.appendChild(doc.createProcessingInstruction("xml", "version='1.0' encoding='windows-1251'"));
+
+    QDomElement root = doc.createElement("project");
+    root.setAttribute("name", projectName.isEmpty() ? QStringLiteral("Untitled") : projectName);
+    root.setAttribute("width", canvasWidth);
+    root.setAttribute("height", canvasHeight);
+    root.setAttribute("bgcolor", formatProjectColor(backgroundColor));
+    doc.appendChild(root);
+
+    QDomElement paramsEl = doc.createElement("parameters");
+    root.appendChild(paramsEl);
+
+    QSet<QString> requiredSchemas = {"rectangle", "rotationobject", "staticgroup", "aviagorizont"};
+    for (const QString &tagName : objectTags) {
+        requiredSchemas.insert(schemaAliases.value(tagName, canonicalSchemaName(tagName)));
+    }
+
+    const QStringList orderedSchemas = {"rectangle", "rotationobject", "staticgroup", "aviagorizont"};
+    for (const QString &schemaName : orderedSchemas) {
+        if (!requiredSchemas.contains(schemaName))
+            continue;
+
+        QDomElement schemaEl = doc.createElement(schemaName);
+        const auto fields = schemaFieldsFor(schemaName);
+        for (const auto &field : fields) {
+            QDomElement fieldEl = doc.createElement(QString::fromLatin1(field.name));
+            fieldEl.setAttribute("offset", field.offset);
+            fieldEl.setAttribute("size", field.size);
+            schemaEl.appendChild(fieldEl);
+        }
+        paramsEl.appendChild(schemaEl);
+    }
+
+    for (const QString &schemaName : requiredSchemas) {
+        if (orderedSchemas.contains(schemaName))
+            continue;
+
+        if (!schemas.contains(schemaName))
+            continue;
+
+        QDomElement schemaEl = doc.createElement(schemaName);
+        const auto fields = schemaFieldsFor(schemaName);
+        for (const auto &field : fields) {
+            QDomElement fieldEl = doc.createElement(QString::fromLatin1(field.name));
+            fieldEl.setAttribute("offset", field.offset);
+            fieldEl.setAttribute("size", field.size);
+            schemaEl.appendChild(fieldEl);
+        }
+        paramsEl.appendChild(schemaEl);
+    }
+
+    QDomElement objectsEl = doc.createElement("objects");
+    root.appendChild(objectsEl);
+
+    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
+        const QString tagName = objIdx < objectTags.size() ? objectTags[objIdx] : QString();
+        const QString schemaName = schemaAliases.value(tagName, canonicalSchemaName(tagName));
+        if (tagName.isEmpty() || !schemas.contains(schemaName))
+            continue;
+
+        objectsEl.appendChild(createObjectElement(doc, tagName, schemas[schemaName], objects[objIdx]));
+    }
+
+    return doc;
 }
 }
 
@@ -364,6 +451,32 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     return true;
 }
 
+bool ProjectManager::createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath)
+{
+    m_projectName = projectName.trimmed().isEmpty() ? QStringLiteral("Untitled") : projectName.trimmed();
+    m_canvasWidth = qMax(1, width);
+    m_canvasHeight = qMax(1, height);
+    m_bgColor = backgroundColor;
+    m_filePath = filePath;
+
+    m_objects.clear();
+    m_objectTags.clear();
+    m_schemaAliases.clear();
+    m_schemaAliases["rectangle_a"] = "rectangle";
+    m_schemaAliases["aviahorizont"] = "aviagorizont";
+
+    m_schemas.clear();
+    const QStringList defaultSchemas = {"rectangle", "rotationobject", "staticgroup", "aviagorizont"};
+    for (const QString &schemaName : defaultSchemas) {
+        m_schemas.insert(schemaName, buildSchema(schemaName));
+    }
+
+    emit logMessage(tr("Создан новый проект: %1 (%2x%3)").arg(m_projectName).arg(m_canvasWidth).arg(m_canvasHeight));
+    emit projectLoaded();
+    emit projectChanged();
+    return true;
+}
+
 //метод регистрации стандартых типов объектов (получение словаря поддерживаемых объектов)
 void ProjectManager::registerStandardTypes()
 {
@@ -378,12 +491,13 @@ void ProjectManager::registerStandardTypes()
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
     om->registerType("aviagorizont", []() { return new AviaHorizonObject(); });
     om->registerType("aviahorizont", []() { return new AviaHorizonObject(); });
+    om->registerType("text", []() { return new TextObject(); });
 }
 
 int ProjectManager::addObject(const QString &typeName)
 {
-    if (m_filePath.isEmpty()) {
-        emit logMessage(tr("Сначала откройте XML файл проекта"));
+    if (m_canvasWidth <= 0 || m_canvasHeight <= 0) {
+        emit logMessage(tr("Сначала откройте или создайте проект"));
         return -1;
     }
 
@@ -433,6 +547,12 @@ int ProjectManager::addObject(const QString &typeName)
         rotation->color = QColor("#F8FAFC");
         rotation->maskImage = QImage(size, size, QImage::Format_ARGB32);
         rotation->maskImage.fill(QColor(255, 255, 255, 255));
+    }
+    else if (auto textObject = dynamic_cast<TextObject*>(rawObject)) {
+        if (!textObject->states.isEmpty()) {
+            textObject->states[0].x = qMax(12, qRound(centerX - textObject->states[0].w / 2.0));
+            textObject->states[0].y = qMax(12, qRound(centerY - textObject->states[0].h / 2.0));
+        }
     }
     else if (auto staticGroup = dynamic_cast<StaticGroupObject*>(rawObject)) {
         GroupState state;
@@ -496,76 +616,20 @@ bool ProjectManager::reorderObjects(const QList<int> &order)
 
 bool ProjectManager::saveToFile(const QString &targetFile)
 {
-    if (m_filePath.isEmpty()) return false;
-    QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
-    
-    //переоткрываем оригинальный XML
-    QFile file(m_filePath);
-    if (!file.open(QIODevice::ReadOnly)) return false;
-    
-    QDomDocument doc;
-    if (!doc.setContent(&file)) {
-        file.close();
+    const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
+    if (outPath.isEmpty())
         return false;
-    }
-    file.close();
-    
-    QDomElement root = doc.documentElement();
-    QDomElement paramsEl = root.firstChildElement("parameters");
-    if (paramsEl.isNull()) {
-        paramsEl = doc.createElement("parameters");
-        root.insertBefore(paramsEl, root.firstChild());
-    }
-    
-    //обновляем bgcolor
-    uint bgVal = (m_bgColor.blue() << 16) | (m_bgColor.green() << 8) | m_bgColor.red();
-    root.setAttribute("bgcolor", QString("#%1").arg(bgVal, 0, 16));
 
-    QSet<QString> requiredSchemas;
-    for (const QString &tagName : m_objectTags) {
-        requiredSchemas.insert(m_schemaAliases.value(tagName, canonicalSchemaName(tagName)));
-    }
-
-    for (const QString &schemaName : requiredSchemas) {
-        if (!m_schemas.contains(schemaName)) {
-            ParamSchema schema = buildSchema(schemaName);
-            if (!schema.isEmpty()) {
-                m_schemas.insert(schemaName, schema);
-            }
-        }
-
-        if (paramsEl.firstChildElement(schemaName).isNull()) {
-            const auto fields = schemaFieldsFor(schemaName);
-            if (!fields.isEmpty()) {
-                QDomElement schemaEl = doc.createElement(schemaName);
-                for (const auto &field : fields) {
-                    QDomElement fieldEl = doc.createElement(QString::fromLatin1(field.name));
-                    fieldEl.setAttribute("offset", field.offset);
-                    fieldEl.setAttribute("size", field.size);
-                    schemaEl.appendChild(fieldEl);
-                }
-                paramsEl.appendChild(schemaEl);
-            }
-        }
-    }
-    
-    QDomElement objectsEl = root.firstChildElement("objects");
-    if (objectsEl.isNull()) {
-        objectsEl = doc.createElement("objects");
-        root.appendChild(objectsEl);
-    }
-    while (!objectsEl.firstChild().isNull()) {
-        objectsEl.removeChild(objectsEl.firstChild());
-    }
-
-    for (int objIdx = 0; objIdx < m_objects.size(); ++objIdx) {
-        const QString tagName = objIdx < m_objectTags.size() ? m_objectTags[objIdx] : QString();
-        const QString schemaName = m_schemaAliases.value(tagName, canonicalSchemaName(tagName));
-        if (tagName.isEmpty() || !m_schemas.contains(schemaName))
-            continue;
-
-        objectsEl.appendChild(createObjectElement(doc, tagName, m_schemas[schemaName], m_objects[objIdx]));
-    }
+    const QDomDocument doc = buildProjectDocument(
+        m_projectName,
+        m_canvasWidth,
+        m_canvasHeight,
+        m_bgColor,
+        m_schemas,
+        m_schemaAliases,
+        m_objects,
+        m_objectTags
+    );
     
     //записываем XML обратно в файл
     QFile outFile(outPath);
@@ -582,8 +646,6 @@ bool ProjectManager::saveToFile(const QString &targetFile)
     
     if (!targetFile.isEmpty() && targetFile != m_filePath) {
         m_filePath = targetFile;
-        QFileInfo fi(targetFile);
-        m_projectName = fi.baseName();
         emit projectLoaded(); // Обновляем заголовок и UI
     }
     
