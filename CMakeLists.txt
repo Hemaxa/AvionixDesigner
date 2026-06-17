@@ -14,6 +14,14 @@ qt_add_executable(AvionixDesigner
     # Базовые классы
     src/BaseObject.h
     src/BasePanel.h
+
+    # Внутренняя модель редактора
+    src/editor/EditorProjectDocument.h
+    src/editor/EditorProjectDocument.cpp
+
+    # Реестр FPGA-схем
+    src/schema/FpgaSchemaRegistry.h
+    src/schema/FpgaSchemaRegistry.cpp
     
     # Менеджеры
     src/managers/ProjectManager.h
@@ -36,6 +44,10 @@ qt_add_executable(AvionixDesigner
     src/panels/ObjectLibraryPanel.cpp
     src/panels/ViewportSettingsPanel.h
     src/panels/ViewportSettingsPanel.cpp
+    src/panels/SelectionToolStrip.h
+    src/panels/SelectionToolStrip.cpp
+    src/panels/EditorWorkspacePanel.h
+    src/panels/EditorWorkspacePanel.cpp
     
     # Объекты
     src/objects/RectangleObject.h
@@ -61,6 +73,7 @@ qt_add_executable(AvionixDesigner
     src/utils/BitParser.h
     src/utils/XmlReader.h
     src/utils/DebugDumper.h
+    src/utils/ProportionalResize.h
     
     # Ресурсы
     res/resources.qrc
@@ -81,6 +94,8 @@ target_include_directories(AvionixDesigner PRIVATE
     ${CMAKE_SOURCE_DIR}/src/managers
     ${CMAKE_SOURCE_DIR}/src/panels
     ${CMAKE_SOURCE_DIR}/src/objects
+    ${CMAKE_SOURCE_DIR}/src/editor
+    ${CMAKE_SOURCE_DIR}/src/schema
     ${CMAKE_SOURCE_DIR}/src/windows
     ${CMAKE_SOURCE_DIR}/src/utils
 )

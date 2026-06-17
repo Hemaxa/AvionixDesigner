@@ -1,5 +1,6 @@
 #include "RotationObject.h"
 #include "BitParser.h"
+#include "ProportionalResize.h"
 #include "XmlReader.h"
 #include <QtMath>
 
@@ -169,37 +170,24 @@ void RotationObject::moveBy(double dx, double dy)
 
 void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
 {
-    const double oldWidth = qMax(1.0, right - left);
-    const double oldHeight = qMax(1.0, bottom - top);
-
     // Так как размеры хранятся как смещения (top, left, bottom, right),
     // нам нужно учитывать текущий поворот.
     // Проще всего конвертировать dx, dy в локальные координаты.
     double angleRad = qDegreesToRadians(-getAngleDegrees()); // Обратный поворот
     double localDx = dx * qCos(angleRad) - dy * qSin(angleRad);
     double localDy = dx * qSin(angleRad) + dy * qCos(angleRad);
-    
-    if (edgeFlags & 1) { // Left
-        left += localDx;
-        if (left >= right) left = right - 1;
-    }
-    if (edgeFlags & 2) { // Right
-        right += localDx;
-        if (right <= left) right = left + 1;
-    }
-    if (edgeFlags & 4) { // Top
-        top += localDy;
-        if (top >= bottom) top = bottom - 1;
-    }
-    if (edgeFlags & 8) { // Bottom
-        bottom += localDy;
-        if (bottom <= top) bottom = top + 1;
-    }
 
-    const int newWidth = qMax(1, qRound(right - left));
-    const int newHeight = qMax(1, qRound(bottom - top));
-    if (!maskImage.isNull() && (qRound(oldWidth) != newWidth || qRound(oldHeight) != newHeight)) {
-        maskImage = maskImage.scaled(newWidth, newHeight, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    const QRectF oldRect(left, top, qMax(1.0, right - left), qMax(1.0, bottom - top));
+    const auto resized = proportionalResizeRect(oldRect, edgeFlags, localDx, localDy);
+    left = resized.rect.left();
+    top = resized.rect.top();
+    right = resized.rect.right();
+    bottom = resized.rect.bottom();
+
+    const int newWidth = qMax(1, qRound(resized.rect.width()));
+    const int newHeight = qMax(1, qRound(resized.rect.height()));
+    if (!maskImage.isNull() && (maskImage.width() != newWidth || maskImage.height() != newHeight)) {
+        maskImage = maskImage.scaled(newWidth, newHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
     }
     
     emit changed();

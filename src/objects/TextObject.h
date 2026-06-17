@@ -22,6 +22,7 @@ public:
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
     bool setObjectProperty(const QString &name, const QString &value) override;
+    void resizeBy(int edgeFlags, double dx, double dy) override;
 
 private:
     void rebuildMask();

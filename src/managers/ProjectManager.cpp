@@ -7,6 +7,8 @@
 #include <QStringEncoder>
 
 #include "ProjectManager.h"
+#include "EditorProjectDocument.h"
+#include "FpgaSchemaRegistry.h"
 #include "ObjectsManager.h"
 #include "RectangleObject.h"
 #include "RotationObject.h"
@@ -17,111 +19,6 @@
 #include "DebugDumper.h"
 
 namespace {
-struct SchemaFieldDef
-{
-    const char *name;
-    int offset;
-    int size;
-};
-
-using SchemaFieldList = QList<SchemaFieldDef>;
-
-QString canonicalSchemaName(const QString &typeName)
-{
-    if (typeName == "rectangle_a")
-        return "rectangle";
-    if (typeName == "aviahorizont")
-        return "aviagorizont";
-    if (typeName == "text")
-        return "staticgroup";
-    return typeName;
-}
-
-QString canonicalObjectTag(const QString &typeName)
-{
-    if (typeName == "rectangle_a")
-        return "rectangle";
-    if (typeName == "aviahorizont")
-        return "aviagorizont";
-    if (typeName == "text")
-        return "staticgroup";
-    return typeName;
-}
-
-SchemaFieldList schemaFieldsFor(const QString &schemaName)
-{
-    if (schemaName == "rectangle") {
-        return {
-            {"enb", 0, 1},
-            {"color", 1, 24},
-            {"colorb", 25, 24},
-            {"x0", 49, 12},
-            {"y0", 61, 12},
-            {"w", 73, 12},
-            {"h", 85, 12},
-            {"a", 97, 12},
-            {"padding", 109, 41}
-        };
-    }
-
-    if (schemaName == "rotationobject") {
-        return {
-            {"enb", 0, 1},
-            {"color", 1, 24},
-            {"xrot", 25, 12},
-            {"yrot", 37, 12},
-            {"top", 49, 12},
-            {"left", 61, 12},
-            {"bottom", 73, 12},
-            {"right", 85, 12},
-            {"sq", 97, 8},
-            {"sin", 105, 18},
-            {"cos", 123, 18},
-            {"padding", 141, 9}
-        };
-    }
-
-    if (schemaName == "staticgroup") {
-        return {
-            {"enb", 0, 1},
-            {"color", 1, 24},
-            {"x", 25, 12},
-            {"y", 37, 12},
-            {"w", 49, 12},
-            {"h", 61, 12},
-            {"addr", 73, 16},
-            {"padding", 89, 61}
-        };
-    }
-
-    if (schemaName == "aviagorizont") {
-        return {
-            {"enb", 0, 1},
-            {"earth", 1, 24},
-            {"sky", 25, 24},
-            {"hline", 49, 24},
-            {"width", 73, 4},
-            {"xo", 77, 12},
-            {"yo", 89, 12},
-            {"sn", 101, 18},
-            {"cs", 119, 18},
-            {"padding", 137, 13}
-        };
-    }
-
-    return {};
-}
-
-ParamSchema buildSchema(const QString &schemaName)
-{
-    ParamSchema schema;
-    const auto fields = schemaFieldsFor(schemaName);
-    for (const auto &field : fields) {
-        schema.insert(QString::fromLatin1(field.name), {field.offset, field.size});
-    }
-    return schema;
-}
-
 int schemaBitLength(const ParamSchema &schema)
 {
     int maxBit = 0;
@@ -279,19 +176,20 @@ QDomDocument buildProjectDocument(const QString &projectName,
     root.appendChild(paramsEl);
 
     QSet<QString> requiredSchemas = {"rectangle", "rotationobject", "staticgroup", "aviagorizont"};
+    auto *registry = FpgaSchemaRegistry::instance();
     for (const QString &tagName : objectTags) {
-        requiredSchemas.insert(schemaAliases.value(tagName, canonicalSchemaName(tagName)));
+        requiredSchemas.insert(schemaAliases.value(tagName, registry->canonicalSchemaName(tagName)));
     }
 
-    const QStringList orderedSchemas = {"rectangle", "rotationobject", "staticgroup", "aviagorizont"};
+    const QStringList orderedSchemas = registry->orderedSchemaNames();
     for (const QString &schemaName : orderedSchemas) {
         if (!requiredSchemas.contains(schemaName))
             continue;
 
         QDomElement schemaEl = doc.createElement(schemaName);
-        const auto fields = schemaFieldsFor(schemaName);
+        const auto fields = registry->fieldsForSchema(schemaName);
         for (const auto &field : fields) {
-            QDomElement fieldEl = doc.createElement(QString::fromLatin1(field.name));
+            QDomElement fieldEl = doc.createElement(field.name);
             fieldEl.setAttribute("offset", field.offset);
             fieldEl.setAttribute("size", field.size);
             schemaEl.appendChild(fieldEl);
@@ -307,9 +205,9 @@ QDomDocument buildProjectDocument(const QString &projectName,
             continue;
 
         QDomElement schemaEl = doc.createElement(schemaName);
-        const auto fields = schemaFieldsFor(schemaName);
+        const auto fields = registry->fieldsForSchema(schemaName);
         for (const auto &field : fields) {
-            QDomElement fieldEl = doc.createElement(QString::fromLatin1(field.name));
+            QDomElement fieldEl = doc.createElement(field.name);
             fieldEl.setAttribute("offset", field.offset);
             fieldEl.setAttribute("size", field.size);
             schemaEl.appendChild(fieldEl);
@@ -322,7 +220,7 @@ QDomDocument buildProjectDocument(const QString &projectName,
 
     for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
         const QString tagName = objIdx < objectTags.size() ? objectTags[objIdx] : QString();
-        const QString schemaName = schemaAliases.value(tagName, canonicalSchemaName(tagName));
+        const QString schemaName = schemaAliases.value(tagName, registry->canonicalSchemaName(tagName));
         if (tagName.isEmpty() || !schemas.contains(schemaName))
             continue;
 
@@ -333,7 +231,7 @@ QDomDocument buildProjectDocument(const QString &projectName,
 }
 }
 
-ProjectManager::ProjectManager() : m_canvasWidth(0), m_canvasHeight(0), m_bgColor() {}
+ProjectManager::ProjectManager() : m_document(new EditorProjectDocument()) {}
 
 ProjectManager* ProjectManager::instance()
 {
@@ -343,6 +241,7 @@ ProjectManager* ProjectManager::instance()
 
 bool ProjectManager::loadFromFile(const QString &fileName)
 {
+    auto *registry = FpgaSchemaRegistry::instance();
     m_filePath = fileName;
     m_objects.clear();
     m_objectTags.clear();
@@ -370,9 +269,9 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     QDomElement root = doc.documentElement();
     
     //читаем метаданные проекта
-    m_projectName = root.attribute("name", "Untitled");
-    m_canvasWidth = root.attribute("width", "640").toInt();
-    m_canvasHeight = root.attribute("height", "480").toInt();
+    m_document->setProjectName(root.attribute("name", "Untitled"));
+    m_document->setCanvasSize(root.attribute("width", "640").toInt(), root.attribute("height", "480").toInt());
+    m_document->setBackgroundColor(Qt::black);
     
     //парсим цвет фона
     QString bgStr = root.attribute("bgcolor", "#0");
@@ -380,20 +279,18 @@ bool ProjectManager::loadFromFile(const QString &fileName)
         bool ok;
         uint colorVal = bgStr.mid(1).toUInt(&ok, 16);
         if (ok) {
-            m_bgColor = QColor(colorVal & 0xFF, (colorVal >> 8) & 0xFF, (colorVal >> 16) & 0xFF);
+            m_document->setBackgroundColor(QColor(colorVal & 0xFF, (colorVal >> 8) & 0xFF, (colorVal >> 16) & 0xFF));
         }
     }
     
-    emit logMessage(tr("Проект: %1 (%2x%3)").arg(m_projectName).arg(m_canvasWidth).arg(m_canvasHeight));
+    emit logMessage(tr("Проект: %1 (%2x%3)").arg(m_document->projectName()).arg(m_document->canvasWidth()).arg(m_document->canvasHeight()));
     
     //парсим схемы параметров и сохраняем для использования при сохранении
     QDomElement paramsEl = root.firstChildElement("parameters");
     m_schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
     
     //маппинг тегов на схемы параметров (для тегов без собственной схемы)
-    m_schemaAliases.clear();
-    m_schemaAliases["rectangle_a"] = "rectangle";
-    m_schemaAliases["aviahorizont"] = "aviagorizont";
+    m_schemaAliases = registry->defaultSchemaAliases();
     //m_schemaAliases["rectangle_e"] = "rectangle";
     
     for (const QString &type : m_schemas.keys()) {
@@ -453,25 +350,23 @@ bool ProjectManager::loadFromFile(const QString &fileName)
 
 bool ProjectManager::createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath)
 {
-    m_projectName = projectName.trimmed().isEmpty() ? QStringLiteral("Untitled") : projectName.trimmed();
-    m_canvasWidth = qMax(1, width);
-    m_canvasHeight = qMax(1, height);
-    m_bgColor = backgroundColor;
+    auto *registry = FpgaSchemaRegistry::instance();
+    m_document->setProjectName(projectName);
+    m_document->setCanvasSize(width, height);
+    m_document->setBackgroundColor(backgroundColor);
     m_filePath = filePath;
 
     m_objects.clear();
     m_objectTags.clear();
-    m_schemaAliases.clear();
-    m_schemaAliases["rectangle_a"] = "rectangle";
-    m_schemaAliases["aviahorizont"] = "aviagorizont";
+    m_schemaAliases = registry->defaultSchemaAliases();
 
     m_schemas.clear();
-    const QStringList defaultSchemas = {"rectangle", "rotationobject", "staticgroup", "aviagorizont"};
+    const QStringList defaultSchemas = registry->defaultSchemaNames();
     for (const QString &schemaName : defaultSchemas) {
-        m_schemas.insert(schemaName, buildSchema(schemaName));
+        m_schemas.insert(schemaName, registry->buildSchema(schemaName));
     }
 
-    emit logMessage(tr("Создан новый проект: %1 (%2x%3)").arg(m_projectName).arg(m_canvasWidth).arg(m_canvasHeight));
+    emit logMessage(tr("Создан новый проект: %1 (%2x%3)").arg(m_document->projectName()).arg(m_document->canvasWidth()).arg(m_document->canvasHeight()));
     emit projectLoaded();
     emit projectChanged();
     return true;
@@ -496,7 +391,9 @@ void ProjectManager::registerStandardTypes()
 
 int ProjectManager::addObject(const QString &typeName)
 {
-    if (m_canvasWidth <= 0 || m_canvasHeight <= 0) {
+    auto *registry = FpgaSchemaRegistry::instance();
+
+    if (!m_document->hasCanvas()) {
         emit logMessage(tr("Сначала откройте или создайте проект"));
         return -1;
     }
@@ -509,8 +406,8 @@ int ProjectManager::addObject(const QString &typeName)
 
     const int index = m_objects.size();
     const int offset = 24 * (index % 6);
-    const double centerX = qBound(40.0, m_canvasWidth * 0.35 + offset, m_canvasWidth - 40.0);
-    const double centerY = qBound(40.0, m_canvasHeight * 0.35 + offset, m_canvasHeight - 40.0);
+    const double centerX = qBound(40.0, m_document->canvasWidth() * 0.35 + offset, m_document->canvasWidth() - 40.0);
+    const double centerY = qBound(40.0, m_document->canvasHeight() * 0.35 + offset, m_document->canvasHeight() - 40.0);
 
     if (auto rect = dynamic_cast<RectangleObject*>(rawObject)) {
         rect->x = qMax(12.0, centerX - 60.0);
@@ -571,20 +468,35 @@ int ProjectManager::addObject(const QString &typeName)
         staticGroup->maskImages = {mask};
     }
 
-    const QString schemaName = canonicalSchemaName(typeName);
+    const QString schemaName = registry->canonicalSchemaName(typeName);
     if (!m_schemas.contains(schemaName)) {
-        ParamSchema schema = buildSchema(schemaName);
+        ParamSchema schema = registry->buildSchema(schemaName);
         if (!schema.isEmpty()) {
             m_schemas.insert(schemaName, schema);
         }
     }
 
     m_objects.append(QSharedPointer<BaseObject>(rawObject));
-    m_objectTags.append(canonicalObjectTag(typeName));
+    m_objectTags.append(registry->canonicalObjectTag(typeName));
 
     emit projectChanged();
     emit logMessage(tr("Добавлен объект: %1").arg(typeName));
     return m_objects.size() - 1;
+}
+
+bool ProjectManager::removeObject(int index)
+{
+    if (index < 0 || index >= m_objects.size())
+        return false;
+
+    m_objects.removeAt(index);
+    if (index < m_objectTags.size()) {
+        m_objectTags.removeAt(index);
+    }
+
+    emit projectChanged();
+    emit logMessage(tr("Удалён объект #%1").arg(index + 1));
+    return true;
 }
 
 bool ProjectManager::reorderObjects(const QList<int> &order)
@@ -614,6 +526,45 @@ bool ProjectManager::reorderObjects(const QList<int> &order)
     return true;
 }
 
+bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
+{
+    if (index < 0 || index >= m_objects.size() || !m_document->hasCanvas())
+        return false;
+
+    const auto object = m_objects[index];
+    const QRectF bounds = object->getBoundingRect();
+    if (bounds.isEmpty())
+        return false;
+
+    double dx = 0.0;
+    double dy = 0.0;
+    switch (alignment) {
+    case ObjectAlignment::Left:
+        dx = -bounds.left();
+        break;
+    case ObjectAlignment::HCenter:
+        dx = m_document->canvasWidth() / 2.0 - bounds.center().x();
+        break;
+    case ObjectAlignment::Right:
+        dx = m_document->canvasWidth() - bounds.right();
+        break;
+    case ObjectAlignment::Top:
+        dy = -bounds.top();
+        break;
+    case ObjectAlignment::VCenter:
+        dy = m_document->canvasHeight() / 2.0 - bounds.center().y();
+        break;
+    case ObjectAlignment::Bottom:
+        dy = m_document->canvasHeight() - bounds.bottom();
+        break;
+    }
+
+    object->moveBy(dx, dy);
+    emit projectChanged();
+    emit logMessage(tr("Выполнено выравнивание объекта"));
+    return true;
+}
+
 bool ProjectManager::saveToFile(const QString &targetFile)
 {
     const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
@@ -621,10 +572,10 @@ bool ProjectManager::saveToFile(const QString &targetFile)
         return false;
 
     const QDomDocument doc = buildProjectDocument(
-        m_projectName,
-        m_canvasWidth,
-        m_canvasHeight,
-        m_bgColor,
+        m_document->projectName(),
+        m_document->canvasWidth(),
+        m_document->canvasHeight(),
+        m_document->backgroundColor(),
         m_schemas,
         m_schemaAliases,
         m_objects,
@@ -663,18 +614,28 @@ QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const
 
 //геттеры
 int ProjectManager::getObjectCount() const { return m_objects.size(); }
-QString ProjectManager::getProjectName() const { return m_projectName; }
-int ProjectManager::getCanvasWidth() const { return m_canvasWidth; }
-int ProjectManager::getCanvasHeight() const { return m_canvasHeight; }
-QColor ProjectManager::getBackgroundColor() const { return m_bgColor; }
+QString ProjectManager::getProjectName() const { return m_document->projectName(); }
+int ProjectManager::getCanvasWidth() const { return m_document->canvasWidth(); }
+int ProjectManager::getCanvasHeight() const { return m_document->canvasHeight(); }
+QColor ProjectManager::getBackgroundColor() const { return m_document->backgroundColor(); }
 QString ProjectManager::getFilePath() const { return m_filePath; }
 const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }
 
 //сеттеры
 void ProjectManager::setBackgroundColor(const QColor &color)
 {
-    if (m_bgColor != color) {
-        m_bgColor = color;
+    if (m_document->backgroundColor() != color) {
+        m_document->setBackgroundColor(color);
+        emit projectChanged();
+    }
+}
+
+void ProjectManager::setCanvasSize(int width, int height)
+{
+    const int clampedWidth = qMax(1, width);
+    const int clampedHeight = qMax(1, height);
+    if (m_document->canvasWidth() != clampedWidth || m_document->canvasHeight() != clampedHeight) {
+        m_document->setCanvasSize(clampedWidth, clampedHeight);
         emit projectChanged();
     }
 }

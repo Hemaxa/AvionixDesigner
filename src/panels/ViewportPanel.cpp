@@ -169,6 +169,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     
     //рисуем все объекты
     painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     const auto &objects = pm->getObjects();
     for (int i = 0; i < objects.size(); ++i) {
         objects[i]->draw(painter);

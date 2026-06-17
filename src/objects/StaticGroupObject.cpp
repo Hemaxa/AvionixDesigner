@@ -1,5 +1,6 @@
 #include "StaticGroupObject.h"
 #include "BitParser.h"
+#include "ProportionalResize.h"
 #include "XmlReader.h"
 
 StaticGroupObject::StaticGroupObject(QObject *parent) : BaseObject(parent) {}
@@ -227,35 +228,10 @@ void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
     if (oldBounds.isEmpty())
         return;
 
-    QRectF newBounds = oldBounds;
-    if (edgeFlags & 1) {
-        newBounds.setLeft(newBounds.left() + dx);
-    }
-    if (edgeFlags & 2) {
-        newBounds.setRight(newBounds.right() + dx);
-    }
-    if (edgeFlags & 4) {
-        newBounds.setTop(newBounds.top() + dy);
-    }
-    if (edgeFlags & 8) {
-        newBounds.setBottom(newBounds.bottom() + dy);
-    }
-
-    if (newBounds.width() < 1.0) {
-        if (edgeFlags & 1)
-            newBounds.setLeft(newBounds.right() - 1.0);
-        else
-            newBounds.setRight(newBounds.left() + 1.0);
-    }
-    if (newBounds.height() < 1.0) {
-        if (edgeFlags & 4)
-            newBounds.setTop(newBounds.bottom() - 1.0);
-        else
-            newBounds.setBottom(newBounds.top() + 1.0);
-    }
-
-    const double scaleX = newBounds.width() / oldBounds.width();
-    const double scaleY = newBounds.height() / oldBounds.height();
+    const auto resized = proportionalResizeRect(oldBounds, edgeFlags, dx, dy);
+    const QRectF newBounds = resized.rect;
+    const double scaleX = resized.scale;
+    const double scaleY = resized.scale;
 
     for (int i = 0; i < states.size(); ++i) {
         GroupState &s = states[i];
@@ -279,7 +255,7 @@ void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
         s.h = qMax(1, qRound(qMax(1.0, relativeBottom * scaleY - relativeTop * scaleY)));
 
         if (i < maskImages.size() && !maskImages[i].isNull()) {
-            maskImages[i] = maskImages[i].scaled(s.w, s.h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            maskImages[i] = maskImages[i].scaled(s.w, s.h, Qt::IgnoreAspectRatio, Qt::FastTransformation);
         }
     }
 

@@ -1,9 +1,9 @@
 #include "ObjectLibraryPanel.h"
 
-#include <QFrame>
+#include "FpgaSchemaRegistry.h"
+
 #include <QGridLayout>
 #include <QIcon>
-#include <QLabel>
 #include <QPainter>
 #include <QPixmap>
 #include <QSizePolicy>
@@ -20,10 +20,10 @@ QIcon createPlaceholderIcon(const QString &glyph)
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setPen(Qt::NoPen);
     painter.setBrush(QColor("#243447"));
-    painter.drawRoundedRect(QRectF(4, 4, 56, 56), 16, 16);
+    painter.drawRoundedRect(QRectF(4, 4, 56, 56), 14, 14);
 
     painter.setPen(QColor("#D9E4F2"));
-    QFont font("SF Pro Display", 24, QFont::DemiBold);
+    QFont font("SF Pro Display", 22, QFont::DemiBold);
     painter.setFont(font);
     painter.drawText(pixmap.rect(), Qt::AlignCenter, glyph);
 
@@ -36,20 +36,8 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
     setPanelName("ObjectLibraryPanel");
 
     auto *mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(10, 10, 10, 10);
-    mainLayout->setSpacing(8);
-
-    auto *titleLabel = new QLabel("Объекты", this);
-    titleLabel->setObjectName("LibraryTitleLabel");
-    mainLayout->addWidget(titleLabel);
-
-    m_descriptionLabel = new QLabel(
-        "Быстрое добавление поддерживаемых примитивов.",
-        this
-    );
-    m_descriptionLabel->setObjectName("LibraryDescriptionLabel");
-    m_descriptionLabel->setWordWrap(true);
-    mainLayout->addWidget(m_descriptionLabel);
+    mainLayout->setContentsMargins(6, 6, 6, 6);
+    mainLayout->setSpacing(6);
 
     createButtons();
     mainLayout->addLayout(m_gridLayout);
@@ -59,22 +47,15 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
 void ObjectLibraryPanel::createButtons()
 {
     m_gridLayout = new QGridLayout();
-    m_gridLayout->setHorizontalSpacing(12);
-    m_gridLayout->setVerticalSpacing(12);
+    m_gridLayout->setHorizontalSpacing(8);
+    m_gridLayout->setVerticalSpacing(8);
 
-    struct LibraryItem {
-        QString typeName;
-        QString iconPath;
-        QString title;
-    };
-
-    const QList<LibraryItem> items = {
-        {"rectangle", ":/icons/icons/library/rectangle.svg", "Прямоугольник"},
-        {"staticgroup", ":/icons/icons/library/staticgroup.svg", "Static"},
-        {"rotationobject", ":/icons/icons/library/rotationgroup.svg", "Rotation Group"},
-        {"aviagorizont", ":/icons/icons/library/aviahorizon.svg", "Авиагоризонт"},
-        {"text", ":/icons/icons/library/text.svg", "Текст"}
-    };
+    QList<EditorObjectDescriptor> items;
+    for (const auto &descriptor : FpgaSchemaRegistry::instance()->editorObjectCatalog()) {
+        if (descriptor.creatableInLibrary) {
+            items.append(descriptor);
+        }
+    }
 
     for (int i = 0; i < items.size(); ++i) {
         const auto &item = items[i];
@@ -94,9 +75,9 @@ QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, cons
     button->setObjectName("LibraryCard");
     button->setToolButtonStyle(Qt::ToolButtonIconOnly);
     button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    button->setMinimumSize(QSize(52, 52));
-    button->setMaximumSize(QSize(64, 64));
-    button->setIconSize(QSize(28, 28));
+    button->setMinimumSize(QSize(42, 42));
+    button->setMaximumSize(QSize(48, 48));
+    button->setIconSize(QSize(22, 22));
     button->setToolTip(title);
     button->setStatusTip(title);
 

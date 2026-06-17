@@ -28,17 +28,17 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
     container->setObjectName("PropertiesContainer");
 
     auto *containerLayout = new QVBoxLayout(container);
-    containerLayout->setContentsMargins(16, 16, 16, 16);
-    containerLayout->setSpacing(12);
+    containerLayout->setContentsMargins(8, 8, 8, 8);
+    containerLayout->setSpacing(8);
 
-    m_titleLabel = new QLabel("Свойства объекта", container);
+    m_titleLabel = new QLabel(container);
     m_titleLabel->setObjectName("PropertiesTitleLabel");
     containerLayout->addWidget(m_titleLabel);
 
-    m_subtitleLabel = new QLabel("Выберите объект на холсте или в списке, чтобы увидеть и изменить его параметры.", container);
+    m_subtitleLabel = new QLabel(container);
     m_subtitleLabel->setObjectName("PropertiesSubtitleLabel");
     m_subtitleLabel->setWordWrap(true);
-    containerLayout->addWidget(m_subtitleLabel);
+    m_subtitleLabel->hide();
 
     m_contentStack = new QStackedWidget(container);
     m_contentStack->setObjectName("PropertiesContentStack");
@@ -47,17 +47,14 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
     auto *emptyState = new QFrame(container);
     emptyState->setObjectName("PropertiesEmptyState");
     auto *emptyLayout = new QVBoxLayout(emptyState);
-    emptyLayout->setContentsMargins(18, 18, 18, 18);
-    emptyLayout->setSpacing(8);
+    emptyLayout->setContentsMargins(14, 14, 14, 14);
+    emptyLayout->setSpacing(4);
 
-    auto *emptyTitle = new QLabel("Ничего не выбрано", emptyState);
+    auto *emptyTitle = new QLabel("Объект не выбран", emptyState);
     emptyTitle->setObjectName("PropertiesEmptyTitleLabel");
     emptyLayout->addWidget(emptyTitle);
 
-    m_emptyStateLabel = new QLabel(
-        "Панель свойств появится здесь только для выбранного объекта. Это помогает не загромождать интерфейс пустой таблицей.",
-        emptyState
-    );
+    m_emptyStateLabel = new QLabel("Выделите элемент на холсте.", emptyState);
     m_emptyStateLabel->setObjectName("PropertiesEmptyTextLabel");
     m_emptyStateLabel->setWordWrap(true);
     emptyLayout->addWidget(m_emptyStateLabel);
@@ -87,6 +84,7 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
 
     m_contentStack->addWidget(tableContainer);
     m_contentStack->setCurrentIndex(0);
+    m_titleLabel->hide();
 
     m_scrollArea->setWidget(container);
     mainLayout->addWidget(m_scrollArea);
@@ -116,7 +114,8 @@ void ObjectPropertiesPanel::showProperties(QSharedPointer<BaseObject> obj)
     }
 
     m_titleLabel->setText(obj->getDisplayName());
-    m_subtitleLabel->setText("Редактирование значений выполняется прямо в таблице. Изменения сразу отражаются на холсте.");
+    m_titleLabel->show();
+    m_subtitleLabel->hide();
     populateTable(obj->getProperties());
     m_contentStack->setCurrentIndex(1);
 }
@@ -125,8 +124,10 @@ void ObjectPropertiesPanel::clearProperties()
 {
     clearTable();
     m_currentObject.reset();
-    m_titleLabel->setText("Свойства объекта");
-    m_subtitleLabel->setText("Выберите объект на холсте или в списке, чтобы увидеть и изменить его параметры.");
+    m_titleLabel->clear();
+    m_titleLabel->hide();
+    m_subtitleLabel->clear();
+    m_subtitleLabel->hide();
     m_contentStack->setCurrentIndex(0);
 }
 

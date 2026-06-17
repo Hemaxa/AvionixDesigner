@@ -6,10 +6,16 @@ QWidget {
     font-size: 13px;
 }
 
+#EditorWorkspacePanel,
+#SelectionToolStrip {
+    background-color: transparent;
+    border: none;
+}
+
 #ViewportPanel {
     background-color: #dde7f0;
     border: 1px solid #2f6fed;
-    border-radius: 12px;
+    border-radius: 10px;
 }
 
 #ObjectListPanel,
@@ -23,20 +29,20 @@ QWidget {
 QDockWidget {
     font-weight: 600;
     border: 1px solid #cdd7e3;
-    border-radius: 12px;
+    border-radius: 10px;
 }
 
 QDockWidget::title {
     background-color: #f7f9fc;
     color: #111827;
-    padding: 10px 14px;
+    padding: 8px 12px;
     border-bottom: 1px solid #d7dfeb;
 }
 
 QDockWidget::close-button,
 QDockWidget::float-button {
     padding: 2px;
-    border-radius: 6px;
+    border-radius: 5px;
 }
 
 QDockWidget::close-button:hover,
@@ -85,16 +91,16 @@ QMenu::separator {
 #ObjectListWidget {
     background-color: #ffffff;
     border: 1px solid #d6deea;
-    border-radius: 14px;
+    border-radius: 10px;
     outline: none;
-    padding: 6px;
+    padding: 4px;
 }
 
 QListWidget::item {
     background-color: transparent;
     margin: 2px 0;
-    padding: 10px 12px;
-    border-radius: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
 }
 
 QListWidget::item:hover {
@@ -106,53 +112,46 @@ QListWidget::item:selected {
     color: #ffffff;
 }
 
-#LibraryTitleLabel,
-#PropertiesTitleLabel {
+#PropertiesTitleLabel,
+#PropertiesEmptyTitleLabel,
+#SettingsFieldLabel {
     color: #111827;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
 }
 
-#LibraryDescriptionLabel,
-#PropertiesSubtitleLabel,
-#PropertiesEmptyTextLabel {
+#PropertiesEmptyTextLabel,
+#SettingsSizeLabel {
     color: #5b6778;
-    line-height: 1.4em;
+}
+
+#LibraryCard,
+#PropertiesEmptyState,
+#PropertiesTableCard,
+#SettingsCard,
+#SelectionToolButton {
+    background-color: #ffffff;
+    border: 1px solid #d6deea;
+    border-radius: 10px;
 }
 
 #LibraryCard {
-    background-color: #ffffff;
-    border: 1px solid #d6deea;
-    border-radius: 14px;
-    padding: 6px;
-    text-align: center;
-    font-weight: 600;
+    padding: 4px;
 }
 
-#LibraryCard:hover {
+#LibraryCard:hover,
+#SelectionToolButton:hover {
     background-color: #f6f9fd;
     border-color: #2f6fed;
 }
 
-#LibraryCard:pressed {
+#LibraryCard:pressed,
+#SelectionToolButton:pressed {
     background-color: #ecf2fb;
 }
 
 #PropertiesContainer {
     background-color: transparent;
-}
-
-#PropertiesEmptyState,
-#PropertiesTableCard {
-    background-color: #ffffff;
-    border: 1px solid #d6deea;
-    border-radius: 16px;
-}
-
-#PropertiesEmptyTitleLabel {
-    color: #111827;
-    font-size: 15px;
-    font-weight: 650;
 }
 
 #PropertiesTable {
@@ -164,7 +163,7 @@ QListWidget::item:selected {
 }
 
 #PropertiesTable::item {
-    padding: 10px 12px;
+    padding: 9px 12px;
     border-bottom: 1px solid #edf1f7;
 }
 
@@ -178,50 +177,67 @@ QHeaderView::section {
     color: #334155;
     border: none;
     border-bottom: 1px solid #dbe3ef;
-    padding: 10px 12px;
+    padding: 9px 12px;
     font-weight: 650;
 }
 
 QLineEdit,
-QTextEdit {
+QTextEdit,
+QSpinBox {
     background-color: #ffffff;
     color: #1f2937;
     border: 1px solid #d6deea;
-    border-radius: 10px;
-    padding: 8px 10px;
+    border-radius: 9px;
+    padding: 7px 10px;
 }
 
 QLineEdit:focus,
-QTextEdit:focus {
+QTextEdit:focus,
+QSpinBox:focus {
     border-color: #2f6fed;
 }
 
-QPushButton {
+QPushButton,
+QToolButton {
     background-color: #ffffff;
     color: #1f2937;
     border: 1px solid #c9d5e4;
-    border-radius: 10px;
-    padding: 8px 14px;
+    border-radius: 9px;
+    padding: 8px 12px;
 }
 
-QPushButton:hover {
+QPushButton:hover,
+QToolButton:hover {
     background-color: #f4f8ff;
     border-color: #2f6fed;
 }
 
-QPushButton:pressed {
+QPushButton:pressed,
+QToolButton:pressed {
     background-color: #e9f0fb;
+}
+
+#SettingsColorButton {
+    padding: 0px;
+    min-width: 28px;
+    min-height: 28px;
+}
+
+#SelectionToolButton {
+    padding: 0px;
+    font-size: 11px;
+    font-weight: 700;
 }
 
 QScrollBar:vertical {
     background-color: transparent;
-    width: 12px;
+    width: 10px;
     margin: 6px 0;
 }
 
 QScrollBar::handle:vertical {
     background-color: #c4ceda;
-    border-radius: 6px;
+    border-radius: 5px;
     min-height: 28px;
 }
 

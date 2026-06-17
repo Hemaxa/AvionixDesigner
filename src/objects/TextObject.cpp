@@ -1,5 +1,7 @@
 #include "TextObject.h"
 
+#include "ProportionalResize.h"
+
 #include <QFont>
 #include <QFontMetrics>
 #include <QPainter>
@@ -110,21 +112,17 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
     else if (name == "Ширина") {
         const int newWidth = qMax(1, value.toInt(&ok));
         if (ok) {
-            state.w = newWidth;
-            if (!maskImages.isEmpty() && !maskImages[0].isNull()) {
-                maskImages[0] = maskImages[0].scaled(state.w, qMax(1, state.h), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-            }
-            rebuildStateAddresses();
+            const double scale = state.w > 0 ? static_cast<double>(newWidth) / state.w : 1.0;
+            pixelSize = qMax(6, qRound(pixelSize * scale));
+            rebuildMask();
         }
     }
     else if (name == "Высота") {
         const int newHeight = qMax(1, value.toInt(&ok));
         if (ok) {
-            state.h = newHeight;
-            if (!maskImages.isEmpty() && !maskImages[0].isNull()) {
-                maskImages[0] = maskImages[0].scaled(qMax(1, state.w), state.h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-            }
-            rebuildStateAddresses();
+            const double scale = state.h > 0 ? static_cast<double>(newHeight) / state.h : 1.0;
+            pixelSize = qMax(6, qRound(pixelSize * scale));
+            rebuildMask();
         }
     }
 
@@ -137,6 +135,44 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
 
     emit changed();
     return true;
+}
+
+void TextObject::resizeBy(int edgeFlags, double dx, double dy)
+{
+    if (states.isEmpty())
+        return;
+
+    GroupState &state = states[0];
+    const QRectF oldBounds(state.x, state.y, qMax(1, state.w), qMax(1, state.h));
+    const int oldRight = state.x + state.w;
+    const int oldBottom = state.y + state.h;
+    const auto resized = proportionalResizeRect(oldBounds, edgeFlags, dx, dy);
+
+    pixelSize = qMax(6, qRound(pixelSize * resized.scale));
+    rebuildMask();
+
+    if (states.isEmpty())
+        return;
+
+    GroupState &updatedState = states[0];
+    if ((edgeFlags & 1) && !(edgeFlags & 2)) {
+        updatedState.x = oldRight - updatedState.w;
+    } else if ((edgeFlags & 2) && !(edgeFlags & 1)) {
+        updatedState.x = qRound(oldBounds.left());
+    } else {
+        updatedState.x = qRound(resized.rect.center().x() - updatedState.w / 2.0);
+    }
+
+    if ((edgeFlags & 4) && !(edgeFlags & 8)) {
+        updatedState.y = oldBottom - updatedState.h;
+    } else if ((edgeFlags & 8) && !(edgeFlags & 4)) {
+        updatedState.y = qRound(oldBounds.top());
+    } else {
+        updatedState.y = qRound(resized.rect.center().y() - updatedState.h / 2.0);
+    }
+
+    rebuildStateAddresses();
+    emit changed();
 }
 
 void TextObject::rebuildMask()

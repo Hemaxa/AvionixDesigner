@@ -1,73 +1,69 @@
-//ProjectManager - менеджер проекта, который хранит все данные загруженного XML
+//ProjectManager - менеджер проекта, связывающий внутреннюю модель редактора с экспортом в XML
 
 #pragma once
 
-#include <QObject>
-#include <QList>
-#include <QSharedPointer>
 #include <QColor>
+#include <QList>
+#include <QObject>
+#include <QSharedPointer>
 
 #include "BaseObject.h"
+
+class EditorProjectDocument;
+
+enum class ObjectAlignment
+{
+    Left,
+    HCenter,
+    Right,
+    Top,
+    VCenter,
+    Bottom
+};
 
 class ProjectManager : public QObject
 {
     Q_OBJECT
-    
-public:
-    //получение создания единственного экземпляра класса
-    static ProjectManager* instance();
-    
-    //метод загрузки проекта из файла
-    bool loadFromFile(const QString &fileName);
 
-    //создаёт новый пустой проект
+public:
+    static ProjectManager* instance();
+
+    bool loadFromFile(const QString &fileName);
     bool createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath = QString());
-    
-    //метод сохранения проекта в файл
     bool saveToFile(const QString &targetFile = QString());
-    
-    //метод регистрации стандартных типов объектов
+
     void registerStandardTypes();
 
-    //добавляет новый объект в проект и возвращает его индекс
     int addObject(const QString &typeName);
-    
-    //переставляет объекты в проекте по новому порядку индексов
+    bool removeObject(int index);
     bool reorderObjects(const QList<int> &order);
+    bool alignObject(int index, ObjectAlignment alignment);
 
-    //геттеры объектов
     const QList<QSharedPointer<BaseObject>>& getObjects() const;
     QSharedPointer<BaseObject> getObjectAt(int index) const;
     int getObjectCount() const;
 
-    //геттеры свойств проекта
     QString getProjectName() const;
     int getCanvasWidth() const;
     int getCanvasHeight() const;
     QColor getBackgroundColor() const;
     QString getFilePath() const;
-    
-    //сеттер цвета фона
+
     void setBackgroundColor(const QColor &color);
+    void setCanvasSize(int width, int height);
 
 signals:
-    //сигналы, информирующие об изменении проекта
-    void projectLoaded(); //проект загружен
-    void projectChanged(); //проект изменён
-    void logMessage(const QString &message); //сообщение для лога
+    void projectLoaded();
+    void projectChanged();
+    void logMessage(const QString &message);
 
 private:
-    //конструктор
     ProjectManager();
-    
-    QString m_projectName; //имя проекта
-    int m_canvasWidth; //ширина холста
-    int m_canvasHeight; //высота холста
-    QColor m_bgColor; //цвет фона
-    QString m_filePath; //путь к файлу
 
-    QList<QSharedPointer<BaseObject>> m_objects; //список объектов (указатели на все объекты)
-    QStringList m_objectTags; //исходные xml-теги объектов в том же порядке
-    QMap<QString, ParamSchema> m_schemas; //схемы параметров для всех типов объектов
-    QMap<QString, QString> m_schemaAliases; //маппинг тегов на схемы (rectangle_a → rectangle)
+    EditorProjectDocument *m_document = nullptr;
+    QString m_filePath;
+    QList<QSharedPointer<BaseObject>> m_objects;
+    QStringList m_objectTags;
+    QMap<QString, ParamSchema> m_schemas;
+    QMap<QString, QString> m_schemaAliases;
 };
