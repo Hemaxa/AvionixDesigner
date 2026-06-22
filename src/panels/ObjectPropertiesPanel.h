@@ -35,6 +35,7 @@ signals:
 private slots:
     //обработка изменения ячейки таблицы
     void onCellChanged(int row, int column);
+    void onCellDoubleClicked(int row, int column);
 
 private:
     //заполняет таблицу свойствами объекта
@@ -42,6 +43,9 @@ private:
     
     //очищает таблицу
     void clearTable();
+    void refreshTableValues();
+    bool isColorProperty(const QString &name) const;
+    bool isBooleanProperty(const QString &name) const;
     
     QLabel *m_titleLabel; //заголовок панели
     QLabel *m_subtitleLabel; //подзаголовок панели

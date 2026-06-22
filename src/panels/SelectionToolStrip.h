@@ -33,7 +33,7 @@ signals:
     void deleteRequested();
 
 private:
-    QToolButton* createActionButton(const QString &label, const QString &toolTip);
+    QToolButton* createActionButton(const QString &iconPath, const QString &toolTip);
 
     QList<QToolButton*> m_buttons;
     QToolButton *m_deleteButton = nullptr;

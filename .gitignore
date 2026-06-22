@@ -56,5 +56,4 @@ compile_commands.json
 # Мои добавления
 /build
 /tests
-/docs
 .DS_Store

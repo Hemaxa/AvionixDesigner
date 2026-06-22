@@ -1,5 +1,6 @@
 #include "SelectionToolStrip.h"
 
+#include <QIcon>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <utility>
@@ -15,22 +16,22 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
 
     struct ActionDef
     {
-        QString label;
+        QString iconPath;
         QString toolTip;
         int id;
     };
 
     const QList<ActionDef> actions = {
-        {QStringLiteral("T"), QStringLiteral("Выровнять по верхнему краю"), AlignTop},
-        {QStringLiteral("VC"), QStringLiteral("Выровнять по вертикальному центру"), AlignVCenter},
-        {QStringLiteral("B"), QStringLiteral("Выровнять по нижнему краю"), AlignBottom},
-        {QStringLiteral("L"), QStringLiteral("Выровнять по левому краю"), AlignLeft},
-        {QStringLiteral("HC"), QStringLiteral("Выровнять по горизонтальному центру"), AlignHCenter},
-        {QStringLiteral("R"), QStringLiteral("Выровнять по правому краю"), AlignRight}
+        {QStringLiteral(":/icons/icons/selection/align-top.svg"), QStringLiteral("Выровнять по верхнему краю"), AlignTop},
+        {QStringLiteral(":/icons/icons/selection/align-vcenter.svg"), QStringLiteral("Выровнять по вертикальному центру"), AlignVCenter},
+        {QStringLiteral(":/icons/icons/selection/align-bottom.svg"), QStringLiteral("Выровнять по нижнему краю"), AlignBottom},
+        {QStringLiteral(":/icons/icons/selection/align-left.svg"), QStringLiteral("Выровнять по левому краю"), AlignLeft},
+        {QStringLiteral(":/icons/icons/selection/align-hcenter.svg"), QStringLiteral("Выровнять по горизонтальному центру"), AlignHCenter},
+        {QStringLiteral(":/icons/icons/selection/align-right.svg"), QStringLiteral("Выровнять по правому краю"), AlignRight}
     };
 
     for (const auto &action : actions) {
-        auto *button = createActionButton(action.label, action.toolTip);
+        auto *button = createActionButton(action.iconPath, action.toolTip);
         connect(button, &QToolButton::clicked, this, [this, id = action.id]() {
             emit alignRequested(id);
         });
@@ -40,7 +41,7 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
 
     layout->addStretch();
 
-    m_deleteButton = createActionButton(QStringLiteral("X"), QStringLiteral("Удалить объект"));
+    m_deleteButton = createActionButton(QStringLiteral(":/icons/icons/selection/delete.svg"), QStringLiteral("Удалить объект"));
     connect(m_deleteButton, &QToolButton::clicked, this, &SelectionToolStrip::deleteRequested);
     layout->addWidget(m_deleteButton);
 
@@ -57,11 +58,12 @@ void SelectionToolStrip::setSelectionActive(bool active)
     }
 }
 
-QToolButton* SelectionToolStrip::createActionButton(const QString &label, const QString &toolTip)
+QToolButton* SelectionToolStrip::createActionButton(const QString &iconPath, const QString &toolTip)
 {
     auto *button = new QToolButton(this);
     button->setObjectName("SelectionToolButton");
-    button->setText(label);
+    button->setIcon(QIcon(iconPath));
+    button->setIconSize(QSize(18, 18));
     button->setToolTip(toolTip);
     button->setFixedSize(40, 40);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);

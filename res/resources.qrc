@@ -6,9 +6,18 @@
     </qresource>
     <qresource prefix="/icons">
         <file>icons/library/rectangle.svg</file>
+        <file>icons/library/dashedline.svg</file>
+        <file>icons/library/ribonscale.svg</file>
         <file>icons/library/staticgroup.svg</file>
         <file>icons/library/rotationgroup.svg</file>
         <file>icons/library/aviahorizon.svg</file>
         <file>icons/library/text.svg</file>
+        <file>icons/selection/align-top.svg</file>
+        <file>icons/selection/align-vcenter.svg</file>
+        <file>icons/selection/align-bottom.svg</file>
+        <file>icons/selection/align-left.svg</file>
+        <file>icons/selection/align-hcenter.svg</file>
+        <file>icons/selection/align-right.svg</file>
+        <file>icons/selection/delete.svg</file>
     </qresource>
 </RCC>

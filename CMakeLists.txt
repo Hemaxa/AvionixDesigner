@@ -52,6 +52,10 @@ qt_add_executable(AvionixDesigner
     # Объекты
     src/objects/RectangleObject.h
     src/objects/RectangleObject.cpp
+    src/objects/DashedLineObject.h
+    src/objects/DashedLineObject.cpp
+    src/objects/RibbonScaleObject.h
+    src/objects/RibbonScaleObject.cpp
     src/objects/RotationObject.h
     src/objects/RotationObject.cpp
     src/objects/StaticGroupObject.h

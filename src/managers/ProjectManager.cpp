@@ -11,6 +11,8 @@
 #include "FpgaSchemaRegistry.h"
 #include "ObjectsManager.h"
 #include "RectangleObject.h"
+#include "DashedLineObject.h"
+#include "RibbonScaleObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
 #include "AviaHorizonObject.h"
@@ -175,8 +177,11 @@ QDomDocument buildProjectDocument(const QString &projectName,
     QDomElement paramsEl = doc.createElement("parameters");
     root.appendChild(paramsEl);
 
-    QSet<QString> requiredSchemas = {"rectangle", "rotationobject", "staticgroup", "aviagorizont"};
     auto *registry = FpgaSchemaRegistry::instance();
+    QSet<QString> requiredSchemas;
+    for (const QString &schemaName : registry->defaultSchemaNames()) {
+        requiredSchemas.insert(schemaName);
+    }
     for (const QString &tagName : objectTags) {
         requiredSchemas.insert(schemaAliases.value(tagName, registry->canonicalSchemaName(tagName)));
     }
@@ -382,6 +387,9 @@ void ProjectManager::registerStandardTypes()
     om->registerType("rectangle", []() { return new RectangleObject(); });
     om->registerType("rectangle_a", []() { return new RectangleObject(); });
     //om->registerType("rectangle_e", []() { return new RectangleObject(); });
+    om->registerType("dashed_line", []() { return new DashedLineObject(); });
+    om->registerType("RibonScale", []() { return new RibbonScaleObject(); });
+    om->registerType("ribonscale", []() { return new RibbonScaleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
     om->registerType("aviagorizont", []() { return new AviaHorizonObject(); });
@@ -417,6 +425,27 @@ int ProjectManager::addObject(const QString &typeName)
         rect->fillColor = QColor("#3BA8FF");
         rect->strokeColor = QColor("#EAF6FF");
         rect->strokeWidth = 2.0;
+    }
+    else if (auto dashedLine = dynamic_cast<DashedLineObject*>(rawObject)) {
+        dashedLine->x0 = qMax(12.0, centerX - 70.0);
+        dashedLine->y0 = centerY;
+        dashedLine->x1 = qMin(static_cast<double>(m_document->canvasWidth() - 12), centerX + 70.0);
+        dashedLine->y1 = centerY + 42.0;
+        dashedLine->color = QColor("#9EDCFF");
+        dashedLine->lineWidth = 3;
+        dashedLine->dashPeriod = 16;
+        dashedLine->dashLength = 8;
+        dashedLine->dashPhase = 0;
+    }
+    else if (auto ribbon = dynamic_cast<RibbonScaleObject*>(rawObject)) {
+        ribbon->left = qMax(12.0, centerX - 48.0);
+        ribbon->right = qMin(static_cast<double>(m_document->canvasWidth() - 12), centerX + 48.0);
+        ribbon->top = qMax(12.0, centerY - 90.0);
+        ribbon->bottom = qMin(static_cast<double>(m_document->canvasHeight() - 12), centerY + 90.0);
+        ribbon->lineWidth = 2;
+        ribbon->period = 24;
+        ribbon->yStart = ribbon->top + 12.0;
+        ribbon->color = QColor("#8DE1FF");
     }
     else if (auto horizon = dynamic_cast<AviaHorizonObject*>(rawObject)) {
         horizon->enabled = true;

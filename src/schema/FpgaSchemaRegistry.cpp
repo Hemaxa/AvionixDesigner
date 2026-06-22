@@ -63,6 +63,40 @@ QList<FpgaSchemaField> aviaHorizonFields()
         {"padding", 137, 13}
     };
 }
+
+QList<FpgaSchemaField> dashedLineFields()
+{
+    return {
+        {"Enable", 0, 1},
+        {"Color", 1, 24},
+        {"xo", 25, 12},
+        {"yo", 37, 12},
+        {"dt", 49, 13},
+        {"a", 62, 9},
+        {"b", 71, 9},
+        {"StepPow", 80, 3},
+        {"Length", 83, 8},
+        {"Phase", 91, 8},
+        {"Width", 99, 4},
+        {"padding", 103, 47}
+    };
+}
+
+QList<FpgaSchemaField> ribbonScaleFields()
+{
+    return {
+        {"enable", 0, 1},
+        {"color", 1, 24},
+        {"left", 25, 12},
+        {"right", 37, 12},
+        {"top", 49, 12},
+        {"bottom", 61, 12},
+        {"width", 73, 4},
+        {"period", 77, 8},
+        {"ystart", 85, 12},
+        {"padding", 97, 53}
+    };
+}
 }
 
 FpgaSchemaRegistry* FpgaSchemaRegistry::instance()
@@ -79,6 +113,8 @@ QString FpgaSchemaRegistry::canonicalSchemaName(const QString &typeName) const
         return QStringLiteral("aviagorizont");
     if (typeName == "text")
         return QStringLiteral("staticgroup");
+    if (typeName == "ribonscale")
+        return QStringLiteral("RibonScale");
     return typeName;
 }
 
@@ -90,6 +126,8 @@ QString FpgaSchemaRegistry::canonicalObjectTag(const QString &typeName) const
         return QStringLiteral("aviagorizont");
     if (typeName == "text")
         return QStringLiteral("staticgroup");
+    if (typeName == "ribonscale")
+        return QStringLiteral("RibonScale");
     return typeName;
 }
 
@@ -103,6 +141,10 @@ QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schema
         return staticGroupFields();
     if (schemaName == "aviagorizont")
         return aviaHorizonFields();
+    if (schemaName == "dashed_line")
+        return dashedLineFields();
+    if (schemaName == "RibonScale")
+        return ribbonScaleFields();
     return {};
 }
 
@@ -118,7 +160,7 @@ ParamSchema FpgaSchemaRegistry::buildSchema(const QString &schemaName) const
 
 QStringList FpgaSchemaRegistry::orderedSchemaNames() const
 {
-    return {"rectangle", "rotationobject", "staticgroup", "aviagorizont"};
+    return {"rectangle", "rotationobject", "staticgroup", "aviagorizont", "dashed_line", "RibonScale"};
 }
 
 QStringList FpgaSchemaRegistry::defaultSchemaNames() const
@@ -130,7 +172,8 @@ QMap<QString, QString> FpgaSchemaRegistry::defaultSchemaAliases() const
 {
     return {
         {"rectangle_a", "rectangle"},
-        {"aviahorizont", "aviagorizont"}
+        {"aviahorizont", "aviagorizont"},
+        {"ribonscale", "RibonScale"}
     };
 }
 
@@ -138,6 +181,8 @@ QList<EditorObjectDescriptor> FpgaSchemaRegistry::editorObjectCatalog() const
 {
     return {
         {"rectangle", QStringLiteral("Прямоугольник"), QStringLiteral(":/icons/icons/library/rectangle.svg"), true, true},
+        {"dashed_line", QStringLiteral("Штриховая линия"), QStringLiteral(":/icons/icons/library/dashedline.svg"), true, true},
+        {"ribonscale", QStringLiteral("Ленточная шкала"), QStringLiteral(":/icons/icons/library/ribonscale.svg"), true, true},
         {"aviagorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
         {"text", QStringLiteral("Текст"), QStringLiteral(":/icons/icons/library/text.svg"), true, true},
         {"staticgroup", QStringLiteral("Static"), QStringLiteral(":/icons/icons/library/staticgroup.svg"), false, false},

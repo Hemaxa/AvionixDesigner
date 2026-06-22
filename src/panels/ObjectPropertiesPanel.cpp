@@ -3,13 +3,82 @@
 #include "BaseObject.h"
 #include "ProjectManager.h"
 
+#include <QColorDialog>
+#include <QComboBox>
 #include <QFrame>
+#include <QFontComboBox>
 #include <QHeaderView>
 #include <QLabel>
 #include <QScrollArea>
+#include <QSet>
 #include <QStackedWidget>
+#include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QVBoxLayout>
+
+namespace {
+class PropertyValueDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        if (index.column() != 1) {
+            return QStyledItemDelegate::createEditor(parent, option, index);
+        }
+
+        const QString propertyName = index.siblingAtColumn(0).data().toString();
+        if (propertyName == QStringLiteral("Шрифт")) {
+            return new QFontComboBox(parent);
+        }
+
+        const QSet<QString> boolNames = {
+            QStringLiteral("Включен"),
+            QStringLiteral("Жирный"),
+            QStringLiteral("Курсив"),
+            QStringLiteral("Подчеркнутый"),
+            QStringLiteral("Видимость")
+        };
+
+        if (boolNames.contains(propertyName) || propertyName.endsWith(QStringLiteral("Видимость"))) {
+            auto *combo = new QComboBox(parent);
+            combo->addItem(QStringLiteral("да"));
+            combo->addItem(QStringLiteral("нет"));
+            return combo;
+        }
+
+        return QStyledItemDelegate::createEditor(parent, option, index);
+    }
+
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override
+    {
+        if (auto *fontCombo = qobject_cast<QFontComboBox*>(editor)) {
+            fontCombo->setCurrentFont(QFont(index.data().toString()));
+            return;
+        }
+        if (auto *combo = qobject_cast<QComboBox*>(editor)) {
+            const QString current = index.data().toString().trimmed().toLower();
+            combo->setCurrentIndex(current == QStringLiteral("нет") ? 1 : 0);
+            return;
+        }
+        QStyledItemDelegate::setEditorData(editor, index);
+    }
+
+    void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override
+    {
+        if (auto *fontCombo = qobject_cast<QFontComboBox*>(editor)) {
+            model->setData(index, fontCombo->currentFont().family());
+            return;
+        }
+        if (auto *combo = qobject_cast<QComboBox*>(editor)) {
+            model->setData(index, combo->currentText());
+            return;
+        }
+        QStyledItemDelegate::setModelData(editor, model, index);
+    }
+};
+}
 
 ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent)
 {
@@ -80,6 +149,7 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
     m_tableWidget->setShowGrid(false);
     m_tableWidget->setWordWrap(true);
     m_tableWidget->setCornerButtonEnabled(false);
+    m_tableWidget->setItemDelegateForColumn(1, new PropertyValueDelegate(m_tableWidget));
     tableLayout->addWidget(m_tableWidget);
 
     m_contentStack->addWidget(tableContainer);
@@ -90,6 +160,7 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
     mainLayout->addWidget(m_scrollArea);
 
     connect(m_tableWidget, &QTableWidget::cellChanged, this, &ObjectPropertiesPanel::onCellChanged);
+    connect(m_tableWidget, &QTableWidget::cellDoubleClicked, this, &ObjectPropertiesPanel::onCellDoubleClicked);
 }
 
 void ObjectPropertiesPanel::showObjectProperties(int index)
@@ -142,6 +213,14 @@ void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &
         m_tableWidget->setItem(i, 0, nameItem);
 
         auto *valueItem = new QTableWidgetItem(props[i].second);
+        if (isColorProperty(props[i].first)) {
+            valueItem->setFlags((valueItem->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+            const QColor previewColor(props[i].second);
+            if (previewColor.isValid()) {
+                valueItem->setBackground(previewColor);
+                valueItem->setForeground(previewColor.lightnessF() < 0.5 ? QColor("#FFFFFF") : QColor("#111111"));
+            }
+        }
         m_tableWidget->setItem(i, 1, valueItem);
     }
 
@@ -171,20 +250,7 @@ void ObjectPropertiesPanel::onCellChanged(int row, int column)
     const QString newValue = valueItem->text();
 
     if (m_currentObject->setObjectProperty(propName, newValue)) {
-        m_updating = true;
-        const auto props = m_currentObject->getProperties();
-        for (int i = 0; i < props.size(); ++i) {
-            if (i < m_tableWidget->rowCount()) {
-                if (auto *name = m_tableWidget->item(i, 0)) {
-                    name->setText(props[i].first);
-                }
-                if (auto *value = m_tableWidget->item(i, 1)) {
-                    value->setText(props[i].second);
-                }
-            }
-        }
-        m_tableWidget->resizeRowsToContents();
-        m_updating = false;
+        refreshTableValues();
         emit propertyChanged();
     }
     else {
@@ -198,4 +264,75 @@ void ObjectPropertiesPanel::onCellChanged(int row, int column)
         }
         m_updating = false;
     }
+}
+
+void ObjectPropertiesPanel::onCellDoubleClicked(int row, int column)
+{
+    if (column != 1 || !m_currentObject)
+        return;
+
+    auto *nameItem = m_tableWidget->item(row, 0);
+    auto *valueItem = m_tableWidget->item(row, 1);
+    if (!nameItem || !valueItem)
+        return;
+
+    const QString propertyName = nameItem->text();
+    if (!isColorProperty(propertyName))
+        return;
+
+    const QColor currentColor(valueItem->text());
+    const QColor selectedColor = QColorDialog::getColor(currentColor, this, tr("Выбор цвета"));
+    if (!selectedColor.isValid())
+        return;
+
+    if (m_currentObject->setObjectProperty(propertyName, selectedColor.name())) {
+        refreshTableValues();
+        emit propertyChanged();
+    }
+}
+
+void ObjectPropertiesPanel::refreshTableValues()
+{
+    if (!m_currentObject)
+        return;
+
+    m_updating = true;
+    const auto props = m_currentObject->getProperties();
+    for (int i = 0; i < props.size(); ++i) {
+        if (i >= m_tableWidget->rowCount())
+            break;
+
+        if (auto *name = m_tableWidget->item(i, 0)) {
+            name->setText(props[i].first);
+        }
+        if (auto *value = m_tableWidget->item(i, 1)) {
+            value->setText(props[i].second);
+            if (isColorProperty(props[i].first)) {
+                value->setFlags((value->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+                const QColor previewColor(props[i].second);
+                if (previewColor.isValid()) {
+                    value->setBackground(previewColor);
+                    value->setForeground(previewColor.lightnessF() < 0.5 ? QColor("#FFFFFF") : QColor("#111111"));
+                }
+            }
+        }
+    }
+    m_tableWidget->resizeRowsToContents();
+    m_updating = false;
+}
+
+bool ObjectPropertiesPanel::isColorProperty(const QString &name) const
+{
+    return name.contains(QStringLiteral("Цвет"))
+        || name == QStringLiteral("Заливка")
+        || name == QStringLiteral("Обводка");
+}
+
+bool ObjectPropertiesPanel::isBooleanProperty(const QString &name) const
+{
+    return name == QStringLiteral("Включен")
+        || name == QStringLiteral("Жирный")
+        || name == QStringLiteral("Курсив")
+        || name == QStringLiteral("Подчеркнутый")
+        || name.endsWith(QStringLiteral("Видимость"));
 }
