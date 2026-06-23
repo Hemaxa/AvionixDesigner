@@ -170,6 +170,9 @@ void RotationObject::moveBy(double dx, double dy)
 
 void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
 {
+    if (!canResize())
+        return;
+
     // Так как размеры хранятся как смещения (top, left, bottom, right),
     // нам нужно учитывать текущий поворот.
     // Проще всего конвертировать dx, dy в локальные координаты.
@@ -206,15 +209,31 @@ bool RotationObject::setObjectProperty(const QString &name, const QString &value
     bool ok = false;
     
     if (name == "Left" || name == "Left (смещ.)") {
+        if (!canResize()) {
+            setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
         left = value.toDouble(&ok);
     }
     else if (name == "Top" || name == "Top (смещ.)") {
+        if (!canResize()) {
+            setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
         top = value.toDouble(&ok);
     }
     else if (name == "Right" || name == "Right (смещ.)") {
+        if (!canResize()) {
+            setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
         right = value.toDouble(&ok);
     }
     else if (name == "Bottom" || name == "Bottom (смещ.)") {
+        if (!canResize()) {
+            setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
         bottom = value.toDouble(&ok);
     }
     else if (name == "X вращения") {

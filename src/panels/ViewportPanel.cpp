@@ -4,6 +4,10 @@
 #include <QPainter>
 #include <QWheelEvent>
 #include <QMouseEvent>
+#include <QDragEnterEvent>
+#include <QFileInfo>
+#include <QMimeData>
+#include <QUrl>
 #include "BaseObject.h"
 #include <QtMath>
 
@@ -18,6 +22,7 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     
     setMinimumSize(200, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setAcceptDrops(true);
     
     //подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, QOverload<>::of(&QWidget::update));
@@ -72,7 +77,7 @@ QPointF ViewportPanel::mapToCanvas(const QPoint &widgetPoint) const
     return QPointF((widgetPoint.x() - offsetX) / totalScale, (widgetPoint.y() - offsetY) / totalScale);
 }
 
-void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool canRotate)
+void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate)
 {
     painter.save();
     
@@ -83,25 +88,27 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(rect);
     
-    // Маркеры ресайза
-    painter.setPen(Qt::blue);
-    painter.setBrush(Qt::white);
-    
     const double size = 6.0 / m_scale; // Фиксированный визуальный размер
     const double half = size / 2.0;
-    
-    auto drawHandle = [&](double x, double y) {
-        painter.drawRect(QRectF(x - half, y - half, size, size));
-    };
-    
-    drawHandle(rect.left(), rect.top());
-    drawHandle(rect.center().x(), rect.top());
-    drawHandle(rect.right(), rect.top());
-    drawHandle(rect.right(), rect.center().y());
-    drawHandle(rect.right(), rect.bottom());
-    drawHandle(rect.center().x(), rect.bottom());
-    drawHandle(rect.left(), rect.bottom());
-    drawHandle(rect.left(), rect.center().y());
+
+    if (canResize) {
+        // Маркеры ресайза
+        painter.setPen(Qt::blue);
+        painter.setBrush(Qt::white);
+
+        auto drawHandle = [&](double x, double y) {
+            painter.drawRect(QRectF(x - half, y - half, size, size));
+        };
+
+        drawHandle(rect.left(), rect.top());
+        drawHandle(rect.center().x(), rect.top());
+        drawHandle(rect.right(), rect.top());
+        drawHandle(rect.right(), rect.center().y());
+        drawHandle(rect.right(), rect.bottom());
+        drawHandle(rect.center().x(), rect.bottom());
+        drawHandle(rect.left(), rect.bottom());
+        drawHandle(rect.left(), rect.center().y());
+    }
     
     // Маркер поворота
     if (canRotate) {
@@ -113,7 +120,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     painter.restore();
 }
 
-int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, bool canRotate) const
+int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, bool canResize, bool canRotate) const
 {
     const double size = 6.0 / m_scale * 1.5; // Чуть больше зона клика
     const double half = size / 2.0;
@@ -123,6 +130,9 @@ int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, b
     };
     
     if (canRotate && isHit(rect.center().x(), rect.top() - (6.0 / m_scale) * 3)) return 100; // Rotate enum
+
+    if (!canResize)
+        return 0;
 
     if (isHit(rect.left(), rect.top())) return 1 | 4;         // Top-Left
     if (isHit(rect.center().x(), rect.top())) return 4;       // Top
@@ -178,7 +188,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         if (i == m_selectedIndex) {
             QRectF rect = objects[i]->getBoundingRect();
             bool canRotate = objects[i]->supportsRotationHandle();
-            drawManipulators(painter, rect, canRotate);
+            drawManipulators(painter, rect, objects[i]->canResize(), canRotate);
         }
     }
     
@@ -219,7 +229,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             QRectF rect = obj->getBoundingRect();
             bool canRotate = obj->supportsRotationHandle();
             
-            int hit = hitTestManipulators(canvasPos, rect, canRotate);
+            int hit = hitTestManipulators(canvasPos, rect, obj->canResize(), canRotate);
             if (hit == 100) {
                 m_dragMode = Rotate;
                 return;
@@ -306,4 +316,38 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_UNUSED(event);
     m_dragMode = None;
+}
+
+void ViewportPanel::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (!event->mimeData()->hasUrls()) {
+        event->ignore();
+        return;
+    }
+
+    for (const QUrl &url : event->mimeData()->urls()) {
+        const QString suffix = QFileInfo(url.toLocalFile()).suffix().toLower();
+        if (suffix == QStringLiteral("png") || suffix == QStringLiteral("jpg") || suffix == QStringLiteral("jpeg")
+            || suffix == QStringLiteral("bmp") || suffix == QStringLiteral("svg")) {
+            event->acceptProposedAction();
+            return;
+        }
+    }
+
+    event->ignore();
+}
+
+void ViewportPanel::dropEvent(QDropEvent *event)
+{
+    for (const QUrl &url : event->mimeData()->urls()) {
+        const QString fileName = url.toLocalFile();
+        const QString suffix = QFileInfo(fileName).suffix().toLower();
+        if (suffix == QStringLiteral("png") || suffix == QStringLiteral("jpg") || suffix == QStringLiteral("jpeg")
+            || suffix == QStringLiteral("bmp") || suffix == QStringLiteral("svg")) {
+            emit imageDropped(fileName);
+            event->acceptProposedAction();
+            return;
+        }
+    }
+    event->ignore();
 }

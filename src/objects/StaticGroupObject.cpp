@@ -221,6 +221,9 @@ void StaticGroupObject::moveBy(double dx, double dy)
 
 void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
 {
+    if (!canResize())
+        return;
+
     if (states.isEmpty())
         return;
 
@@ -282,8 +285,20 @@ bool StaticGroupObject::setObjectProperty(const QString &name, const QString &va
                 
                 if (prop == "X") s.x = value.toDouble(&ok);
                 else if (prop == "Y") s.y = value.toDouble(&ok);
-                else if (prop == "Ширина") s.w = value.toDouble(&ok);
-                else if (prop == "Высота") s.h = value.toDouble(&ok);
+                else if (prop == "Ширина") {
+                    if (!canResize()) {
+                        setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+                        return false;
+                    }
+                    s.w = value.toDouble(&ok);
+                }
+                else if (prop == "Высота") {
+                    if (!canResize()) {
+                        setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+                        return false;
+                    }
+                    s.h = value.toDouble(&ok);
+                }
                 else if (prop == "Адрес") s.addr = value.toInt(&ok);
                 else if (prop == "Цвет") {
                     s.color = QColor(value);

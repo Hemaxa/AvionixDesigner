@@ -3,7 +3,6 @@
 
 #include <QVBoxLayout>
 #include <QFormLayout>
-#include <QComboBox>
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QPushButton>
@@ -37,14 +36,9 @@ void SettingsWindow::createWidgets()
     //форма настроек
     QFormLayout *formLayout = new QFormLayout();
     
-    //настройка темы
-    m_themeCombo = new QComboBox(this);
-    m_themeCombo->addItem("Тёмная");
-    m_themeCombo->addItem("Светлая");
-    m_themeCombo->addItem("Avionix Designer");
-    
-    //добавляем строку в форму: Текст "Тема интерфейса:" и сам комбобокс
-    formLayout->addRow("Тема интерфейса:", m_themeCombo);
+    auto *themeLabel = new QLabel("Тема: Avionix Designer", this);
+    themeLabel->setObjectName("SettingsInfoLabel");
+    formLayout->addRow("", themeLabel);
     
     //настройка автозагрузки (для примера)
     m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
@@ -77,10 +71,6 @@ void SettingsWindow::loadSettings()
     //идентификаторы настроек
     QSettings settings("Avionix", "Designer");
     
-    //чтение настройки темы и установка ее активной в поле
-    int themeIndex = settings.value("theme", 0).toInt();
-    m_themeCombo->setCurrentIndex(themeIndex);
-    
     //читаем чекбокса автозагрузки файла и его правильное отображение
     bool autoLoad = settings.value("autoLoad", false).toBool();
     m_autoLoadCheck->setChecked(autoLoad);
@@ -92,27 +82,10 @@ void SettingsWindow::saveSettings()
     //идентификаторы настроек
     QSettings settings("Avionix", "Designer");
     
-    //записываем текущий выбранный индекс из комбобокса
-    settings.setValue("theme", m_themeCombo->currentIndex());
-    
     //записываем состояние чекбокса
     settings.setValue("autoLoad", m_autoLoadCheck->isChecked());
     
-    //получаем менеджер внешнего вида
-    auto am = AppearanceManager::instance();
-    
-    //смотрим, что выбрал пользователь
-    switch (m_themeCombo->currentIndex()) {
-    case 0:
-        am->applyDarkTheme();
-        break;
-    case 1:
-        am->applyLightTheme();
-        break;
-    case 2:
-        am->applyAvionixTheme();
-        break;
-    }
+    AppearanceManager::instance()->applyAvionixTheme();
 
     accept(); 
 }
@@ -123,8 +96,8 @@ void SettingsWindow::resetAllSettings()
     QSettings settings("Avionix", "Designer");
     settings.clear();
     
-    //применяем тему по умолчанию
-    AppearanceManager::instance()->applyDarkTheme();
+    //применяем единую тему приложения
+    AppearanceManager::instance()->applyAvionixTheme();
     
     //перезагружаем UI с дефолтными значениями
     loadSettings();

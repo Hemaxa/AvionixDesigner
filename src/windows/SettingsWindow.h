@@ -4,8 +4,6 @@
 
 #include <QDialog>
 
-//предварительное объявление классов
-class QComboBox;
 class QCheckBox;
 
 class SettingsWindow : public QDialog
@@ -35,6 +33,5 @@ private:
     void loadSettings();
 
     //элементы интерфейса
-    QComboBox *m_themeCombo;
     QCheckBox *m_autoLoadCheck;
 };

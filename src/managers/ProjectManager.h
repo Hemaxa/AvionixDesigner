@@ -8,6 +8,7 @@
 #include <QSharedPointer>
 
 #include "BaseObject.h"
+#include "TextObject.h"
 
 class EditorProjectDocument;
 
@@ -21,6 +22,12 @@ enum class ObjectAlignment
     Bottom
 };
 
+enum class ProjectEditMode
+{
+    EditableProject,
+    RestrictedFpgaXml
+};
+
 class ProjectManager : public QObject
 {
     Q_OBJECT
@@ -31,6 +38,8 @@ public:
     bool loadFromFile(const QString &fileName);
     bool createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath = QString());
     bool saveToFile(const QString &targetFile = QString());
+    bool exportToFpgaXml(const QString &targetFile);
+    int importImageAsStaticGroup(const QString &fileName);
 
     void registerStandardTypes();
 
@@ -48,6 +57,8 @@ public:
     int getCanvasHeight() const;
     QColor getBackgroundColor() const;
     QString getFilePath() const;
+    ProjectEditMode editMode() const;
+    QString editModeName() const;
 
     void setBackgroundColor(const QColor &color);
     void setCanvasSize(int width, int height);
@@ -60,10 +71,18 @@ signals:
 private:
     ProjectManager();
 
+    bool loadXmlProject(const QString &fileName);
+    bool loadAvdProject(const QString &fileName);
+    bool saveAvdProject(const QString &targetFile);
+    void applyRestrictedMode();
+    void resetFontsToDefault();
+
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
+    ProjectEditMode m_editMode = ProjectEditMode::EditableProject;
     QList<QSharedPointer<BaseObject>> m_objects;
     QStringList m_objectTags;
     QMap<QString, ParamSchema> m_schemas;
     QMap<QString, QString> m_schemaAliases;
+    QMap<int, FpgaFont> m_fonts;
 };

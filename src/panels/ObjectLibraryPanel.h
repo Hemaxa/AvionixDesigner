@@ -18,6 +18,7 @@ public:
 
 signals:
     void objectRequested(const QString &typeName);
+    void imageImportRequested();
 
 private:
     void createButtons();

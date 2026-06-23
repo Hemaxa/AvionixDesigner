@@ -31,6 +31,8 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
     
     //обработка колеса мыши для масштабирования
     void wheelEvent(QWheelEvent *event) override;
@@ -40,6 +42,7 @@ signals:
     void objectSelected(int index);
     // Сигнал, испускаемый при изменении свойств объекта перетаскиванием
     void objectChanged();
+    void imageDropped(const QString &fileName);
 
 public slots:
     // Слот для внешней синхронизации выделения (например, из списка)
@@ -63,6 +66,6 @@ private:
     QPointF mapToCanvas(const QPoint &widgetPoint) const;
     
     // Отрисовка манипуляторов
-    void drawManipulators(QPainter &painter, const QRectF &rect, bool canRotate);
-    int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canRotate) const;
+    void drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate);
+    int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canResize, bool canRotate) const;
 };

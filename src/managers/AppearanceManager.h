@@ -18,12 +18,6 @@ public:
     //загружает стили из файла
     bool loadStyleSheet(const QString &filePath);
     
-    //применяет тёмную тему
-    void applyDarkTheme();
-    
-    //применяет светлую тему
-    void applyLightTheme();
-    
     //применяет тему Avionix Designer
     void applyAvionixTheme();
     

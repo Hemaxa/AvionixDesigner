@@ -64,6 +64,11 @@ void ObjectLibraryPanel::createButtons()
         m_gridLayout->addWidget(card, i / 3, i % 3);
     }
 
+    QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
+    m_libraryCards.append(imageButton);
+    const int imageIndex = items.size();
+    m_gridLayout->addWidget(imageButton, imageIndex / 3, imageIndex % 3);
+
     for (int col = 0; col < 3; ++col) {
         m_gridLayout->setColumnStretch(col, 1);
     }
@@ -89,6 +94,10 @@ QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, cons
     button->setIcon(icon);
 
     connect(button, &QToolButton::clicked, this, [this, typeName]() {
+        if (typeName == QStringLiteral("__image__")) {
+            emit imageImportRequested();
+            return;
+        }
         emit objectRequested(typeName);
     });
 

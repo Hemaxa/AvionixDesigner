@@ -4,6 +4,27 @@
 
 #include "StaticGroupObject.h"
 
+struct FpgaGlyph
+{
+    QChar literal;
+    int code = 0;
+    int width = 0;
+    int height = 0;
+    int floater = 0;
+    int offset = 0;
+    QString maskRows;
+    QImage maskImage;
+};
+
+struct FpgaFont
+{
+    int index = 0;
+    QString name = QStringLiteral("Arial");
+    int size = 14;
+    int volume = 0;
+    QMap<QChar, FpgaGlyph> glyphs;
+};
+
 class TextObject : public StaticGroupObject
 {
     Q_OBJECT
@@ -11,10 +32,13 @@ class TextObject : public StaticGroupObject
 public:
     QString text = QStringLiteral("TEXT");
     QString fontFamily = QStringLiteral("Arial");
-    int pixelSize = 28;
+    int pixelSize = 14;
     bool bold = false;
     bool italic = false;
     bool underline = false;
+    int fontIndex = 0;
+    int kerning = 1;
+    bool restrictedAtlasEditing = false;
 
     explicit TextObject(QObject *parent = nullptr);
 
@@ -23,7 +47,19 @@ public:
     QList<QPair<QString, QString>> getProperties() const override;
     bool setObjectProperty(const QString &name, const QString &value) override;
     void resizeBy(int edgeFlags, double dx, double dy) override;
+    QRectF getBoundingRect() const override;
+    bool canUseText(const QString &candidate, QString *missingCharacters = nullptr) const;
+    void setFontAtlas(const FpgaFont &font, bool restricted);
+    bool hasFontAtlas() const;
+    const FpgaFont& fontAtlas() const;
+    QRect overallRect() const;
 
 private:
     void rebuildMask();
+    void rebuildMaskFromQtFont();
+    void rebuildMaskFromAtlas();
+    QImage glyphMaskToImage(const FpgaGlyph &glyph, const QColor &color) const;
+
+    FpgaFont m_fontAtlas;
+    bool m_hasFontAtlas = false;
 };

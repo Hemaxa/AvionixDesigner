@@ -35,22 +35,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     setDockOptions(dockOptions() | QMainWindow::AllowTabbedDocks | QMainWindow::GroupedDragging);
 
     QSettings settings("Avionix", "Designer");
-    const int themeIndex = settings.value("theme", 0).toInt();
-    auto *appearance = AppearanceManager::instance();
-    switch (themeIndex) {
-    case 0:
-        appearance->applyDarkTheme();
-        break;
-    case 1:
-        appearance->applyLightTheme();
-        break;
-    case 2:
-        appearance->applyAvionixTheme();
-        break;
-    default:
-        appearance->applyDarkTheme();
-        break;
-    }
+    AppearanceManager::instance()->applyAvionixTheme();
 
     createWidgets();
     createMenus();
@@ -107,15 +92,19 @@ void MainWindow::onOpenFile()
 {
     const QString fileName = QFileDialog::getOpenFileName(
         this,
-        "Выберите XML файл",
+        "Открыть проект или XML",
         QString(),
-        "XML Files (*.xml)"
+        "Avionix Designer (*.avd);;FPGA XML (*.xml);;Все поддерживаемые (*.avd *.xml)"
     );
 
     if (!fileName.isEmpty()) {
         ProjectManager::instance()->loadFromFile(fileName);
         QSettings settings("Avionix", "Designer");
         settings.setValue("lastProject", fileName);
+        m_objectList->refreshList();
+        m_objectList->selectRow(-1);
+        m_viewport->setSelectedIndex(-1);
+        m_viewport->resetView();
         updateWindowTitle();
     }
 }
@@ -138,8 +127,8 @@ void MainWindow::onSaveFileAs()
     const QString fileName = QFileDialog::getSaveFileName(
         this,
         "Сохранить проект как...",
-        project->getFilePath().isEmpty() ? project->getProjectName() + ".xml" : project->getFilePath(),
-        "XML Files (*.xml)"
+        project->getFilePath().isEmpty() ? project->getProjectName() + ".avd" : project->getFilePath(),
+        "Avionix Designer (*.avd);;FPGA XML (*.xml)"
     );
 
     if (!fileName.isEmpty()) {
@@ -150,9 +139,49 @@ void MainWindow::onSaveFileAs()
     }
 }
 
+void MainWindow::onExportFpgaXml()
+{
+    auto *project = ProjectManager::instance();
+    const QString fileName = QFileDialog::getSaveFileName(
+        this,
+        "Сохранить кадр для ПЛИС",
+        project->getProjectName() + ".xml",
+        "FPGA XML (*.xml)"
+    );
+
+    if (!fileName.isEmpty()) {
+        project->exportToFpgaXml(fileName);
+    }
+}
+
+void MainWindow::onImportImage()
+{
+    const QString fileName = QFileDialog::getOpenFileName(
+        this,
+        "Добавить изображение",
+        QString(),
+        "Изображения (*.png *.jpg *.jpeg *.bmp *.svg)"
+    );
+
+    if (fileName.isEmpty())
+        return;
+
+    const int index = ProjectManager::instance()->importImageAsStaticGroup(fileName);
+    if (index < 0)
+        return;
+
+    m_objectList->refreshList();
+    m_objectList->selectRow(index);
+    m_viewport->setSelectedIndex(index);
+    m_objectProperties->showObjectProperties(index);
+    setSelectionState(index);
+    m_viewport->update();
+}
+
 void MainWindow::updateWindowTitle()
 {
-    setWindowTitle(QString("Avionix Designer - %1").arg(ProjectManager::instance()->getProjectName()));
+    auto *project = ProjectManager::instance();
+    setWindowTitle(QString("Avionix Designer - %1 [%2]").arg(project->getProjectName(), project->editModeName()));
 }
 
 void MainWindow::openSettings()
@@ -253,6 +282,8 @@ void MainWindow::createMenus()
     fileMenu->addAction(createAction("Открыть...", QKeySequence::Open, this, SLOT(onOpenFile())));
     fileMenu->addAction(createAction("Сохранить", QKeySequence::Save, this, SLOT(onSaveFile())));
     fileMenu->addAction(createAction("Сохранить как...", QKeySequence::SaveAs, this, SLOT(onSaveFileAs())));
+    fileMenu->addAction(createAction("Сохранить кадр для ПЛИС...", QKeySequence("Ctrl+E"), this, SLOT(onExportFpgaXml())));
+    fileMenu->addAction(createAction("Добавить изображение...", QKeySequence("Ctrl+I"), this, SLOT(onImportImage())));
     fileMenu->addSeparator();
     fileMenu->addAction(createAction("Выход", QKeySequence::Quit, this, SLOT(close())));
 
@@ -315,8 +346,21 @@ void MainWindow::connectSignals()
     });
 
     connect(m_objectLibrary, &ObjectLibraryPanel::objectRequested, this, &MainWindow::createObjectOfType);
+    connect(m_objectLibrary, &ObjectLibraryPanel::imageImportRequested, this, &MainWindow::onImportImage);
     connect(m_selectionToolStrip, &SelectionToolStrip::alignRequested, this, &MainWindow::alignSelectedObject);
     connect(m_selectionToolStrip, &SelectionToolStrip::deleteRequested, this, &MainWindow::deleteSelectedObject);
+    connect(m_viewport, &ViewportPanel::imageDropped, this, [this](const QString &fileName) {
+        const int index = ProjectManager::instance()->importImageAsStaticGroup(fileName);
+        if (index < 0)
+            return;
+
+        m_objectList->refreshList();
+        m_objectList->selectRow(index);
+        m_viewport->setSelectedIndex(index);
+        m_objectProperties->showObjectProperties(index);
+        setSelectionState(index);
+        m_viewport->update();
+    });
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 project(AvionixDesigner LANGUAGES CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg)
 
 qt_standard_project_setup()
 
@@ -88,6 +88,7 @@ target_link_libraries(AvionixDesigner
         Qt::Core
         Qt::Widgets
         Qt::Xml
+        Qt::Svg
 )
 
 target_compile_features(AvionixDesigner PRIVATE cxx_std_17)

@@ -6,9 +6,9 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QFrame>
-#include <QFontComboBox>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMessageBox>
 #include <QScrollArea>
 #include <QSet>
 #include <QStackedWidget>
@@ -30,7 +30,9 @@ public:
 
         const QString propertyName = index.siblingAtColumn(0).data().toString();
         if (propertyName == QStringLiteral("Шрифт")) {
-            return new QFontComboBox(parent);
+            auto *combo = new QComboBox(parent);
+            combo->addItem(QStringLiteral("Arial"));
+            return combo;
         }
 
         const QSet<QString> boolNames = {
@@ -53,13 +55,14 @@ public:
 
     void setEditorData(QWidget *editor, const QModelIndex &index) const override
     {
-        if (auto *fontCombo = qobject_cast<QFontComboBox*>(editor)) {
-            fontCombo->setCurrentFont(QFont(index.data().toString()));
-            return;
-        }
         if (auto *combo = qobject_cast<QComboBox*>(editor)) {
             const QString current = index.data().toString().trimmed().toLower();
-            combo->setCurrentIndex(current == QStringLiteral("нет") ? 1 : 0);
+            const int exactIndex = combo->findText(index.data().toString());
+            if (exactIndex >= 0) {
+                combo->setCurrentIndex(exactIndex);
+            } else {
+                combo->setCurrentIndex(current == QStringLiteral("нет") ? 1 : 0);
+            }
             return;
         }
         QStyledItemDelegate::setEditorData(editor, index);
@@ -67,10 +70,6 @@ public:
 
     void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override
     {
-        if (auto *fontCombo = qobject_cast<QFontComboBox*>(editor)) {
-            model->setData(index, fontCombo->currentFont().family());
-            return;
-        }
         if (auto *combo = qobject_cast<QComboBox*>(editor)) {
             model->setData(index, combo->currentText());
             return;
@@ -254,6 +253,11 @@ void ObjectPropertiesPanel::onCellChanged(int row, int column)
         emit propertyChanged();
     }
     else {
+        const QString message = m_currentObject->lastValidationMessage();
+        if (!message.isEmpty()) {
+            QMessageBox::warning(this, tr("Ограничение редактирования"), message);
+            m_currentObject->clearValidationMessage();
+        }
         m_updating = true;
         const auto props = m_currentObject->getProperties();
         for (const auto &prop : props) {

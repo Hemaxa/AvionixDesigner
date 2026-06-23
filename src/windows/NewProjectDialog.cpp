@@ -22,7 +22,7 @@ NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
     mainLayout->setSpacing(12);
 
     auto *description = new QLabel(
-        "Укажите параметры новой рабочей области. XML будет создан в совместимой структуре, подходящей для дальнейшего добавления модулей.",
+        "Укажите параметры новой рабочей области. Проект будет сохранён как редактируемый .avd, а XML для ПЛИС можно экспортировать отдельно.",
         this
     );
     description->setWordWrap(true);
@@ -66,7 +66,7 @@ NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
 
     auto *browseButton = new QPushButton("Обзор...", this);
     pathRow->addWidget(browseButton);
-    formLayout->addRow("Файл XML", pathRow);
+    formLayout->addRow("Файл проекта", pathRow);
 
     mainLayout->addLayout(formLayout);
 
@@ -120,9 +120,9 @@ void NewProjectDialog::chooseFilePath()
 {
     const QString fileName = QFileDialog::getSaveFileName(
         this,
-        "Создать XML проект",
+        "Создать проект Avionix Designer",
         m_pathEdit->text().trimmed(),
-        "XML Files (*.xml)"
+        "Avionix Designer (*.avd)"
     );
 
     if (!fileName.isEmpty()) {

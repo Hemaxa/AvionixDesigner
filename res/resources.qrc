@@ -1,7 +1,5 @@
 <RCC>
     <qresource prefix="/themes">
-        <file>themes/DarkTheme.qss</file>
-        <file>themes/LightTheme.qss</file>
         <file>themes/AvionixTheme.qss</file>
     </qresource>
     <qresource prefix="/icons">
@@ -12,6 +10,7 @@
         <file>icons/library/rotationgroup.svg</file>
         <file>icons/library/aviahorizon.svg</file>
         <file>icons/library/text.svg</file>
+        <file>icons/library/import-image.svg</file>
         <file>icons/selection/align-top.svg</file>
         <file>icons/selection/align-vcenter.svg</file>
         <file>icons/selection/align-bottom.svg</file>
