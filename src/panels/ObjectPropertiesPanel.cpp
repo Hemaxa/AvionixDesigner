@@ -32,6 +32,12 @@ public:
         if (propertyName == QStringLiteral("Шрифт")) {
             auto *combo = new QComboBox(parent);
             combo->addItem(QStringLiteral("Arial"));
+            combo->addItem(QStringLiteral("Times New Roman"));
+            combo->addItem(QStringLiteral("Helvetica"));
+            combo->addItem(QStringLiteral("Courier New"));
+            combo->addItem(QStringLiteral("Verdana"));
+            combo->addItem(QStringLiteral("Tahoma"));
+            combo->addItem(QStringLiteral("Georgia"));
             return combo;
         }
 

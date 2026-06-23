@@ -10,20 +10,115 @@
 #include "ProjectManager.h"
 #include "SelectionToolStrip.h"
 #include "SettingsWindow.h"
+#include "TextObject.h"
 #include "ViewportPanel.h"
 #include "ViewportSettingsPanel.h"
 
 #include <QAction>
+#include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
+#include <QGroupBox>
+#include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QSettings>
+#include <QSet>
 #include <QTimer>
+#include <QVBoxLayout>
 
 namespace {
 constexpr int kLayoutStateVersion = 2;
+
+QSet<QString> detectAlphabetGroups()
+{
+    QSet<QString> groups;
+    for (const auto &object : ProjectManager::instance()->getObjects()) {
+        auto *text = dynamic_cast<TextObject*>(object.data());
+        if (!text || !text->isExportEnabled())
+            continue;
+
+        for (const QChar ch : text->text) {
+            const ushort u = ch.unicode();
+            if (ch.isDigit()) {
+                groups.insert(QStringLiteral("digits"));
+            } else if (u >= 'A' && u <= 'Z') {
+                groups.insert(QStringLiteral("latin_upper"));
+            } else if (u >= 'a' && u <= 'z') {
+                groups.insert(QStringLiteral("latin_lower"));
+            } else if ((u >= 0x0410 && u <= 0x042F) || u == 0x0401) {
+                groups.insert(QStringLiteral("cyrillic_upper"));
+            } else if ((u >= 0x0430 && u <= 0x044F) || u == 0x0451) {
+                groups.insert(QStringLiteral("cyrillic_lower"));
+            }
+        }
+    }
+    return groups;
+}
+
+QCheckBox* addAlphabetCheck(QVBoxLayout *layout, const QString &title, const QString &key, const QSet<QString> &autoGroups)
+{
+    auto *check = new QCheckBox(title);
+    check->setProperty("alphabetKey", key);
+    check->setChecked(autoGroups.contains(key));
+    layout->addWidget(check);
+    return check;
+}
+
+bool collectExportOptions(QWidget *parent, QSet<QString> *alphabetGroups)
+{
+    QDialog dialog(parent);
+    dialog.setWindowTitle(QStringLiteral("Экспорт кадра в XML"));
+    dialog.setMinimumWidth(430);
+
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(16, 16, 16, 16);
+    layout->setSpacing(12);
+
+    auto *warning = new QLabel(QStringLiteral(
+        "После экспорта изображения и SVG будут растеризованы в маски 0..7. "
+        "При повторном открытии экспортированного XML размеры растровых объектов будут заблокированы."
+    ), &dialog);
+    warning->setWordWrap(true);
+    layout->addWidget(warning);
+
+    auto *groupBox = new QGroupBox(QStringLiteral("Алфавиты для добавления в XML"), &dialog);
+    auto *groupLayout = new QVBoxLayout(groupBox);
+    const QSet<QString> autoGroups = detectAlphabetGroups();
+    QList<QCheckBox*> checks = {
+        addAlphabetCheck(groupLayout, QStringLiteral("Цифры 0-9"), QStringLiteral("digits"), autoGroups),
+        addAlphabetCheck(groupLayout, QStringLiteral("Английские заглавные A-Z"), QStringLiteral("latin_upper"), autoGroups),
+        addAlphabetCheck(groupLayout, QStringLiteral("Английские строчные a-z"), QStringLiteral("latin_lower"), autoGroups),
+        addAlphabetCheck(groupLayout, QStringLiteral("Русские заглавные А-Я, Ё"), QStringLiteral("cyrillic_upper"), autoGroups),
+        addAlphabetCheck(groupLayout, QStringLiteral("Русские строчные а-я, ё"), QStringLiteral("cyrillic_lower"), autoGroups)
+    };
+    layout->addWidget(groupBox);
+
+    auto *fontNote = new QLabel(QStringLiteral(
+        "Для каждого используемого шрифта и размера будет создан отдельный тег font с метриками QFontMetrics и общим data-пулом масок."
+    ), &dialog);
+    fontNote->setWordWrap(true);
+    layout->addWidget(fontNote);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    alphabetGroups->clear();
+    for (QCheckBox *check : checks) {
+        if (check->isChecked())
+            alphabetGroups->insert(check->property("alphabetKey").toString());
+    }
+    return true;
+}
 }
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
@@ -94,7 +189,7 @@ void MainWindow::onOpenFile()
         this,
         "Открыть проект или XML",
         QString(),
-        "Avionix Designer (*.avd);;FPGA XML (*.xml);;Все поддерживаемые (*.avd *.xml)"
+        "XML (*.xml)"
     );
 
     if (!fileName.isEmpty()) {
@@ -127,8 +222,8 @@ void MainWindow::onSaveFileAs()
     const QString fileName = QFileDialog::getSaveFileName(
         this,
         "Сохранить проект как...",
-        project->getFilePath().isEmpty() ? project->getProjectName() + ".avd" : project->getFilePath(),
-        "Avionix Designer (*.avd);;FPGA XML (*.xml)"
+        project->getFilePath().isEmpty() ? project->getProjectName() + ".xml" : project->getFilePath(),
+        "XML (*.xml)"
     );
 
     if (!fileName.isEmpty()) {
@@ -141,16 +236,23 @@ void MainWindow::onSaveFileAs()
 
 void MainWindow::onExportFpgaXml()
 {
+    QSet<QString> alphabetGroups;
+    if (!collectExportOptions(this, &alphabetGroups))
+        return;
+
     auto *project = ProjectManager::instance();
     const QString fileName = QFileDialog::getSaveFileName(
         this,
-        "Сохранить кадр для ПЛИС",
+        "Экспорт кадра в XML",
         project->getProjectName() + ".xml",
         "FPGA XML (*.xml)"
     );
 
     if (!fileName.isEmpty()) {
-        project->exportToFpgaXml(fileName);
+        project->exportToFpgaXml(fileName, alphabetGroups);
+        m_objectList->refreshList();
+        m_viewport->update();
+        updateWindowTitle();
     }
 }
 
@@ -282,7 +384,7 @@ void MainWindow::createMenus()
     fileMenu->addAction(createAction("Открыть...", QKeySequence::Open, this, SLOT(onOpenFile())));
     fileMenu->addAction(createAction("Сохранить", QKeySequence::Save, this, SLOT(onSaveFile())));
     fileMenu->addAction(createAction("Сохранить как...", QKeySequence::SaveAs, this, SLOT(onSaveFileAs())));
-    fileMenu->addAction(createAction("Сохранить кадр для ПЛИС...", QKeySequence("Ctrl+E"), this, SLOT(onExportFpgaXml())));
+    fileMenu->addAction(createAction("Экспорт кадра в XML...", QKeySequence("Ctrl+E"), this, SLOT(onExportFpgaXml())));
     fileMenu->addAction(createAction("Добавить изображение...", QKeySequence("Ctrl+I"), this, SLOT(onImportImage())));
     fileMenu->addSeparator();
     fileMenu->addAction(createAction("Выход", QKeySequence::Quit, this, SLOT(close())));
@@ -349,6 +451,7 @@ void MainWindow::connectSignals()
     connect(m_objectLibrary, &ObjectLibraryPanel::imageImportRequested, this, &MainWindow::onImportImage);
     connect(m_selectionToolStrip, &SelectionToolStrip::alignRequested, this, &MainWindow::alignSelectedObject);
     connect(m_selectionToolStrip, &SelectionToolStrip::deleteRequested, this, &MainWindow::deleteSelectedObject);
+    connect(m_selectionToolStrip, &SelectionToolStrip::exportRequested, this, &MainWindow::onExportFpgaXml);
     connect(m_viewport, &ViewportPanel::imageDropped, this, [this](const QString &fileName) {
         const int index = ProjectManager::instance()->importImageAsStaticGroup(fileName);
         if (index < 0)

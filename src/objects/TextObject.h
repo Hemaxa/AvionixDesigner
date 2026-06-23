@@ -10,8 +10,14 @@ struct FpgaGlyph
     int code = 0;
     int width = 0;
     int height = 0;
+    int advance = 0;
+    int bearingX = 0;
+    int bearingY = 0;
+    int ascent = 0;
+    int descent = 0;
     int floater = 0;
     int offset = 0;
+    int size = 14;
     QString maskRows;
     QImage maskImage;
 };

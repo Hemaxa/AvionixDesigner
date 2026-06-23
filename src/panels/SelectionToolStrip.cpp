@@ -41,6 +41,10 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
 
     layout->addStretch();
 
+    m_exportButton = createActionButton(QStringLiteral(":/icons/icons/selection/export-triangle.svg"), QStringLiteral("Экспорт кадра в XML"));
+    connect(m_exportButton, &QToolButton::clicked, this, &SelectionToolStrip::exportRequested);
+    layout->addWidget(m_exportButton);
+
     m_deleteButton = createActionButton(QStringLiteral(":/icons/icons/selection/delete.svg"), QStringLiteral("Удалить объект"));
     connect(m_deleteButton, &QToolButton::clicked, this, &SelectionToolStrip::deleteRequested);
     layout->addWidget(m_deleteButton);

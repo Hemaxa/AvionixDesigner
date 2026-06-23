@@ -112,6 +112,27 @@ QListWidget::item:selected {
     color: #041014;
 }
 
+#ObjectListIconButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 2px;
+}
+
+#ObjectListIconButton:hover {
+    background-color: #20303a;
+}
+
+#ObjectListRowLabel {
+    background-color: transparent;
+    color: #eef7ff;
+}
+
+#ObjectExportCheck {
+    background-color: transparent;
+    spacing: 4px;
+}
+
 #PropertiesTitleLabel,
 #PropertiesEmptyTitleLabel,
 #SettingsFieldLabel {

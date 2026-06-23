@@ -1,7 +1,12 @@
 #include "ObjectListPanel.h"
 #include "ProjectManager.h"
 #include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QCheckBox>
+#include <QLabel>
 #include <QListWidget>
+#include <QToolButton>
+#include <QIcon>
 #include <QAbstractItemModel>
 #include <QSignalBlocker>
 
@@ -52,9 +57,48 @@ void ObjectListPanel::refreshList()
             .arg(i + 1)
             .arg(obj->getDisplayName());
         
-        QListWidgetItem *item = new QListWidgetItem(text);
+        QListWidgetItem *item = new QListWidgetItem();
         item->setData(Qt::UserRole, i);
         m_listWidget->addItem(item);
+
+        auto *rowWidget = new QWidget(m_listWidget);
+        auto *rowLayout = new QHBoxLayout(rowWidget);
+        rowLayout->setContentsMargins(4, 2, 4, 2);
+        rowLayout->setSpacing(6);
+
+        auto *eyeButton = new QToolButton(rowWidget);
+        eyeButton->setObjectName("ObjectListIconButton");
+        eyeButton->setIcon(QIcon(obj->isViewVisible()
+            ? QStringLiteral(":/icons/icons/list/eye.svg")
+            : QStringLiteral(":/icons/icons/list/eye-off.svg")));
+        eyeButton->setToolTip(obj->isViewVisible() ? QStringLiteral("Скрыть на холсте") : QStringLiteral("Показать на холсте"));
+        eyeButton->setFixedSize(24, 24);
+        rowLayout->addWidget(eyeButton);
+
+        auto *label = new QLabel(text, rowWidget);
+        label->setObjectName("ObjectListRowLabel");
+        rowLayout->addWidget(label, 1);
+
+        auto *exportCheck = new QCheckBox(rowWidget);
+        exportCheck->setObjectName("ObjectExportCheck");
+        exportCheck->setToolTip(QStringLiteral("Экспортировать в XML"));
+        exportCheck->setChecked(obj->isExportEnabled());
+        rowLayout->addWidget(exportCheck);
+
+        item->setSizeHint(rowWidget->sizeHint());
+        m_listWidget->setItemWidget(item, rowWidget);
+
+        connect(eyeButton, &QToolButton::clicked, this, [this, i]() {
+            auto object = ProjectManager::instance()->getObjectAt(i);
+            if (!object)
+                return;
+            ProjectManager::instance()->setObjectViewVisible(i, !object->isViewVisible());
+            refreshList();
+        });
+
+        connect(exportCheck, &QCheckBox::toggled, this, [this, i](bool checked) {
+            ProjectManager::instance()->setObjectExportEnabled(i, checked);
+        });
     }
 
     if (selectedRow >= 0 && selectedRow < m_listWidget->count()) {
@@ -116,6 +160,7 @@ void ObjectListPanel::onRowsMoved(const QModelIndex &parent, int start, int end,
         }
     }
 
+    refreshList();
     selectRow(newSelectedRow);
     emit objectSelected(newSelectedRow);
 }

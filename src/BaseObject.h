@@ -48,6 +48,10 @@ public:
     virtual bool isImportedHardwareObject() const { return m_importedHardwareObject; }
     virtual void setImportedHardwareObject(bool imported) { m_importedHardwareObject = imported; }
     virtual void setResizeLocked(bool locked) { m_resizeLocked = locked; }
+    virtual bool isViewVisible() const { return m_viewVisible; }
+    virtual void setViewVisible(bool visible) { m_viewVisible = visible; emit changed(); }
+    virtual bool isExportEnabled() const { return m_exportEnabled; }
+    virtual void setExportEnabled(bool enabled) { m_exportEnabled = enabled; emit changed(); }
     virtual QString editRestrictionHint() const { return m_editRestrictionHint; }
     virtual QString lastValidationMessage() const { return m_lastValidationMessage; }
     virtual void clearValidationMessage() { m_lastValidationMessage.clear(); }
@@ -75,6 +79,8 @@ protected:
 private:
     bool m_resizeLocked = false;
     bool m_importedHardwareObject = false;
+    bool m_viewVisible = true;
+    bool m_exportEnabled = true;
     QString m_editRestrictionHint;
     mutable QString m_lastValidationMessage;
 };

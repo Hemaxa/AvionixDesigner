@@ -5,6 +5,7 @@
 #include <QColor>
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <QSharedPointer>
 
 #include "BaseObject.h"
@@ -24,7 +25,7 @@ enum class ObjectAlignment
 
 enum class ProjectEditMode
 {
-    EditableProject,
+    EditableXml,
     RestrictedFpgaXml
 };
 
@@ -38,7 +39,7 @@ public:
     bool loadFromFile(const QString &fileName);
     bool createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath = QString());
     bool saveToFile(const QString &targetFile = QString());
-    bool exportToFpgaXml(const QString &targetFile);
+    bool exportToFpgaXml(const QString &targetFile, const QSet<QString> &alphabetGroups = {});
     int importImageAsStaticGroup(const QString &fileName);
 
     void registerStandardTypes();
@@ -47,6 +48,8 @@ public:
     bool removeObject(int index);
     bool reorderObjects(const QList<int> &order);
     bool alignObject(int index, ObjectAlignment alignment);
+    bool setObjectViewVisible(int index, bool visible);
+    bool setObjectExportEnabled(int index, bool enabled);
 
     const QList<QSharedPointer<BaseObject>>& getObjects() const;
     QSharedPointer<BaseObject> getObjectAt(int index) const;
@@ -72,14 +75,13 @@ private:
     ProjectManager();
 
     bool loadXmlProject(const QString &fileName);
-    bool loadAvdProject(const QString &fileName);
-    bool saveAvdProject(const QString &targetFile);
+    bool saveEditableXml(const QString &targetFile);
     void applyRestrictedMode();
     void resetFontsToDefault();
 
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
-    ProjectEditMode m_editMode = ProjectEditMode::EditableProject;
+    ProjectEditMode m_editMode = ProjectEditMode::EditableXml;
     QList<QSharedPointer<BaseObject>> m_objects;
     QStringList m_objectTags;
     QMap<QString, ParamSchema> m_schemas;

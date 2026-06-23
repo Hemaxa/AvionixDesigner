@@ -11,6 +11,8 @@
         <file>icons/library/aviahorizon.svg</file>
         <file>icons/library/text.svg</file>
         <file>icons/library/import-image.svg</file>
+        <file>icons/list/eye.svg</file>
+        <file>icons/list/eye-off.svg</file>
         <file>icons/selection/align-top.svg</file>
         <file>icons/selection/align-vcenter.svg</file>
         <file>icons/selection/align-bottom.svg</file>
@@ -18,5 +20,6 @@
         <file>icons/selection/align-hcenter.svg</file>
         <file>icons/selection/align-right.svg</file>
         <file>icons/selection/delete.svg</file>
+        <file>icons/selection/export-triangle.svg</file>
     </qresource>
 </RCC>

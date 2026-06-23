@@ -97,6 +97,40 @@ QList<FpgaSchemaField> ribbonScaleFields()
         {"padding", 97, 53}
     };
 }
+
+QList<FpgaSchemaField> fontGlyphFields()
+{
+    return {
+        {"enb", 0, 1},
+        {"code", 1, 16},
+        {"w", 17, 12},
+        {"h", 29, 12},
+        {"advance", 41, 12},
+        {"bearing_x", 53, 12},
+        {"bearing_y", 65, 12},
+        {"ascent", 77, 12},
+        {"descent", 89, 12},
+        {"offset", 101, 24},
+        {"mask_size", 125, 12},
+        {"font_index", 137, 8},
+        {"padding", 145, 5}
+    };
+}
+
+QList<FpgaSchemaField> textLineFields()
+{
+    return {
+        {"enb", 0, 1},
+        {"color", 1, 24},
+        {"x", 25, 12},
+        {"y", 37, 12},
+        {"font_index", 49, 8},
+        {"char_offset", 57, 16},
+        {"char_count", 73, 12},
+        {"kerning", 85, 8},
+        {"padding", 93, 57}
+    };
+}
 }
 
 FpgaSchemaRegistry* FpgaSchemaRegistry::instance()
@@ -145,6 +179,10 @@ QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schema
         return dashedLineFields();
     if (schemaName == "RibonScale")
         return ribbonScaleFields();
+    if (schemaName == "font")
+        return fontGlyphFields();
+    if (schemaName == "text")
+        return textLineFields();
     return {};
 }
 
@@ -160,7 +198,7 @@ ParamSchema FpgaSchemaRegistry::buildSchema(const QString &schemaName) const
 
 QStringList FpgaSchemaRegistry::orderedSchemaNames() const
 {
-    return {"rectangle", "rotationobject", "staticgroup", "aviagorizont", "dashed_line", "RibonScale"};
+    return {"rectangle", "rotationobject", "staticgroup", "aviagorizont", "dashed_line", "RibonScale", "font", "text"};
 }
 
 QStringList FpgaSchemaRegistry::defaultSchemaNames() const

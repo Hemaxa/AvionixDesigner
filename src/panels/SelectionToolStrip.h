@@ -31,10 +31,12 @@ public slots:
 signals:
     void alignRequested(int actionId);
     void deleteRequested();
+    void exportRequested();
 
 private:
     QToolButton* createActionButton(const QString &iconPath, const QString &toolTip);
 
     QList<QToolButton*> m_buttons;
+    QToolButton *m_exportButton = nullptr;
     QToolButton *m_deleteButton = nullptr;
 };

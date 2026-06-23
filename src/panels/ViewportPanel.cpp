@@ -182,6 +182,9 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     const auto &objects = pm->getObjects();
     for (int i = 0; i < objects.size(); ++i) {
+        if (!objects[i]->isViewVisible())
+            continue;
+
         objects[i]->draw(painter);
         
         // Рисуем выделение
@@ -226,6 +229,11 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         // 1. Проверяем клик по манипуляторам выделенного объекта
         if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
             auto obj = pm->getObjectAt(m_selectedIndex);
+            if (!obj->isViewVisible()) {
+                setSelectedIndex(-1);
+                emit objectSelected(-1);
+                return;
+            }
             QRectF rect = obj->getBoundingRect();
             bool canRotate = obj->supportsRotationHandle();
             
@@ -249,7 +257,8 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         m_dragMode = None;
         int newSelection = -1;
         for (int i = pm->getObjectCount() - 1; i >= 0; --i) {
-            if (pm->getObjectAt(i)->contains(canvasPos)) {
+            auto candidate = pm->getObjectAt(i);
+            if (candidate->isViewVisible() && candidate->contains(canvasPos)) {
                 newSelection = i;
                 m_dragMode = Move;
                 break;

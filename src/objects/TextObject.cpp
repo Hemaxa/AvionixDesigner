@@ -6,6 +6,21 @@
 #include <QFontMetrics>
 #include <QPainter>
 
+namespace {
+QStringList basicFontFamilies()
+{
+    return {
+        QStringLiteral("Arial"),
+        QStringLiteral("Times New Roman"),
+        QStringLiteral("Helvetica"),
+        QStringLiteral("Courier New"),
+        QStringLiteral("Verdana"),
+        QStringLiteral("Tahoma"),
+        QStringLiteral("Georgia")
+    };
+}
+}
+
 TextObject::TextObject(QObject *parent) : StaticGroupObject(parent)
 {
     GroupState state;
@@ -103,8 +118,8 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
             setValidationMessage(QStringLiteral("Шрифт заблокирован: в XML уже зашит фиксированный атлас."));
             return false;
         }
-        if (value.trimmed() != QStringLiteral("Arial")) {
-            setValidationMessage(QStringLiteral("Сейчас доступен только шрифт Arial."));
+        if (!basicFontFamilies().contains(value.trimmed())) {
+            setValidationMessage(QStringLiteral("Выберите один из базовых шрифтов."));
             return false;
         }
         fontFamily = value.trimmed();
@@ -118,8 +133,8 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
         }
         pixelSize = value.toInt(&ok);
         if (ok) {
-            if (pixelSize != 14) {
-                setValidationMessage(QStringLiteral("Сейчас доступен только размер Arial 14."));
+            if (pixelSize < 6 || pixelSize > 128) {
+                setValidationMessage(QStringLiteral("Размер шрифта должен быть от 6 до 128 пикселей."));
                 return false;
             }
             needsRebuild = true;
@@ -162,7 +177,7 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
         const int newWidth = qMax(1, value.toInt(&ok));
         if (ok) {
             const double scale = state.w > 0 ? static_cast<double>(newWidth) / state.w : 1.0;
-            pixelSize = qMax(14, qRound(pixelSize * scale));
+            pixelSize = qBound(6, qRound(pixelSize * scale), 128);
             rebuildMask();
         }
     }
@@ -174,7 +189,7 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
         const int newHeight = qMax(1, value.toInt(&ok));
         if (ok) {
             const double scale = state.h > 0 ? static_cast<double>(newHeight) / state.h : 1.0;
-            pixelSize = qMax(14, qRound(pixelSize * scale));
+            pixelSize = qBound(6, qRound(pixelSize * scale), 128);
             rebuildMask();
         }
     }
@@ -208,7 +223,7 @@ void TextObject::resizeBy(int edgeFlags, double dx, double dy)
     const int oldBottom = state.y + state.h;
     const auto resized = proportionalResizeRect(oldBounds, edgeFlags, dx, dy);
 
-    pixelSize = qMax(14, qRound(pixelSize * resized.scale));
+    pixelSize = qBound(6, qRound(pixelSize * resized.scale), 128);
     rebuildMask();
 
     if (states.isEmpty())
@@ -253,16 +268,16 @@ void TextObject::rebuildMaskFromQtFont()
     GroupState &state = states[0];
     const QString drawText = text.isEmpty() ? QStringLiteral(" ") : text;
 
-    QFont font(QStringLiteral("Arial"), 14);
-    font.setPixelSize(14);
+    QFont font(fontFamily, pixelSize);
+    font.setPixelSize(pixelSize);
     font.setBold(bold);
     font.setItalic(italic);
     font.setUnderline(underline);
 
     QFontMetrics metrics(font);
     const QRect textRect = metrics.boundingRect(drawText);
-    const int paddingX = 3;
-    const int paddingY = 3;
+    const int paddingX = qMax(2, pixelSize / 6);
+    const int paddingY = qMax(2, pixelSize / 7);
     const int imageWidth = qMax(1, textRect.width() + paddingX * 2);
     const int imageHeight = qMax(1, metrics.height() + paddingY * 2);
 
