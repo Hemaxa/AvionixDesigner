@@ -67,5 +67,7 @@ private:
     
     // Отрисовка манипуляторов
     void drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate);
+    void drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale);
+    QPointF snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;
     int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canResize, bool canRotate) const;
 };

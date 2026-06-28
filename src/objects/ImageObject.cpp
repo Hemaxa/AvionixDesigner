@@ -3,6 +3,7 @@
 #include "ProportionalResize.h"
 
 #include <QBuffer>
+#include <QHash>
 #include <QPainter>
 #include <QSvgRenderer>
 
@@ -52,6 +53,39 @@ QImage ImageObject::renderedImage() const
     }
 
     return image;
+}
+
+QColor ImageObject::effectiveMaskColor() const
+{
+    if (!autoMaskColor && maskColor.isValid())
+        return maskColor;
+
+    const QImage image = renderedImage().convertToFormat(QImage::Format_ARGB32);
+    if (image.isNull())
+        return maskColor.isValid() ? maskColor : QColor(Qt::white);
+
+    QHash<QRgb, int> weights;
+    QRgb bestRgb = qRgb(maskColor.red(), maskColor.green(), maskColor.blue());
+    int bestWeight = -1;
+
+    const int step = qMax(1, qMin(image.width(), image.height()) / 96);
+    for (int y = 0; y < image.height(); y += step) {
+        for (int x = 0; x < image.width(); x += step) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.alpha() < 24)
+                continue;
+
+            const QRgb bucket = qRgb((pixel.red() / 8) * 8, (pixel.green() / 8) * 8, (pixel.blue() / 8) * 8);
+            const int weight = weights.value(bucket) + pixel.alpha();
+            weights.insert(bucket, weight);
+            if (weight > bestWeight) {
+                bestWeight = weight;
+                bestRgb = bucket;
+            }
+        }
+    }
+
+    return QColor(bestRgb);
 }
 
 QByteArray ImageObject::sourcePayload() const
@@ -118,7 +152,8 @@ QList<QPair<QString, QString>> ImageObject::getProperties() const
         {"Y", QString::number(y)},
         {"Ширина", QString::number(width)},
         {"Высота", QString::number(height)},
-        {"Цвет маски", maskColor.name()}
+        {"Автоцвет", autoMaskColor ? QStringLiteral("да") : QStringLiteral("нет")},
+        {"Цвет маски", effectiveMaskColor().name()}
     };
 }
 
@@ -167,11 +202,24 @@ bool ImageObject::setObjectProperty(const QString &name, const QString &value)
             return false;
         }
         height = qMax(1.0, value.toDouble(&ok));
+    } else if (name == QStringLiteral("Автоцвет")) {
+        const QString normalized = value.trimmed().toLower();
+        if (normalized == QStringLiteral("да") || normalized == QStringLiteral("yes")
+            || normalized == QStringLiteral("true") || normalized == QStringLiteral("1")) {
+            autoMaskColor = true;
+            ok = true;
+        } else if (normalized == QStringLiteral("нет") || normalized == QStringLiteral("no")
+                   || normalized == QStringLiteral("false") || normalized == QStringLiteral("0")) {
+            autoMaskColor = false;
+            ok = true;
+        }
     } else if (name == QStringLiteral("Цвет маски")) {
         const QColor color(value);
         ok = color.isValid();
-        if (ok)
+        if (ok) {
             maskColor = color;
+            autoMaskColor = false;
+        }
     }
 
     if (ok)

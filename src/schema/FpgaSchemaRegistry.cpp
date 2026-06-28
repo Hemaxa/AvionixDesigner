@@ -127,8 +127,7 @@ QList<FpgaSchemaField> textLineFields()
         {"font_index", 49, 8},
         {"char_offset", 57, 16},
         {"char_count", 73, 12},
-        {"kerning", 85, 8},
-        {"padding", 93, 57}
+        {"padding", 85, 65}
     };
 }
 }

@@ -13,6 +13,10 @@
         <file>icons/library/import-image.svg</file>
         <file>icons/list/eye.svg</file>
         <file>icons/list/eye-off.svg</file>
+        <file>icons/settings/grid.svg</file>
+        <file>icons/settings/snap-screen.svg</file>
+        <file>icons/settings/snap-grid.svg</file>
+        <file>icons/settings/snap-objects.svg</file>
         <file>icons/selection/align-top.svg</file>
         <file>icons/selection/align-vcenter.svg</file>
         <file>icons/selection/align-bottom.svg</file>

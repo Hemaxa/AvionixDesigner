@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QMimeData>
 #include <QUrl>
+#include <QVector>
 #include "BaseObject.h"
 #include <QtMath>
 
@@ -120,6 +121,116 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     painter.restore();
 }
 
+void ViewportPanel::drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale)
+{
+    const int baseStep = 10;
+    int step = baseStep;
+    while (step * totalScale < 6.0)
+        step *= 2;
+
+    QPen gridPen(QColor(120, 180, 200, 55), 1);
+    gridPen.setCosmetic(true);
+    painter.save();
+    painter.setPen(gridPen);
+    for (int x = step; x < canvasW; x += step)
+        painter.drawLine(QPointF(x, 0), QPointF(x, canvasH));
+    for (int y = step; y < canvasH; y += step)
+        painter.drawLine(QPointF(0, y), QPointF(canvasW, y));
+    painter.restore();
+}
+
+QPointF ViewportPanel::snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const
+{
+    auto *project = ProjectManager::instance();
+    QPointF snapped = delta;
+    constexpr double snapDistance = 6.0;
+    constexpr double gridStep = 10.0;
+
+    auto applyX = [&snapped, &originalRect](double target, double source) {
+        snapped.setX(snapped.x() + target - source);
+    };
+    auto applyY = [&snapped, &originalRect](double target, double source) {
+        snapped.setY(snapped.y() + target - source);
+    };
+
+    if (project->snapToGrid()) {
+        const double targetLeft = qRound((originalRect.left() + snapped.x()) / gridStep) * gridStep;
+        const double targetTop = qRound((originalRect.top() + snapped.y()) / gridStep) * gridStep;
+        snapped.setX(targetLeft - originalRect.left());
+        snapped.setY(targetTop - originalRect.top());
+    }
+
+    QRectF moved = originalRect.translated(snapped);
+    if (project->snapToCanvas()) {
+        if (qAbs(moved.left()) <= snapDistance)
+            applyX(0.0, moved.left());
+        else if (qAbs(moved.right() - project->getCanvasWidth()) <= snapDistance)
+            applyX(project->getCanvasWidth(), moved.right());
+        else if (qAbs(moved.center().x() - project->getCanvasWidth() / 2.0) <= snapDistance)
+            applyX(project->getCanvasWidth() / 2.0, moved.center().x());
+
+        moved = originalRect.translated(snapped);
+        if (qAbs(moved.top()) <= snapDistance)
+            applyY(0.0, moved.top());
+        else if (qAbs(moved.bottom() - project->getCanvasHeight()) <= snapDistance)
+            applyY(project->getCanvasHeight(), moved.bottom());
+        else if (qAbs(moved.center().y() - project->getCanvasHeight() / 2.0) <= snapDistance)
+            applyY(project->getCanvasHeight() / 2.0, moved.center().y());
+    }
+
+    if (!project->snapToObjects())
+        return snapped;
+
+    moved = originalRect.translated(snapped);
+    const QVector<double> sourceX = {moved.left(), moved.center().x(), moved.right()};
+    const QVector<double> sourceY = {moved.top(), moved.center().y(), moved.bottom()};
+
+    for (int i = 0; i < project->getObjectCount(); ++i) {
+        if (i == objectIndex)
+            continue;
+
+        const auto object = project->getObjectAt(i);
+        if (!object || !object->isViewVisible())
+            continue;
+
+        const QRectF other = object->getBoundingRect();
+        const QVector<double> targetX = {other.left(), other.center().x(), other.right()};
+        const QVector<double> targetY = {other.top(), other.center().y(), other.bottom()};
+
+        bool snappedX = false;
+        for (double sx : sourceX) {
+            for (double tx : targetX) {
+                if (qAbs(sx - tx) <= snapDistance) {
+                    applyX(tx, sx);
+                    snappedX = true;
+                    break;
+                }
+            }
+            if (snappedX)
+                break;
+        }
+
+        moved = originalRect.translated(snapped);
+        bool snappedY = false;
+        for (double sy : sourceY) {
+            for (double ty : targetY) {
+                if (qAbs(sy - ty) <= snapDistance) {
+                    applyY(ty, sy);
+                    snappedY = true;
+                    break;
+                }
+            }
+            if (snappedY)
+                break;
+        }
+
+        if (snappedX || snappedY)
+            break;
+    }
+
+    return snapped;
+}
+
 int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, bool canResize, bool canRotate) const
 {
     const double size = 6.0 / m_scale * 1.5; // Чуть больше зона клика
@@ -176,6 +287,8 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     
     //рисуем холст
     painter.fillRect(0, 0, canvasW, canvasH, pm->getBackgroundColor());
+    if (pm->showGrid())
+        drawGrid(painter, canvasW, canvasH, totalScale);
     
     //рисуем все объекты
     painter.setRenderHint(QPainter::Antialiasing);
@@ -299,7 +412,9 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
     if (m_selectedIndex >= 0) {
         auto obj = ProjectManager::instance()->getObjectAt(m_selectedIndex);
         if (m_dragMode == Move) {
-            obj->moveBy(dx, dy);
+            const QRectF originalRect = obj->getBoundingRect();
+            const QPointF snappedDelta = snappedMoveDelta(m_selectedIndex, originalRect, QPointF(dx, dy));
+            obj->moveBy(snappedDelta.x(), snappedDelta.y());
             emit objectChanged();
             update();
         } else if (m_dragMode == Resize) {

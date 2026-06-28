@@ -9,6 +9,7 @@
 #include <QIcon>
 #include <QAbstractItemModel>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 
 ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent)
 {
@@ -23,7 +24,7 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent)
     //создаем виджет списка
     m_listWidget = new QListWidget(this);
     m_listWidget->setObjectName("ObjectListWidget");
-    m_listWidget->setMinimumWidth(110);
+    m_listWidget->setMinimumWidth(180);
     m_listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
     m_listWidget->setDragEnabled(true);
     m_listWidget->setAcceptDrops(true);
@@ -77,6 +78,9 @@ void ObjectListPanel::refreshList()
 
         auto *label = new QLabel(text, rowWidget);
         label->setObjectName("ObjectListRowLabel");
+        label->setWordWrap(true);
+        label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        label->setToolTip(text);
         rowLayout->addWidget(label, 1);
 
         auto *exportCheck = new QCheckBox(rowWidget);

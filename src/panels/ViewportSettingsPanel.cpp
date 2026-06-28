@@ -5,10 +5,26 @@
 #include <QColorDialog>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QToolButton>
 #include <QVBoxLayout>
+
+namespace {
+QToolButton* createSettingsToggle(const QString &iconPath, const QString &toolTip, QWidget *parent)
+{
+    auto *button = new QToolButton(parent);
+    button->setObjectName("SettingsToolButton");
+    button->setCheckable(true);
+    button->setIcon(QIcon(iconPath));
+    button->setIconSize(QSize(18, 18));
+    button->setToolTip(toolTip);
+    button->setFixedSize(40, 40);
+    return button;
+}
+}
 
 ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent)
 {
@@ -35,7 +51,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_widthSpin = new QSpinBox(card);
     m_widthSpin->setRange(1, 8192);
     m_widthSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    m_widthSpin->setMinimumWidth(72);
+    m_widthSpin->setMinimumWidth(64);
     sizeRow->addWidget(m_widthSpin);
 
     auto *multiplyLabel = new QLabel("x", card);
@@ -45,15 +61,11 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_heightSpin = new QSpinBox(card);
     m_heightSpin->setRange(1, 8192);
     m_heightSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    m_heightSpin->setMinimumWidth(72);
+    m_heightSpin->setMinimumWidth(64);
     sizeRow->addWidget(m_heightSpin);
     sizeRow->addStretch();
 
     cardLayout->addLayout(sizeRow);
-
-    m_sizeLabel = new QLabel(QStringLiteral("—"), card);
-    m_sizeLabel->setObjectName("SettingsSizeLabel");
-    cardLayout->addWidget(m_sizeLabel);
 
     auto *bgRow = new QHBoxLayout();
     bgRow->setSpacing(6);
@@ -64,17 +76,39 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
 
     m_bgColorButton = new QPushButton(card);
     m_bgColorButton->setObjectName("SettingsColorButton");
-    m_bgColorButton->setFixedSize(28, 28);
+    m_bgColorButton->setFixedSize(40, 40);
     bgRow->addWidget(m_bgColorButton);
     bgRow->addStretch();
 
     cardLayout->addLayout(bgRow);
+
+    auto *snapCaption = new QLabel(QStringLiteral("Сетка и привязки"), card);
+    snapCaption->setObjectName("SettingsFieldLabel");
+    cardLayout->addWidget(snapCaption);
+
+    auto *snapRow = new QHBoxLayout();
+    snapRow->setSpacing(6);
+    m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), card);
+    m_snapCanvasButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-screen.svg"), QStringLiteral("Привязка к границам экрана"), card);
+    m_snapGridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-grid.svg"), QStringLiteral("Привязка к сетке"), card);
+    m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к другим объектам"), card);
+    snapRow->addWidget(m_gridButton);
+    snapRow->addWidget(m_snapCanvasButton);
+    snapRow->addWidget(m_snapGridButton);
+    snapRow->addWidget(m_snapObjectsButton);
+    snapRow->addStretch();
+    cardLayout->addLayout(snapRow);
+
     layout->addWidget(card);
     layout->addStretch();
 
     connect(m_bgColorButton, &QPushButton::clicked, this, &ViewportSettingsPanel::onChangeBgColor);
     connect(m_widthSpin, &QSpinBox::editingFinished, this, &ViewportSettingsPanel::onCanvasSizeEdited);
     connect(m_heightSpin, &QSpinBox::editingFinished, this, &ViewportSettingsPanel::onCanvasSizeEdited);
+    connect(m_gridButton, &QToolButton::toggled, this, &ViewportSettingsPanel::onToggleGrid);
+    connect(m_snapCanvasButton, &QToolButton::toggled, this, &ViewportSettingsPanel::onToggleSnapCanvas);
+    connect(m_snapGridButton, &QToolButton::toggled, this, &ViewportSettingsPanel::onToggleSnapGrid);
+    connect(m_snapObjectsButton, &QToolButton::toggled, this, &ViewportSettingsPanel::onToggleSnapObjects);
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &ViewportSettingsPanel::refreshInfo);
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &ViewportSettingsPanel::refreshInfo);
 
@@ -92,16 +126,18 @@ void ViewportSettingsPanel::refreshInfo()
     if (width > 0 && height > 0) {
         m_widthSpin->setValue(width);
         m_heightSpin->setValue(height);
-        m_sizeLabel->setText(QString("%1 x %2 px").arg(width).arg(height));
-    } else {
-        m_sizeLabel->setText(QStringLiteral("—"));
     }
+
+    m_gridButton->setChecked(project->showGrid());
+    m_snapCanvasButton->setChecked(project->snapToCanvas());
+    m_snapGridButton->setChecked(project->snapToGrid());
+    m_snapObjectsButton->setChecked(project->snapToObjects());
 
     const QColor background = project->getBackgroundColor();
     m_bgColorButton->setStyleSheet(QString(
         "QPushButton#SettingsColorButton {"
         "background-color: %1;"
-        "border-radius: 14px;"
+        "border-radius: 9px;"
         "padding: 0px;"
         "}").arg(background.name()));
 
@@ -130,4 +166,28 @@ void ViewportSettingsPanel::onCanvasSizeEdited()
     const int height = m_heightSpin ? m_heightSpin->value() : 1;
     ProjectManager::instance()->setCanvasSize(width, height);
     emit canvasSizeChanged(width, height);
+}
+
+void ViewportSettingsPanel::onToggleGrid(bool enabled)
+{
+    if (!m_refreshing)
+        ProjectManager::instance()->setShowGrid(enabled);
+}
+
+void ViewportSettingsPanel::onToggleSnapCanvas(bool enabled)
+{
+    if (!m_refreshing)
+        ProjectManager::instance()->setSnapToCanvas(enabled);
+}
+
+void ViewportSettingsPanel::onToggleSnapGrid(bool enabled)
+{
+    if (!m_refreshing)
+        ProjectManager::instance()->setSnapToGrid(enabled);
+}
+
+void ViewportSettingsPanel::onToggleSnapObjects(bool enabled)
+{
+    if (!m_refreshing)
+        ProjectManager::instance()->setSnapToObjects(enabled);
 }

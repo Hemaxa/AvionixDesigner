@@ -29,6 +29,7 @@ struct FpgaFont
     int size = 14;
     int volume = 0;
     QMap<QChar, FpgaGlyph> glyphs;
+    QMap<QString, int> kerningPairs;
 };
 
 class TextObject : public StaticGroupObject
@@ -43,7 +44,6 @@ public:
     bool italic = false;
     bool underline = false;
     int fontIndex = 0;
-    int kerning = 1;
     bool restrictedAtlasEditing = false;
 
     explicit TextObject(QObject *parent = nullptr);

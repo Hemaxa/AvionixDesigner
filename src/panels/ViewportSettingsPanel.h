@@ -9,6 +9,7 @@
 class QLabel;
 class QPushButton;
 class QSpinBox;
+class QToolButton;
 
 class ViewportSettingsPanel : public BasePanel
 {
@@ -27,11 +28,18 @@ public slots:
 private slots:
     void onChangeBgColor();
     void onCanvasSizeEdited();
+    void onToggleGrid(bool enabled);
+    void onToggleSnapCanvas(bool enabled);
+    void onToggleSnapGrid(bool enabled);
+    void onToggleSnapObjects(bool enabled);
 
 private:
-    QLabel *m_sizeLabel = nullptr;
     QPushButton *m_bgColorButton = nullptr;
     QSpinBox *m_widthSpin = nullptr;
     QSpinBox *m_heightSpin = nullptr;
+    QToolButton *m_gridButton = nullptr;
+    QToolButton *m_snapCanvasButton = nullptr;
+    QToolButton *m_snapGridButton = nullptr;
+    QToolButton *m_snapObjectsButton = nullptr;
     bool m_refreshing = false;
 };

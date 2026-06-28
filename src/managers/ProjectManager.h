@@ -62,9 +62,17 @@ public:
     QString getFilePath() const;
     ProjectEditMode editMode() const;
     QString editModeName() const;
+    bool showGrid() const;
+    bool snapToCanvas() const;
+    bool snapToGrid() const;
+    bool snapToObjects() const;
 
     void setBackgroundColor(const QColor &color);
     void setCanvasSize(int width, int height);
+    void setShowGrid(bool enabled);
+    void setSnapToCanvas(bool enabled);
+    void setSnapToGrid(bool enabled);
+    void setSnapToObjects(bool enabled);
 
 signals:
     void projectLoaded();
@@ -87,4 +95,8 @@ private:
     QMap<QString, ParamSchema> m_schemas;
     QMap<QString, QString> m_schemaAliases;
     QMap<int, FpgaFont> m_fonts;
+    bool m_showGrid = false;
+    bool m_snapToCanvas = true;
+    bool m_snapToGrid = false;
+    bool m_snapToObjects = false;
 };

@@ -53,14 +53,10 @@ QList<QPair<QString, QString>> TextObject::getProperties() const
         {"Шрифт", fontFamily},
         {"Размер", QString::number(pixelSize)},
         {"Индекс шрифта", QString::number(fontIndex)},
-        {"Цвет", state.color.name()},
-        {"Кернинг", QString::number(kerning)},
-        {"Ширина", QString::number(state.w)},
-        {"Высота", QString::number(state.h)}
+        {"Цвет", state.color.name()}
     };
 
     if (restrictedAtlasEditing) {
-        props.append(qMakePair(QStringLiteral("Режим"), QStringLiteral("ограниченный XML")));
         props.append(qMakePair(QStringLiteral("Доступно символов"), QString::number(m_hasFontAtlas ? m_fontAtlas.glyphs.size() : 0)));
     } else {
         props.append(qMakePair(QStringLiteral("Жирный"), bold ? QStringLiteral("да") : QStringLiteral("нет")));
@@ -147,10 +143,6 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
         }
         fontIndex = value.toInt(&ok);
     }
-    else if (name == "Кернинг") {
-        kerning = qMax(0, value.toInt(&ok));
-        needsRebuild = ok;
-    }
     else if (name == "Жирный") {
         ok = parseBool(value, bold);
         needsRebuild = ok;
@@ -169,31 +161,7 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
         if (ok)
             state.color = color;
     }
-    else if (name == "Ширина") {
-        if (restrictedAtlasEditing || !canResize()) {
-            setValidationMessage(QStringLiteral("Размер текстового блока заблокирован в ограниченном режиме."));
-            return false;
-        }
-        const int newWidth = qMax(1, value.toInt(&ok));
-        if (ok) {
-            const double scale = state.w > 0 ? static_cast<double>(newWidth) / state.w : 1.0;
-            pixelSize = qBound(6, qRound(pixelSize * scale), 128);
-            rebuildMask();
-        }
-    }
-    else if (name == "Высота") {
-        if (restrictedAtlasEditing || !canResize()) {
-            setValidationMessage(QStringLiteral("Размер текстового блока заблокирован в ограниченном режиме."));
-            return false;
-        }
-        const int newHeight = qMax(1, value.toInt(&ok));
-        if (ok) {
-            const double scale = state.h > 0 ? static_cast<double>(newHeight) / state.h : 1.0;
-            pixelSize = qBound(6, qRound(pixelSize * scale), 128);
-            rebuildMask();
-        }
-    }
-    else if (name == "Режим" || name == "Доступно символов") {
+    else if (name == "Доступно символов") {
         setValidationMessage(QStringLiteral("Это информационное поле."));
         return false;
     }
@@ -322,17 +290,21 @@ void TextObject::rebuildMaskFromAtlas()
     int top = 0;
     int bottom = 0;
     bool firstGlyph = true;
+    QChar previous;
 
     for (const QChar ch : drawText) {
         if (ch.isSpace()) {
-            totalWidth += qMax(4, pixelSize / 2) + kerning;
+            totalWidth += qMax(4, pixelSize / 2);
+            previous = ch;
             continue;
         }
         const FpgaGlyph glyph = m_fontAtlas.glyphs.value(ch);
         if (glyph.width <= 0 || glyph.height <= 0)
             continue;
 
-        totalWidth += glyph.width + kerning;
+        if (!previous.isNull())
+            totalWidth += m_fontAtlas.kerningPairs.value(QString(previous) + QString(ch), 0);
+        totalWidth += qMax(glyph.width, glyph.advance);
         const int glyphTop = glyph.floater;
         const int glyphBottom = glyph.floater + glyph.height;
         if (firstGlyph) {
@@ -343,18 +315,21 @@ void TextObject::rebuildMaskFromAtlas()
             top = qMin(top, glyphTop);
             bottom = qMax(bottom, glyphBottom);
         }
+        previous = ch;
     }
 
-    totalWidth = qMax(1, totalWidth - kerning);
+    totalWidth = qMax(1, totalWidth);
     const int imageHeight = qMax(1, bottom - top);
     QImage image(totalWidth, imageHeight, QImage::Format_ARGB32);
     image.fill(Qt::transparent);
 
     QPainter painter(&image);
     int currentX = 0;
+    previous = QChar();
     for (const QChar ch : drawText) {
         if (ch.isSpace()) {
-            currentX += qMax(4, pixelSize / 2) + kerning;
+            currentX += qMax(4, pixelSize / 2);
+            previous = ch;
             continue;
         }
 
@@ -362,8 +337,11 @@ void TextObject::rebuildMaskFromAtlas()
         if (glyph.width <= 0 || glyph.height <= 0)
             continue;
 
+        if (!previous.isNull())
+            currentX += m_fontAtlas.kerningPairs.value(QString(previous) + QString(ch), 0);
         painter.drawImage(QPoint(currentX, glyph.floater - top), glyphMaskToImage(glyph, color));
-        currentX += glyph.width + kerning;
+        currentX += qMax(glyph.width, glyph.advance);
+        previous = ch;
     }
     painter.end();
 

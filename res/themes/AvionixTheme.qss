@@ -94,6 +94,7 @@ QMenu::separator {
     border-radius: 10px;
     outline: none;
     padding: 4px;
+    min-width: 180px;
 }
 
 QListWidget::item {
@@ -126,6 +127,7 @@ QListWidget::item:selected {
 #ObjectListRowLabel {
     background-color: transparent;
     color: #eef7ff;
+    padding: 0px;
 }
 
 #ObjectExportCheck {
@@ -141,8 +143,7 @@ QListWidget::item:selected {
     font-weight: 700;
 }
 
-#PropertiesEmptyTextLabel,
-#SettingsSizeLabel {
+#PropertiesEmptyTextLabel {
     color: #91a7b7;
 }
 
@@ -150,25 +151,37 @@ QListWidget::item:selected {
 #PropertiesEmptyState,
 #PropertiesTableCard,
 #SettingsCard,
-#SelectionToolButton {
+#SelectionToolButton,
+#SettingsToolButton {
     background-color: #10161c;
     border: 1px solid #23303a;
     border-radius: 10px;
 }
 
 #LibraryCard {
-    padding: 4px;
+    padding: 0px;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
 }
 
 #LibraryCard:hover,
-#SelectionToolButton:hover {
+#SelectionToolButton:hover,
+#SettingsToolButton:hover {
     background-color: #15202a;
     border-color: #00d4ff;
 }
 
 #LibraryCard:pressed,
-#SelectionToolButton:pressed {
+#SelectionToolButton:pressed,
+#SettingsToolButton:pressed {
     background-color: #0d141a;
+}
+
+#SettingsToolButton:checked {
+    background-color: #083342;
+    border-color: #00d4ff;
 }
 
 #PropertiesContainer {
@@ -240,14 +253,21 @@ QToolButton:pressed {
 
 #SettingsColorButton {
     padding: 0px;
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
 }
 
-#SelectionToolButton {
+#SelectionToolButton,
+#SettingsToolButton {
     padding: 0px;
     font-size: 11px;
     font-weight: 700;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
 }
 
 QScrollBar:vertical {

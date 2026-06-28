@@ -207,11 +207,12 @@ QImage renderGlyphMask(const QFont &font, const QChar ch, FpgaGlyph *glyph)
     if (tight.isEmpty())
         tight = QRect(0, -metrics.ascent(), qMax(1, metrics.horizontalAdvance(ch)), metrics.height());
 
-    const int padding = 1;
+    const int padding = qMax(2, (qMax(1, font.pixelSize()) + 7) / 8);
     QImage image(qMax(1, tight.width() + padding * 2), qMax(1, tight.height() + padding * 2), QImage::Format_ARGB32);
     image.fill(Qt::transparent);
 
     QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing);
     painter.setFont(font);
     painter.setPen(Qt::white);
@@ -286,6 +287,7 @@ QDomElement createImageObjectElement(QDomDocument &doc, const ImageObject *image
     imageEl.setAttribute("format", image->format);
     imageEl.setAttribute("source_name", image->sourceName);
     imageEl.setAttribute("mask_color", image->maskColor.name());
+    imageEl.setAttribute("mask_color_auto", image->autoMaskColor ? 1 : 0);
     imageEl.setAttribute("visible", image->isViewVisible() ? 1 : 0);
     imageEl.setAttribute("export", image->isExportEnabled() ? 1 : 0);
 
@@ -306,7 +308,6 @@ QDomElement createEditableTextElement(QDomDocument &doc, const TextObject *text)
     textEl.setAttribute("font_family", text->fontFamily);
     textEl.setAttribute("font_size", text->pixelSize);
     textEl.setAttribute("font_index", text->fontIndex);
-    textEl.setAttribute("kerning", text->kerning);
     textEl.setAttribute("color", state.color.name());
     textEl.setAttribute("visible", text->isViewVisible() ? 1 : 0);
     textEl.setAttribute("export", text->isExportEnabled() ? 1 : 0);
@@ -322,7 +323,7 @@ QDomElement createStaticGroupElementFromImage(QDomDocument &doc, const ParamSche
     state.w = qMax(1, qRound(image->width));
     state.h = qMax(1, qRound(image->height));
     state.addr = 0;
-    state.color = image->maskColor;
+    state.color = image->effectiveMaskColor();
     state.enabled = image->isViewVisible();
     group.groupNumber = 1;
     group.states = {state};
@@ -413,6 +414,7 @@ QDomElement createFontResourceElement(QDomDocument &doc,
             if (delta == 0)
                 continue;
 
+            font.kerningPairs.insert(pair, delta);
             QDomElement kerningEl = doc.createElement("kerning");
             kerningEl.setAttribute("left", QString(left));
             kerningEl.setAttribute("right", QString(right));
@@ -479,6 +481,11 @@ FpgaFont parseFontElement(const QDomElement &fontEl)
                 glyph.maskRows = rows.join('\n');
                 font.glyphs.insert(glyph.literal, glyph);
             }
+        } else if (glyphEl.tagName() == QStringLiteral("kerning")) {
+            const QString left = glyphEl.attribute("left");
+            const QString right = glyphEl.attribute("right");
+            if (!left.isEmpty() && !right.isEmpty())
+                font.kerningPairs.insert(left.left(1) + right.left(1), glyphEl.attribute("delta", "0").toInt());
         } else if (glyphEl.tagName() == QStringLiteral("digit") || glyphEl.tagName() == QStringLiteral("upper")) {
             const QString literal = glyphEl.attribute("literal");
             if (!literal.isEmpty()) {
@@ -511,6 +518,10 @@ QDomDocument buildEditableXmlDocument(const QString &projectName,
                                       int canvasWidth,
                                       int canvasHeight,
                                       const QColor &backgroundColor,
+                                      bool showGrid,
+                                      bool snapToCanvas,
+                                      bool snapToGrid,
+                                      bool snapToObjects,
                                       const QMap<QString, ParamSchema> &schemas,
                                       const QMap<QString, QString> &schemaAliases,
                                       const QList<QSharedPointer<BaseObject>> &objects,
@@ -525,6 +536,10 @@ QDomDocument buildEditableXmlDocument(const QString &projectName,
     root.setAttribute("height", canvasHeight);
     root.setAttribute("bgcolor", formatProjectColor(backgroundColor));
     root.setAttribute("mode", "editable");
+    root.setAttribute("grid", showGrid ? 1 : 0);
+    root.setAttribute("snap_screen", snapToCanvas ? 1 : 0);
+    root.setAttribute("snap_grid", snapToGrid ? 1 : 0);
+    root.setAttribute("snap_objects", snapToObjects ? 1 : 0);
     doc.appendChild(root);
 
     QSet<QString> schemasToWrite;
@@ -565,6 +580,10 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                                       int canvasWidth,
                                       int canvasHeight,
                                       const QColor &backgroundColor,
+                                      bool showGrid,
+                                      bool snapToCanvas,
+                                      bool snapToGrid,
+                                      bool snapToObjects,
                                       const QMap<QString, ParamSchema> &schemas,
                                       const QMap<QString, QString> &schemaAliases,
                                       const QList<QSharedPointer<BaseObject>> &objects,
@@ -581,6 +600,10 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     root.setAttribute("height", canvasHeight);
     root.setAttribute("bgcolor", formatProjectColor(backgroundColor));
     root.setAttribute("mode", "compiled");
+    root.setAttribute("grid", showGrid ? 1 : 0);
+    root.setAttribute("snap_screen", snapToCanvas ? 1 : 0);
+    root.setAttribute("snap_grid", snapToGrid ? 1 : 0);
+    root.setAttribute("snap_objects", snapToObjects ? 1 : 0);
     doc.appendChild(root);
 
     QSet<QString> schemasToWrite;
@@ -670,8 +693,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                 {"y", static_cast<quint32>(state.y)},
                 {"font_index", static_cast<quint32>(fontIndex)},
                 {"char_offset", static_cast<quint32>(charOffset)},
-                {"char_count", static_cast<quint32>(text->text.size())},
-                {"kerning", static_cast<quint32>(text->kerning)}
+                {"char_count", static_cast<quint32>(text->text.size())}
             })));
             textEl.appendChild(initEl);
             ++textLineIndex;
@@ -749,6 +771,10 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     m_document->setProjectName(root.attribute("name", "Untitled"));
     m_document->setCanvasSize(root.attribute("width", "640").toInt(), root.attribute("height", "480").toInt());
     m_document->setBackgroundColor(Qt::black);
+    m_showGrid = root.attribute("grid", "0").toInt() != 0;
+    m_snapToCanvas = root.attribute("snap_screen", "1").toInt() != 0;
+    m_snapToGrid = root.attribute("snap_grid", "0").toInt() != 0;
+    m_snapToObjects = root.attribute("snap_objects", "0").toInt() != 0;
     
     //парсим цвет фона
     QString bgStr = root.attribute("bgcolor", "#0");
@@ -820,6 +846,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             image->format = objEl.attribute("format", "raster");
             image->sourceName = objEl.attribute("source_name");
             image->maskColor = QColor(objEl.attribute("mask_color", "#FFFFFF"));
+            image->autoMaskColor = objEl.attribute("mask_color_auto", "1").toInt() != 0;
             image->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
             image->setExportEnabled(objEl.attribute("export", "1").toInt() != 0);
             image->setSourcePayload(QByteArray::fromBase64(objEl.firstChildElement("source").text().toLatin1()));
@@ -832,7 +859,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             textObject->fontFamily = objEl.attribute("font_family", "Arial");
             textObject->pixelSize = objEl.attribute("font_size", "14").toInt();
             textObject->fontIndex = objEl.attribute("font_index", "0").toInt();
-            textObject->kerning = objEl.attribute("kerning", "1").toInt();
             if (!textObject->states.isEmpty()) {
                 GroupState &state = textObject->states[0];
                 state.x = objEl.attribute("x", "0").toInt();
@@ -855,7 +881,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 auto *textObject = new TextObject();
                 textObject->text = initEl.attribute("text");
                 textObject->fontIndex = fontIndex;
-                textObject->kerning = BitParser::extract(hex, textSchema["kerning"].offset, textSchema["kerning"].size);
                 if (!textObject->states.isEmpty()) {
                     GroupState &state = textObject->states[0];
                     state.x = BitParser::extract(hex, textSchema["x"].offset, textSchema["x"].size);
@@ -946,6 +971,10 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_document->setBackgroundColor(backgroundColor);
     m_filePath = filePath;
     m_editMode = ProjectEditMode::EditableXml;
+    m_showGrid = false;
+    m_snapToCanvas = true;
+    m_snapToGrid = false;
+    m_snapToObjects = false;
 
     m_objects.clear();
     m_objectTags.clear();
@@ -1228,6 +1257,10 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QStri
         m_document->canvasWidth(),
         m_document->canvasHeight(),
         m_document->backgroundColor(),
+        m_showGrid,
+        m_snapToCanvas,
+        m_snapToGrid,
+        m_snapToObjects,
         m_schemas,
         m_schemaAliases,
         m_objects,
@@ -1266,6 +1299,10 @@ bool ProjectManager::saveEditableXml(const QString &targetFile)
         m_document->canvasWidth(),
         m_document->canvasHeight(),
         m_document->backgroundColor(),
+        m_showGrid,
+        m_snapToCanvas,
+        m_snapToGrid,
+        m_snapToObjects,
         m_schemas,
         m_schemaAliases,
         m_objects,
@@ -1378,6 +1415,10 @@ QColor ProjectManager::getBackgroundColor() const { return m_document->backgroun
 QString ProjectManager::getFilePath() const { return m_filePath; }
 const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }
 ProjectEditMode ProjectManager::editMode() const { return m_editMode; }
+bool ProjectManager::showGrid() const { return m_showGrid; }
+bool ProjectManager::snapToCanvas() const { return m_snapToCanvas; }
+bool ProjectManager::snapToGrid() const { return m_snapToGrid; }
+bool ProjectManager::snapToObjects() const { return m_snapToObjects; }
 QString ProjectManager::editModeName() const
 {
     return m_editMode == ProjectEditMode::RestrictedFpgaXml
@@ -1402,4 +1443,36 @@ void ProjectManager::setCanvasSize(int width, int height)
         m_document->setCanvasSize(clampedWidth, clampedHeight);
         emit projectChanged();
     }
+}
+
+void ProjectManager::setShowGrid(bool enabled)
+{
+    if (m_showGrid == enabled)
+        return;
+    m_showGrid = enabled;
+    emit projectChanged();
+}
+
+void ProjectManager::setSnapToCanvas(bool enabled)
+{
+    if (m_snapToCanvas == enabled)
+        return;
+    m_snapToCanvas = enabled;
+    emit projectChanged();
+}
+
+void ProjectManager::setSnapToGrid(bool enabled)
+{
+    if (m_snapToGrid == enabled)
+        return;
+    m_snapToGrid = enabled;
+    emit projectChanged();
+}
+
+void ProjectManager::setSnapToObjects(bool enabled)
+{
+    if (m_snapToObjects == enabled)
+        return;
+    m_snapToObjects = enabled;
+    emit projectChanged();
 }

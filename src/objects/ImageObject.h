@@ -17,6 +17,7 @@ public:
     double width = 1.0;
     double height = 1.0;
     QColor maskColor = QColor("#FFFFFF");
+    bool autoMaskColor = true;
     QString sourceName;
     QString format = QStringLiteral("raster");
 
@@ -25,6 +26,7 @@ public:
     void setRasterImage(const QImage &image, const QString &name);
     void setSvgData(const QByteArray &data, const QString &name, const QSize &defaultSize);
     QImage renderedImage() const;
+    QColor effectiveMaskColor() const;
     QByteArray sourcePayload() const;
     void setSourcePayload(const QByteArray &payload);
 
