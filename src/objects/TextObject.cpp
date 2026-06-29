@@ -158,8 +158,10 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
     else if (name == "Цвет") {
         const QColor color(value);
         ok = color.isValid();
-        if (ok)
+        if (ok) {
             state.color = color;
+            needsRebuild = true;
+        }
     }
     else if (name == "Доступно символов") {
         setValidationMessage(QStringLiteral("Это информационное поле."));
@@ -220,11 +222,8 @@ void TextObject::resizeBy(int edgeFlags, double dx, double dy)
 
 void TextObject::rebuildMask()
 {
-    if (m_hasFontAtlas) {
-        rebuildMaskFromAtlas();
-        return;
-    }
-
+    // Всегда рендерим через системный QFont для гладкого отображения в viewport.
+    // Атлас (rebuildMaskFromAtlas) используется исключительно для экспорта <data>.
     rebuildMaskFromQtFont();
 }
 
@@ -256,7 +255,7 @@ void TextObject::rebuildMaskFromQtFont()
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing);
     painter.setFont(font);
-    painter.setPen(QColor(255, 255, 255, 255));
+    painter.setPen(state.color);
     painter.drawText(QPoint(paddingX - textRect.left(), paddingY + metrics.ascent()), drawText);
     painter.end();
 
@@ -304,7 +303,7 @@ void TextObject::rebuildMaskFromAtlas()
 
         if (!previous.isNull())
             totalWidth += m_fontAtlas.kerningPairs.value(QString(previous) + QString(ch), 0);
-        totalWidth += qMax(glyph.width, glyph.advance);
+        totalWidth += glyph.advance;
         const int glyphTop = glyph.floater;
         const int glyphBottom = glyph.floater + glyph.height;
         if (firstGlyph) {
@@ -340,7 +339,7 @@ void TextObject::rebuildMaskFromAtlas()
         if (!previous.isNull())
             currentX += m_fontAtlas.kerningPairs.value(QString(previous) + QString(ch), 0);
         painter.drawImage(QPoint(currentX, glyph.floater - top), glyphMaskToImage(glyph, color));
-        currentX += qMax(glyph.width, glyph.advance);
+        currentX += glyph.advance;
         previous = ch;
     }
     painter.end();
@@ -430,7 +429,48 @@ const FpgaFont& TextObject::fontAtlas() const
 QRect TextObject::overallRect() const
 {
     const GroupState state = states.isEmpty() ? GroupState{} : states.first();
-    return QRect(state.x, state.y, state.w, state.h);
+    if (!m_hasFontAtlas)
+        return QRect(state.x, state.y, state.w, state.h);
+
+    const QString drawText = text.isEmpty() ? QStringLiteral(" ") : text;
+    int currentX = 0;
+    int top = 0;
+    int bottom = 0;
+    int lastGlyphRight = 0;
+    bool firstGlyph = true;
+    QChar previous;
+
+    for (const QChar ch : drawText) {
+        if (ch.isSpace()) {
+            currentX += qMax(4, pixelSize / 2);
+            previous = ch;
+            continue;
+        }
+        const FpgaGlyph glyph = m_fontAtlas.glyphs.value(ch);
+        if (glyph.width <= 0 || glyph.height <= 0)
+            continue;
+
+        if (!previous.isNull())
+            currentX += m_fontAtlas.kerningPairs.value(QString(previous) + QString(ch), 0);
+
+        const int glyphTop = glyph.floater;
+        const int glyphBottom = glyph.floater + glyph.height;
+        lastGlyphRight = currentX + glyph.width;
+
+        if (firstGlyph) {
+            top = glyphTop;
+            bottom = glyphBottom;
+            firstGlyph = false;
+        } else {
+            top = qMin(top, glyphTop);
+            bottom = qMax(bottom, glyphBottom);
+        }
+
+        currentX += glyph.advance;
+        previous = ch;
+    }
+
+    return QRect(state.x, state.y + top, qMax(1, lastGlyphRight), qMax(1, bottom - top));
 }
 
 QRectF TextObject::getBoundingRect() const
