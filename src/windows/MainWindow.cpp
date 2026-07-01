@@ -322,13 +322,13 @@ void MainWindow::createWidgets()
     m_objectPropertiesDock->setAllowedAreas(Qt::AllDockWidgetAreas);
     m_objectPropertiesDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
 
-    m_viewportSettingsDock = new QDockWidget("Холст", this);
+    m_viewportSettingsDock = new QDockWidget("Настройки рабочей области", this);
     m_viewportSettingsDock->setObjectName("ViewportSettingsDock");
     m_viewportSettingsDock->setWidget(m_viewportSettings);
     m_viewportSettingsDock->setAllowedAreas(Qt::AllDockWidgetAreas);
     m_viewportSettingsDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
 
-    m_objectLibraryDock = new QDockWidget("Объекты", this);
+    m_objectLibraryDock = new QDockWidget("Библиотека объектов", this);
     m_objectLibraryDock->setObjectName("ObjectLibraryDock");
     m_objectLibraryDock->setWidget(m_objectLibrary);
     m_objectLibraryDock->setAllowedAreas(Qt::AllDockWidgetAreas);
@@ -464,6 +464,8 @@ void MainWindow::connectSignals()
         setSelectionState(index);
         m_viewport->update();
     });
+
+    connect(m_viewport, &ViewportPanel::objectDropped, this, &MainWindow::createObjectAtPosition);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -503,6 +505,20 @@ void MainWindow::resetToDefaultLayout()
 void MainWindow::createObjectOfType(const QString &typeName)
 {
     const int index = ProjectManager::instance()->addObject(typeName);
+    if (index < 0)
+        return;
+
+    m_objectList->refreshList();
+    m_objectList->selectRow(index);
+    m_viewport->setSelectedIndex(index);
+    m_objectProperties->showObjectProperties(index);
+    setSelectionState(index);
+    m_viewport->update();
+}
+
+void MainWindow::createObjectAtPosition(const QString &typeName, const QPointF &pos)
+{
+    const int index = ProjectManager::instance()->addObject(typeName, pos.x(), pos.y());
     if (index < 0)
         return;
 

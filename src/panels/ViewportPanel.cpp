@@ -444,6 +444,11 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
 
 void ViewportPanel::dragEnterEvent(QDragEnterEvent *event)
 {
+    if (event->mimeData()->hasFormat("application/x-avionix-object")) {
+        event->acceptProposedAction();
+        return;
+    }
+
     if (!event->mimeData()->hasUrls()) {
         event->ignore();
         return;
@@ -463,6 +468,14 @@ void ViewportPanel::dragEnterEvent(QDragEnterEvent *event)
 
 void ViewportPanel::dropEvent(QDropEvent *event)
 {
+    if (event->mimeData()->hasFormat("application/x-avionix-object")) {
+        const QString typeName = QString::fromUtf8(event->mimeData()->data("application/x-avionix-object"));
+        const QPointF canvasPos = mapToCanvas(event->position().toPoint());
+        emit objectDropped(typeName, canvasPos);
+        event->acceptProposedAction();
+        return;
+    }
+
     for (const QUrl &url : event->mimeData()->urls()) {
         const QString fileName = url.toLocalFile();
         const QString suffix = QFileInfo(fileName).suffix().toLower();
@@ -475,3 +488,4 @@ void ViewportPanel::dropEvent(QDropEvent *event)
     }
     event->ignore();
 }
+

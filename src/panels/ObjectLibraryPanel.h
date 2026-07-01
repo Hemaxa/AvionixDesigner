@@ -6,7 +6,7 @@
 
 #include <QList>
 
-class QGridLayout;
+class QHBoxLayout;
 class QToolButton;
 
 class ObjectLibraryPanel : public BasePanel
@@ -24,6 +24,6 @@ private:
     void createButtons();
     QToolButton* createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title);
 
-    QGridLayout *m_gridLayout = nullptr;
+    QHBoxLayout *m_rowLayout = nullptr;
     QList<QToolButton*> m_libraryCards;
 };

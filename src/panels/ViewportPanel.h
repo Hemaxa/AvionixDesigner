@@ -43,6 +43,7 @@ signals:
     // Сигнал, испускаемый при изменении свойств объекта перетаскиванием
     void objectChanged();
     void imageDropped(const QString &fileName);
+    void objectDropped(const QString &typeName, const QPointF &canvasPos);
 
 public slots:
     // Слот для внешней синхронизации выделения (например, из списка)

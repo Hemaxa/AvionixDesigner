@@ -45,6 +45,7 @@ public:
     void registerStandardTypes();
 
     int addObject(const QString &typeName);
+    int addObject(const QString &typeName, double x, double y);
     bool removeObject(int index);
     bool reorderObjects(const QList<int> &order);
     bool alignObject(int index, ObjectAlignment alignment);

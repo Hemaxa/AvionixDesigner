@@ -99,18 +99,26 @@ QMenu::separator {
 
 QListWidget::item {
     background-color: transparent;
-    margin: 2px 0;
-    padding: 8px 10px;
+    border: 1px solid transparent;
+    margin: 2px 4px;
+    padding: 0px;
     border-radius: 8px;
 }
 
 QListWidget::item:hover {
     background-color: #1d2730;
+    border: 1px solid transparent;
 }
 
 QListWidget::item:selected {
-    background-color: #00d4ff;
-    color: #041014;
+    background-color: #15242e;
+    border: 1px solid #00d4ff;
+    color: #eef7ff;
+}
+
+#ObjectListRowWidget {
+    background-color: transparent;
+    border: none;
 }
 
 #ObjectListIconButton {
@@ -148,9 +156,6 @@ QListWidget::item:selected {
 }
 
 #LibraryCard,
-#PropertiesEmptyState,
-#PropertiesTableCard,
-#SettingsCard,
 #SelectionToolButton,
 #SettingsToolButton {
     background-color: #10161c;
@@ -158,12 +163,15 @@ QListWidget::item:selected {
     border-radius: 10px;
 }
 
+#SettingsCard,
+#PropertiesTableCard,
+#PropertiesEmptyState {
+    background-color: transparent;
+    border: none;
+}
+
 #LibraryCard {
     padding: 0px;
-    min-width: 40px;
-    min-height: 40px;
-    max-width: 40px;
-    max-height: 40px;
 }
 
 #LibraryCard:hover,
@@ -253,10 +261,6 @@ QToolButton:pressed {
 
 #SettingsColorButton {
     padding: 0px;
-    min-width: 40px;
-    min-height: 40px;
-    max-width: 40px;
-    max-height: 40px;
 }
 
 #SelectionToolButton,
@@ -264,10 +268,6 @@ QToolButton:pressed {
     padding: 0px;
     font-size: 11px;
     font-weight: 700;
-    min-width: 40px;
-    min-height: 40px;
-    max-width: 40px;
-    max-height: 40px;
 }
 
 QScrollBar:vertical {

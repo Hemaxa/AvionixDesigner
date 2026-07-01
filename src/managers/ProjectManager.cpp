@@ -1132,6 +1132,23 @@ int ProjectManager::addObject(const QString &typeName)
     return m_objects.size() - 1;
 }
 
+int ProjectManager::addObject(const QString &typeName, double x, double y)
+{
+    const int index = addObject(typeName);
+    if (index < 0)
+        return index;
+
+    auto obj = m_objects[index];
+    // Перемещаем объект так, чтобы его центр оказался в точке (x, y)
+    const QRectF bounds = obj->getBoundingRect();
+    const double dx = x - bounds.center().x();
+    const double dy = y - bounds.center().y();
+    obj->moveBy(dx, dy);
+
+    emit projectChanged();
+    return index;
+}
+
 bool ProjectManager::removeObject(int index)
 {
     if (index < 0 || index >= m_objects.size())

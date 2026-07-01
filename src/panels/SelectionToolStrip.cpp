@@ -8,7 +8,7 @@
 SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("SelectionToolStrip");
-    setFixedWidth(56);
+    setFixedWidth(64);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 8, 4, 8);
@@ -67,9 +67,9 @@ QToolButton* SelectionToolStrip::createActionButton(const QString &iconPath, con
     auto *button = new QToolButton(this);
     button->setObjectName("SelectionToolButton");
     button->setIcon(QIcon(iconPath));
-    button->setIconSize(QSize(18, 18));
+    button->setFixedSize(48, 48);
+    button->setIconSize(QSize(24, 24));
     button->setToolTip(toolTip);
-    button->setFixedSize(40, 40);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     return button;
 }

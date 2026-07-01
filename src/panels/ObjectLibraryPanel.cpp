@@ -2,8 +2,11 @@
 
 #include "FpgaSchemaRegistry.h"
 
-#include <QGridLayout>
+#include <QDrag>
+#include <QHBoxLayout>
 #include <QIcon>
+#include <QMimeData>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
 #include <QSizePolicy>
@@ -29,6 +32,46 @@ QIcon createPlaceholderIcon(const QString &glyph)
 
     return QIcon(pixmap);
 }
+
+class DraggableToolButton : public QToolButton
+{
+public:
+    DraggableToolButton(const QString &typeName, QWidget *parent = nullptr)
+        : QToolButton(parent), m_typeName(typeName) {}
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+            m_dragStartPos = event->pos();
+        QToolButton::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if (!(event->buttons() & Qt::LeftButton))
+            return;
+
+        if ((event->pos() - m_dragStartPos).manhattanLength() < 10)
+            return;
+
+        auto *drag = new QDrag(this);
+        auto *mimeData = new QMimeData();
+        mimeData->setData("application/x-avionix-object", m_typeName.toUtf8());
+        drag->setMimeData(mimeData);
+
+        // Создаём иконку перетаскивания из иконки кнопки
+        QPixmap pixmap = icon().pixmap(QSize(48, 48));
+        if (!pixmap.isNull())
+            drag->setPixmap(pixmap);
+
+        drag->exec(Qt::CopyAction);
+    }
+
+private:
+    QString m_typeName;
+    QPoint m_dragStartPos;
+};
 }
 
 ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
@@ -40,15 +83,14 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
     mainLayout->setSpacing(6);
 
     createButtons();
-    mainLayout->addLayout(m_gridLayout);
+    mainLayout->addLayout(m_rowLayout);
     mainLayout->addStretch();
 }
 
 void ObjectLibraryPanel::createButtons()
 {
-    m_gridLayout = new QGridLayout();
-    m_gridLayout->setHorizontalSpacing(8);
-    m_gridLayout->setVerticalSpacing(8);
+    m_rowLayout = new QHBoxLayout();
+    m_rowLayout->setSpacing(8);
 
     QList<EditorObjectDescriptor> items;
     for (const auto &descriptor : FpgaSchemaRegistry::instance()->editorObjectCatalog()) {
@@ -61,27 +103,29 @@ void ObjectLibraryPanel::createButtons()
         const auto &item = items[i];
         QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title);
         m_libraryCards.append(card);
-        m_gridLayout->addWidget(card, i / 3, i % 3);
+        m_rowLayout->addWidget(card);
     }
 
     QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
     m_libraryCards.append(imageButton);
-    const int imageIndex = items.size();
-    m_gridLayout->addWidget(imageButton, imageIndex / 3, imageIndex % 3);
+    m_rowLayout->addWidget(imageButton);
 
-    for (int col = 0; col < 3; ++col) {
-        m_gridLayout->setColumnStretch(col, 1);
-    }
+    m_rowLayout->addStretch();
 }
 
 QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title)
 {
-    auto *button = new QToolButton(this);
+    QToolButton *button;
+    if (typeName != QStringLiteral("__image__")) {
+        button = new DraggableToolButton(typeName, this);
+    } else {
+        button = new QToolButton(this);
+    }
     button->setObjectName("LibraryCard");
     button->setToolButtonStyle(Qt::ToolButtonIconOnly);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    button->setFixedSize(QSize(40, 40));
-    button->setIconSize(QSize(20, 20));
+    button->setFixedSize(QSize(56, 56));
+    button->setIconSize(QSize(32, 32));
     button->setToolTip(title);
     button->setStatusTip(title);
 

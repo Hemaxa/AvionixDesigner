@@ -38,6 +38,7 @@ private slots:
     void updateWindowTitle();
     void openSettings();
     void createObjectOfType(const QString &typeName);
+    void createObjectAtPosition(const QString &typeName, const QPointF &pos);
     void deleteSelectedObject();
     void alignSelectedObject(int actionId);
 

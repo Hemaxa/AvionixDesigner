@@ -3,7 +3,6 @@
 #include "ProjectManager.h"
 
 #include <QColorDialog>
-#include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -19,9 +18,9 @@ QToolButton* createSettingsToggle(const QString &iconPath, const QString &toolTi
     button->setObjectName("SettingsToolButton");
     button->setCheckable(true);
     button->setIcon(QIcon(iconPath));
-    button->setIconSize(QSize(18, 18));
+    button->setIconSize(QSize(24, 24));
     button->setToolTip(toolTip);
-    button->setFixedSize(40, 40);
+    button->setFixedSize(48, 48);
     return button;
 }
 }
@@ -30,76 +29,63 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
 {
     setPanelName("ViewportSettingsPanel");
 
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(6, 6, 6, 6);
-    layout->setSpacing(6);
+    auto *layout = new QHBoxLayout(this);
+    layout->setContentsMargins(10, 8, 10, 8);
+    layout->setSpacing(12);
 
-    auto *card = new QFrame(this);
-    card->setObjectName("SettingsCard");
+    // --- Левый столбец: рабочая область ---
+    auto *canvasColumn = new QHBoxLayout();
+    canvasColumn->setSpacing(6);
 
-    auto *cardLayout = new QVBoxLayout(card);
-    cardLayout->setContentsMargins(10, 10, 10, 10);
-    cardLayout->setSpacing(8);
-
-    auto *sizeRow = new QHBoxLayout();
-    sizeRow->setSpacing(6);
-
-    auto *sizeCaption = new QLabel("Размер", card);
-    sizeCaption->setObjectName("SettingsFieldLabel");
-    sizeRow->addWidget(sizeCaption);
-
-    m_widthSpin = new QSpinBox(card);
+    m_widthSpin = new QSpinBox(this);
     m_widthSpin->setRange(1, 8192);
     m_widthSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    m_widthSpin->setMinimumWidth(64);
-    sizeRow->addWidget(m_widthSpin);
+    m_widthSpin->setMinimumWidth(56);
+    m_widthSpin->setMaximumWidth(72);
+    m_widthSpin->setToolTip(QStringLiteral("Ширина холста (px)"));
+    canvasColumn->addWidget(m_widthSpin);
 
-    auto *multiplyLabel = new QLabel("x", card);
+    auto *multiplyLabel = new QLabel("×", this);
     multiplyLabel->setObjectName("SettingsFieldLabel");
-    sizeRow->addWidget(multiplyLabel);
+    canvasColumn->addWidget(multiplyLabel);
 
-    m_heightSpin = new QSpinBox(card);
+    m_heightSpin = new QSpinBox(this);
     m_heightSpin->setRange(1, 8192);
     m_heightSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    m_heightSpin->setMinimumWidth(64);
-    sizeRow->addWidget(m_heightSpin);
-    sizeRow->addStretch();
+    m_heightSpin->setMinimumWidth(56);
+    m_heightSpin->setMaximumWidth(72);
+    m_heightSpin->setToolTip(QStringLiteral("Высота холста (px)"));
+    canvasColumn->addWidget(m_heightSpin);
 
-    cardLayout->addLayout(sizeRow);
-
-    auto *bgRow = new QHBoxLayout();
-    bgRow->setSpacing(6);
-
-    auto *bgCaption = new QLabel("Фон", card);
-    bgCaption->setObjectName("SettingsFieldLabel");
-    bgRow->addWidget(bgCaption);
-
-    m_bgColorButton = new QPushButton(card);
+    m_bgColorButton = new QPushButton(this);
     m_bgColorButton->setObjectName("SettingsColorButton");
-    m_bgColorButton->setFixedSize(40, 40);
-    bgRow->addWidget(m_bgColorButton);
-    bgRow->addStretch();
+    m_bgColorButton->setFixedSize(48, 48);
+    m_bgColorButton->setToolTip(QStringLiteral("Цвет фона"));
+    canvasColumn->addWidget(m_bgColorButton);
 
-    cardLayout->addLayout(bgRow);
+    layout->addLayout(canvasColumn);
 
-    auto *snapCaption = new QLabel(QStringLiteral("Сетка и привязки"), card);
-    snapCaption->setObjectName("SettingsFieldLabel");
-    cardLayout->addWidget(snapCaption);
+    // --- Разделитель ---
+    auto *separator = new QFrame(this);
+    separator->setFrameShape(QFrame::VLine);
+    separator->setObjectName("SettingsSeparator");
+    layout->addWidget(separator);
 
-    auto *snapRow = new QHBoxLayout();
-    snapRow->setSpacing(6);
-    m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), card);
-    m_snapCanvasButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-screen.svg"), QStringLiteral("Привязка к границам экрана"), card);
-    m_snapGridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-grid.svg"), QStringLiteral("Привязка к сетке"), card);
-    m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к другим объектам"), card);
-    snapRow->addWidget(m_gridButton);
-    snapRow->addWidget(m_snapCanvasButton);
-    snapRow->addWidget(m_snapGridButton);
-    snapRow->addWidget(m_snapObjectsButton);
-    snapRow->addStretch();
-    cardLayout->addLayout(snapRow);
+    // --- Правый столбец: привязки ---
+    auto *snapColumn = new QHBoxLayout();
+    snapColumn->setSpacing(6);
 
-    layout->addWidget(card);
+    m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), this);
+    m_snapCanvasButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-screen.svg"), QStringLiteral("Привязка к границам экрана"), this);
+    m_snapGridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-grid.svg"), QStringLiteral("Привязка к сетке"), this);
+    m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к другим объектам"), this);
+
+    snapColumn->addWidget(m_gridButton);
+    snapColumn->addWidget(m_snapCanvasButton);
+    snapColumn->addWidget(m_snapGridButton);
+    snapColumn->addWidget(m_snapObjectsButton);
+
+    layout->addLayout(snapColumn);
     layout->addStretch();
 
     connect(m_bgColorButton, &QPushButton::clicked, this, &ViewportSettingsPanel::onChangeBgColor);
