@@ -68,6 +68,10 @@ public:
     bool snapToGrid() const;
     bool snapToObjects() const;
 
+    int gridStep() const;
+    QColor gridColor() const;
+    void reloadGlobalSettings();
+
     void setBackgroundColor(const QColor &color);
     void setCanvasSize(int width, int height);
     void setShowGrid(bool enabled);
@@ -100,4 +104,7 @@ private:
     bool m_snapToCanvas = true;
     bool m_snapToGrid = false;
     bool m_snapToObjects = false;
+    
+    int m_gridStep = 10;
+    QColor m_gridColor = QColor(120, 180, 200, 55);
 };

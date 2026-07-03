@@ -3,8 +3,13 @@
 #pragma once
 
 #include <QDialog>
+#include <QColor>
 
 class QCheckBox;
+class QListWidget;
+class QStackedWidget;
+class QSpinBox;
+class QPushButton;
 
 class SettingsWindow : public QDialog
 {
@@ -24,6 +29,8 @@ private slots:
     
     //сброс всех настроек до стандартных
     void resetAllSettings();
+    
+    void onGridColorClicked();
 
 private:
     //метод создания виджетов и панелей
@@ -33,5 +40,11 @@ private:
     void loadSettings();
 
     //элементы интерфейса
+    QListWidget *m_listWidget;
+    QStackedWidget *m_stackedWidget;
     QCheckBox *m_autoLoadCheck;
+    
+    QSpinBox *m_gridStepSpin;
+    QPushButton *m_gridColorButton;
+    QColor m_currentGridColor;
 };

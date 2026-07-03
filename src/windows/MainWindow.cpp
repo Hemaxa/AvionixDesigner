@@ -418,9 +418,27 @@ void MainWindow::createMenus()
     connect(resetViewAction, &QAction::triggered, m_viewport, &ViewportPanel::resetView);
 
     QAction *deleteAction = new QAction("Удалить объект", this);
-    deleteAction->setShortcut(QKeySequence::Delete);
+    deleteAction->setShortcuts({QKeySequence::Delete, QKeySequence(Qt::Key_Backspace)});
     connect(deleteAction, &QAction::triggered, this, &MainWindow::deleteSelectedObject);
     addAction(deleteAction);
+    
+    QAction *snapGridAction = viewMenu->addAction("Привязка к сетке (вкл/выкл)");
+    snapGridAction->setShortcut(QKeySequence("Shift+G"));
+    connect(snapGridAction, &QAction::triggered, this, []() {
+        ProjectManager::instance()->setSnapToGrid(!ProjectManager::instance()->snapToGrid());
+    });
+    
+    QAction *snapCanvasAction = viewMenu->addAction("Привязка к экрану (вкл/выкл)");
+    snapCanvasAction->setShortcut(QKeySequence("Shift+C"));
+    connect(snapCanvasAction, &QAction::triggered, this, []() {
+        ProjectManager::instance()->setSnapToCanvas(!ProjectManager::instance()->snapToCanvas());
+    });
+    
+    QAction *snapObjectsAction = viewMenu->addAction("Привязка к объектам (вкл/выкл)");
+    snapObjectsAction->setShortcut(QKeySequence("Shift+O"));
+    connect(snapObjectsAction, &QAction::triggered, this, []() {
+        ProjectManager::instance()->setSnapToObjects(!ProjectManager::instance()->snapToObjects());
+    });
 
     QMenu *settingsMenu = menuBar()->addMenu("Настройки");
     settingsMenu->addAction(createAction("Параметры...", QKeySequence("Ctrl+,"), this, SLOT(openSettings())));

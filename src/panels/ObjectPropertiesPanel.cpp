@@ -9,12 +9,14 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QMessageBox>
-#include <QScrollArea>
 #include <QSet>
 #include <QStackedWidget>
 #include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <QPainter>
+#include <QPixmap>
+#include <QIcon>
 
 namespace {
 class PropertyValueDelegate : public QStyledItemDelegate
@@ -222,8 +224,15 @@ void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &
             valueItem->setFlags((valueItem->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
             const QColor previewColor(props[i].second);
             if (previewColor.isValid()) {
-                valueItem->setBackground(previewColor);
-                valueItem->setForeground(previewColor.lightnessF() < 0.5 ? QColor("#FFFFFF") : QColor("#111111"));
+                QPixmap pixmap(16, 16);
+                pixmap.fill(Qt::transparent);
+                QPainter p(&pixmap);
+                p.setRenderHint(QPainter::Antialiasing);
+                p.setBrush(previewColor);
+                p.setPen(QPen(Qt::gray, 1));
+                p.drawEllipse(1, 1, 14, 14);
+                p.end();
+                valueItem->setIcon(QIcon(pixmap));
             }
         }
         m_tableWidget->setItem(i, 1, valueItem);
@@ -321,8 +330,17 @@ void ObjectPropertiesPanel::refreshTableValues()
                 value->setFlags((value->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
                 const QColor previewColor(props[i].second);
                 if (previewColor.isValid()) {
-                    value->setBackground(previewColor);
-                    value->setForeground(previewColor.lightnessF() < 0.5 ? QColor("#FFFFFF") : QColor("#111111"));
+                    QPixmap pixmap(16, 16);
+                    pixmap.fill(Qt::transparent);
+                    QPainter p(&pixmap);
+                    p.setRenderHint(QPainter::Antialiasing);
+                    p.setBrush(previewColor);
+                    p.setPen(QPen(Qt::gray, 1));
+                    p.drawEllipse(1, 1, 14, 14);
+                    p.end();
+                    value->setIcon(QIcon(pixmap));
+                    value->setBackground(QBrush());
+                    value->setForeground(QBrush());
                 }
             }
         }

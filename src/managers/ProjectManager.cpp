@@ -7,6 +7,7 @@
 #include <QStringEncoder>
 #include <QImageReader>
 #include <QSvgRenderer>
+#include <QSettings>
 
 #include "ProjectManager.h"
 #include "EditorProjectDocument.h"
@@ -721,7 +722,10 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
 }
 }
 
-ProjectManager::ProjectManager() : m_document(new EditorProjectDocument()) {}
+ProjectManager::ProjectManager() : m_document(new EditorProjectDocument())
+{
+    reloadGlobalSettings();
+}
 
 ProjectManager* ProjectManager::instance()
 {
@@ -1441,6 +1445,20 @@ QString ProjectManager::editModeName() const
     return m_editMode == ProjectEditMode::RestrictedFpgaXml
         ? tr("Ограниченное редактирование XML")
         : tr("Редактируемый XML");
+}
+
+int ProjectManager::gridStep() const { return m_gridStep; }
+QColor ProjectManager::gridColor() const { return m_gridColor; }
+
+void ProjectManager::reloadGlobalSettings()
+{
+    QSettings settings("Avionix", "Designer");
+    m_gridStep = settings.value("gridStep", 10).toInt();
+    
+    QString colorStr = settings.value("gridColor", "#3778b4c8").toString();
+    m_gridColor = QColor(colorStr);
+    
+    emit projectChanged();
 }
 
 //сеттеры

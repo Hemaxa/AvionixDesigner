@@ -57,11 +57,13 @@ private:
     int m_selectedIndex = -1; // Индекс выделенного объекта
     
     // Состояния манипуляторов
-    enum DragMode { None, Move, Resize, Rotate, Pan };
+    enum DragMode { None, Move, Resize, Rotate, Pan, MarqueeSelect };
     DragMode m_dragMode = None;
     int m_resizeEdgeFlags = 0; // Битовая маска: 1=Left, 2=Right, 4=Top, 8=Bottom
     
     QPointF m_lastMousePos; // Последняя позиция мыши для расчёта дельт
+    QPointF m_marqueeStartPos;
+    QPointF m_marqueeCurrentPos;
     
     // Преобразования
     QPointF mapToCanvas(const QPoint &widgetPoint) const;

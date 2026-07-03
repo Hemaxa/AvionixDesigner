@@ -123,12 +123,12 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
 
 void ViewportPanel::drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale)
 {
-    const int baseStep = 10;
+    const int baseStep = ProjectManager::instance()->gridStep();
     int step = baseStep;
-    while (step * totalScale < 6.0)
+    while (step * totalScale < 6.0 && step < 1000)
         step *= 2;
 
-    QPen gridPen(QColor(120, 180, 200, 55), 1);
+    QPen gridPen(ProjectManager::instance()->gridColor(), 1);
     gridPen.setCosmetic(true);
     painter.save();
     painter.setPen(gridPen);
@@ -144,7 +144,7 @@ QPointF ViewportPanel::snappedMoveDelta(int objectIndex, const QRectF &originalR
     auto *project = ProjectManager::instance();
     QPointF snapped = delta;
     constexpr double snapDistance = 6.0;
-    constexpr double gridStep = 10.0;
+    const double gridStep = project->gridStep();
 
     auto applyX = [&snapped, &originalRect](double target, double source) {
         snapped.setX(snapped.x() + target - source);
@@ -308,6 +308,18 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         }
     }
     
+    // Рисуем рамку выделения
+    if (m_dragMode == MarqueeSelect) {
+        painter.save();
+        QColor marqueeColor = AppearanceManager::instance()->getColor("accent");
+        marqueeColor.setAlpha(50);
+        painter.setBrush(marqueeColor);
+        painter.setPen(QPen(AppearanceManager::instance()->getColor("accent"), 1, Qt::DashLine));
+        QRectF marqueeRect(m_marqueeStartPos, m_marqueeCurrentPos);
+        painter.drawRect(marqueeRect.normalized());
+        painter.restore();
+    }
+    
     painter.restore();
     
     //рисуем рамку вокруг холста
@@ -382,6 +394,12 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             setSelectedIndex(newSelection);
             emit objectSelected(newSelection);
         }
+        
+        if (m_dragMode == None) {
+            m_dragMode = MarqueeSelect;
+            m_marqueeStartPos = canvasPos;
+            m_marqueeCurrentPos = canvasPos;
+        }
     } else if (event->button() == Qt::MiddleButton || event->button() == Qt::RightButton) {
         m_dragMode = Pan;
         m_lastMousePos = event->pos(); // Для пана используем экранные координаты
@@ -401,6 +419,12 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         m_offsetX += delta.x();
         m_offsetY += delta.y();
         m_lastMousePos = event->pos();
+        update();
+        return;
+    }
+    
+    if (m_dragMode == MarqueeSelect) {
+        m_marqueeCurrentPos = mapToCanvas(event->pos());
         update();
         return;
     }
@@ -439,6 +463,27 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
 void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_UNUSED(event);
+    
+    if (m_dragMode == MarqueeSelect) {
+        auto pm = ProjectManager::instance();
+        QRectF marqueeRect = QRectF(m_marqueeStartPos, m_marqueeCurrentPos).normalized();
+        
+        int newSelection = -1;
+        for (int i = pm->getObjectCount() - 1; i >= 0; --i) {
+            auto candidate = pm->getObjectAt(i);
+            if (candidate->isViewVisible() && marqueeRect.intersects(candidate->getBoundingRect())) {
+                newSelection = i;
+                break;
+            }
+        }
+        
+        if (m_selectedIndex != newSelection) {
+            setSelectedIndex(newSelection);
+            emit objectSelected(newSelection);
+        }
+        update();
+    }
+    
     m_dragMode = None;
 }
 
