@@ -7,6 +7,7 @@
 #include <QDragEnterEvent>
 #include <QFileInfo>
 #include <QMimeData>
+#include <QSet>
 #include <QUrl>
 #include <QVector>
 #include "BaseObject.h"
@@ -55,10 +56,28 @@ void ViewportPanel::resetView()
 
 void ViewportPanel::setSelectedIndex(int index)
 {
-    if (m_selectedIndex != index) {
-        m_selectedIndex = index;
-        update();
+    setSelectedIndexes(index >= 0 ? QList<int>{index} : QList<int>{});
+}
+
+void ViewportPanel::setSelectedIndexes(const QList<int> &indexes)
+{
+    QList<int> normalized;
+    QSet<int> seen;
+    const int objectCount = ProjectManager::instance()->getObjectCount();
+
+    for (int index : indexes) {
+        if (index < 0 || index >= objectCount || seen.contains(index))
+            continue;
+        seen.insert(index);
+        normalized.append(index);
     }
+
+    if (m_selectedIndexes == normalized)
+        return;
+
+    m_selectedIndexes = normalized;
+    m_selectedIndex = normalized.size() == 1 ? normalized.first() : -1;
+    update();
 }
 
 QPointF ViewportPanel::mapToCanvas(const QPoint &widgetPoint) const
@@ -141,10 +160,18 @@ void ViewportPanel::drawGrid(QPainter &painter, int canvasW, int canvasH, double
 
 QPointF ViewportPanel::snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const
 {
+    return snappedMoveDeltaForSelection(QList<int>{objectIndex}, originalRect, delta);
+}
+
+QPointF ViewportPanel::snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const
+{
     auto *project = ProjectManager::instance();
     QPointF snapped = delta;
     constexpr double snapDistance = 6.0;
     const double gridStep = project->gridStep();
+    QSet<int> selectedSet;
+    for (int index : objectIndexes)
+        selectedSet.insert(index);
 
     auto applyX = [&snapped, &originalRect](double target, double source) {
         snapped.setX(snapped.x() + target - source);
@@ -186,7 +213,7 @@ QPointF ViewportPanel::snappedMoveDelta(int objectIndex, const QRectF &originalR
     const QVector<double> sourceY = {moved.top(), moved.center().y(), moved.bottom()};
 
     for (int i = 0; i < project->getObjectCount(); ++i) {
-        if (i == objectIndex)
+        if (selectedSet.contains(i))
             continue;
 
         const auto object = project->getObjectAt(i);
@@ -229,6 +256,39 @@ QPointF ViewportPanel::snappedMoveDelta(int objectIndex, const QRectF &originalR
     }
 
     return snapped;
+}
+
+QRectF ViewportPanel::selectedObjectsRect() const
+{
+    QRectF bounds;
+    bool hasBounds = false;
+    auto *project = ProjectManager::instance();
+
+    for (int index : m_selectedIndexes) {
+        const auto object = project->getObjectAt(index);
+        if (!object || !object->isViewVisible())
+            continue;
+
+        if (!hasBounds) {
+            bounds = object->getBoundingRect();
+            hasBounds = true;
+        } else {
+            bounds = bounds.united(object->getBoundingRect());
+        }
+    }
+
+    return hasBounds ? bounds : QRectF();
+}
+
+bool ViewportPanel::selectedObjectContains(const QPointF &canvasPos) const
+{
+    auto *project = ProjectManager::instance();
+    for (int i = m_selectedIndexes.size() - 1; i >= 0; --i) {
+        const auto object = project->getObjectAt(m_selectedIndexes[i]);
+        if (object && object->isViewVisible() && object->contains(canvasPos))
+            return true;
+    }
+    return false;
 }
 
 int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, bool canResize, bool canRotate) const
@@ -301,11 +361,18 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         objects[i]->draw(painter);
         
         // Рисуем выделение
-        if (i == m_selectedIndex) {
+        if (m_selectedIndexes.contains(i)) {
             QRectF rect = objects[i]->getBoundingRect();
             bool canRotate = objects[i]->supportsRotationHandle();
-            drawManipulators(painter, rect, objects[i]->canResize(), canRotate);
+            const bool singleSelection = m_selectedIndexes.size() == 1;
+            drawManipulators(painter, rect, singleSelection && objects[i]->canResize(), singleSelection && canRotate);
         }
+    }
+
+    if (m_selectedIndexes.size() > 1) {
+        const QRectF groupRect = selectedObjectsRect();
+        if (!groupRect.isNull())
+            drawManipulators(painter, groupRect, false, false);
     }
     
     // Рисуем рамку выделения
@@ -357,6 +424,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             if (!obj->isViewVisible()) {
                 setSelectedIndex(-1);
                 emit objectSelected(-1);
+                emit selectionChanged({});
                 return;
             }
             QRectF rect = obj->getBoundingRect();
@@ -377,6 +445,11 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 return;
             }
         }
+
+        if (m_selectedIndexes.size() > 1 && selectedObjectContains(canvasPos)) {
+            m_dragMode = Move;
+            return;
+        }
         
         // 2. Ищем объект под курсором (с конца списка, чтобы верхние объекты кликались первыми)
         m_dragMode = None;
@@ -393,6 +466,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         if (m_selectedIndex != newSelection) {
             setSelectedIndex(newSelection);
             emit objectSelected(newSelection);
+            emit selectionChanged(m_selectedIndexes);
         }
         
         if (m_dragMode == None) {
@@ -433,7 +507,17 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
     double dx = canvasPos.x() - m_lastMousePos.x();
     double dy = canvasPos.y() - m_lastMousePos.y();
     
-    if (m_selectedIndex >= 0) {
+    if (m_dragMode == Move && m_selectedIndexes.size() > 1) {
+        const QRectF originalRect = selectedObjectsRect();
+        const QPointF snappedDelta = snappedMoveDeltaForSelection(m_selectedIndexes, originalRect, QPointF(dx, dy));
+        for (int index : m_selectedIndexes) {
+            auto object = ProjectManager::instance()->getObjectAt(index);
+            if (object)
+                object->moveBy(snappedDelta.x(), snappedDelta.y());
+        }
+        emit objectChanged();
+        update();
+    } else if (m_selectedIndex >= 0) {
         auto obj = ProjectManager::instance()->getObjectAt(m_selectedIndex);
         if (m_dragMode == Move) {
             const QRectF originalRect = obj->getBoundingRect();
@@ -468,18 +552,18 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
         auto pm = ProjectManager::instance();
         QRectF marqueeRect = QRectF(m_marqueeStartPos, m_marqueeCurrentPos).normalized();
         
-        int newSelection = -1;
+        QList<int> newSelection;
         for (int i = pm->getObjectCount() - 1; i >= 0; --i) {
             auto candidate = pm->getObjectAt(i);
             if (candidate->isViewVisible() && marqueeRect.intersects(candidate->getBoundingRect())) {
-                newSelection = i;
-                break;
+                newSelection.prepend(i);
             }
         }
         
-        if (m_selectedIndex != newSelection) {
-            setSelectedIndex(newSelection);
-            emit objectSelected(newSelection);
+        if (m_selectedIndexes != newSelection) {
+            setSelectedIndexes(newSelection);
+            emit objectSelected(m_selectedIndex);
+            emit selectionChanged(m_selectedIndexes);
         }
         update();
     }
@@ -533,4 +617,3 @@ void ViewportPanel::dropEvent(QDropEvent *event)
     }
     event->ignore();
 }
-

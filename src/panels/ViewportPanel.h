@@ -4,6 +4,8 @@
 
 #include "BasePanel.h"
 
+#include <QList>
+
 class ViewportPanel : public BasePanel
 {
     Q_OBJECT
@@ -19,6 +21,7 @@ public:
     
     //возвращает индекс выделенного объекта
     int getSelectedIndex() const { return m_selectedIndex; }
+    QList<int> getSelectedIndexes() const { return m_selectedIndexes; }
     
     //сбрасывает вид к начальному состоянию
     void resetView();
@@ -40,6 +43,7 @@ protected:
 signals:
     // Сигнал, испускаемый при выборе объекта кликом на холсте
     void objectSelected(int index);
+    void selectionChanged(const QList<int> &indexes);
     // Сигнал, испускаемый при изменении свойств объекта перетаскиванием
     void objectChanged();
     void imageDropped(const QString &fileName);
@@ -48,6 +52,7 @@ signals:
 public slots:
     // Слот для внешней синхронизации выделения (например, из списка)
     void setSelectedIndex(int index);
+    void setSelectedIndexes(const QList<int> &indexes);
 
 private:
     double m_scale; //текущий масштаб
@@ -55,6 +60,7 @@ private:
     double m_offsetY; //смещение по Y
     
     int m_selectedIndex = -1; // Индекс выделенного объекта
+    QList<int> m_selectedIndexes; // Индексы выделенных объектов
     
     // Состояния манипуляторов
     enum DragMode { None, Move, Resize, Rotate, Pan, MarqueeSelect };
@@ -72,5 +78,8 @@ private:
     void drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate);
     void drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale);
     QPointF snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;
+    QPointF snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const;
     int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canResize, bool canRotate) const;
+    QRectF selectedObjectsRect() const;
+    bool selectedObjectContains(const QPointF &canvasPos) const;
 };

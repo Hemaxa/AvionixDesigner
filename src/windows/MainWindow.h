@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QCloseEvent>
+#include <QList>
 #include <QMainWindow>
 #include <QShowEvent>
 
@@ -41,6 +42,7 @@ private slots:
     void createObjectAtPosition(const QString &typeName, const QPointF &pos);
     void deleteSelectedObject();
     void alignSelectedObject(int actionId);
+    void handleSelectionChanged(const QList<int> &indexes);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -54,7 +56,7 @@ private:
     QAction* createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member);
     void saveLayoutSettings();
     void restoreLayoutSettings();
-    void setSelectionState(int index);
+    void setSelectionState(bool active);
 
     EditorWorkspacePanel *m_workspacePanel = nullptr;
     ViewportPanel *m_viewport = nullptr;

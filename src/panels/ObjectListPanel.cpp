@@ -4,6 +4,7 @@
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QListWidget>
 #include <QSignalBlocker>
@@ -24,7 +25,7 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
   m_listWidget = new QListWidget(this);
   m_listWidget->setObjectName("ObjectListWidget");
   m_listWidget->setMinimumWidth(180);
-  m_listWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+  m_listWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_listWidget->setDragEnabled(true);
   m_listWidget->setAcceptDrops(true);
   m_listWidget->setDropIndicatorShown(true);
@@ -38,6 +39,8 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
 
   connect(m_listWidget, &QListWidget::currentRowChanged, this,
           &ObjectListPanel::onRowChanged);
+  connect(m_listWidget, &QListWidget::itemSelectionChanged, this,
+          &ObjectListPanel::onSelectionChanged);
   connect(m_listWidget->model(), &QAbstractItemModel::rowsMoved, this,
           &ObjectListPanel::onRowsMoved);
 }
@@ -45,7 +48,12 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
 void ObjectListPanel::refreshList() {
   m_refreshing = true;
   const QSignalBlocker blocker(m_listWidget);
-  const int selectedRow = m_listWidget->currentRow();
+  QList<int> selectedRows;
+  for (int row = 0; row < m_listWidget->count(); ++row) {
+    const auto *item = m_listWidget->item(row);
+    if (item && item->isSelected())
+      selectedRows.append(row);
+  }
   m_listWidget->clear();
 
   auto pm = ProjectManager::instance();
@@ -110,26 +118,65 @@ void ObjectListPanel::refreshList() {
     });
   }
 
-  if (selectedRow >= 0 && selectedRow < m_listWidget->count()) {
-    m_listWidget->setCurrentRow(selectedRow);
+  int currentRow = -1;
+  for (int row : selectedRows) {
+    if (row < 0 || row >= m_listWidget->count())
+      continue;
+    m_listWidget->item(row)->setSelected(true);
+    if (currentRow < 0)
+      currentRow = row;
+  }
+  if (currentRow >= 0) {
+    m_listWidget->setCurrentRow(currentRow, QItemSelectionModel::NoUpdate);
   }
   m_refreshing = false;
 }
 
 void ObjectListPanel::selectRow(int index) {
-  if (index >= 0 && index < m_listWidget->count()) {
-    m_listWidget->setCurrentRow(index);
-  } else {
-    m_listWidget->clearSelection();
-    m_listWidget->setCurrentRow(-1);
+  selectRows(index >= 0 ? QList<int>{index} : QList<int>{});
+}
+
+void ObjectListPanel::selectRows(const QList<int> &indexes) {
+  const QSignalBlocker blocker(m_listWidget);
+  m_refreshing = true;
+  m_listWidget->clearSelection();
+
+  int currentRow = -1;
+  for (int index : indexes) {
+    if (index < 0 || index >= m_listWidget->count())
+      continue;
+    auto *item = m_listWidget->item(index);
+    item->setSelected(true);
+    if (currentRow < 0)
+      currentRow = index;
   }
+
+  m_listWidget->setCurrentRow(currentRow, QItemSelectionModel::NoUpdate);
+  m_refreshing = false;
 }
 
 void ObjectListPanel::onRowChanged(int row) {
   if (m_refreshing)
     return;
 
-  emit objectSelected(row);
+  if (m_listWidget->selectedItems().size() <= 1)
+    emit objectSelected(row);
+}
+
+void ObjectListPanel::onSelectionChanged() {
+  if (m_refreshing)
+    return;
+
+  QList<int> indexes;
+  indexes.reserve(m_listWidget->selectedItems().size());
+  for (int row = 0; row < m_listWidget->count(); ++row) {
+    const auto *item = m_listWidget->item(row);
+    if (item && item->isSelected())
+      indexes.append(row);
+  }
+
+  emit selectionChanged(indexes);
+  emit objectSelected(indexes.size() == 1 ? indexes.first() : -1);
 }
 
 void ObjectListPanel::onRowsMoved(const QModelIndex &parent, int start, int end,
@@ -169,5 +216,6 @@ void ObjectListPanel::onRowsMoved(const QModelIndex &parent, int start, int end,
 
   refreshList();
   selectRow(newSelectedRow);
+  emit selectionChanged(newSelectedRow >= 0 ? QList<int>{newSelectedRow} : QList<int>{});
   emit objectSelected(newSelectedRow);
 }

@@ -31,6 +31,9 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <functional>
+
 namespace {
 constexpr int kLayoutStateVersion = 2;
 
@@ -175,11 +178,11 @@ void MainWindow::onNewProject()
     }
 
     m_objectList->refreshList();
-    m_objectList->selectRow(-1);
+    m_objectList->selectRows({});
     m_objectProperties->clearProperties();
-    m_viewport->setSelectedIndex(-1);
+    m_viewport->setSelectedIndexes({});
     m_viewport->resetView();
-    setSelectionState(-1);
+    setSelectionState(false);
     updateWindowTitle();
 }
 
@@ -197,8 +200,8 @@ void MainWindow::onOpenFile()
         QSettings settings("Avionix", "Designer");
         settings.setValue("lastProject", fileName);
         m_objectList->refreshList();
-        m_objectList->selectRow(-1);
-        m_viewport->setSelectedIndex(-1);
+        m_objectList->selectRows({});
+        m_viewport->setSelectedIndexes({});
         m_viewport->resetView();
         updateWindowTitle();
     }
@@ -273,10 +276,10 @@ void MainWindow::onImportImage()
         return;
 
     m_objectList->refreshList();
-    m_objectList->selectRow(index);
-    m_viewport->setSelectedIndex(index);
+    m_objectList->selectRows({index});
+    m_viewport->setSelectedIndexes({index});
     m_objectProperties->showObjectProperties(index);
-    setSelectionState(index);
+    setSelectionState(true);
     m_viewport->update();
 }
 
@@ -446,23 +449,29 @@ void MainWindow::createMenus()
 
 void MainWindow::connectSignals()
 {
-    connect(m_objectList, &ObjectListPanel::objectSelected, m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
-    connect(m_objectList, &ObjectListPanel::objectSelected, m_viewport, &ViewportPanel::setSelectedIndex);
-    connect(m_objectList, &ObjectListPanel::objectSelected, this, &MainWindow::setSelectionState);
+    connect(m_objectList, &ObjectListPanel::selectionChanged, m_viewport, &ViewportPanel::setSelectedIndexes);
+    connect(m_objectList, &ObjectListPanel::selectionChanged, this, &MainWindow::handleSelectionChanged);
 
-    connect(m_viewport, &ViewportPanel::objectSelected, m_objectList, &ObjectListPanel::selectRow);
-    connect(m_viewport, &ViewportPanel::objectSelected, m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
-    connect(m_viewport, &ViewportPanel::objectSelected, this, &MainWindow::setSelectionState);
+    connect(m_viewport, &ViewportPanel::selectionChanged, m_objectList, &ObjectListPanel::selectRows);
+    connect(m_viewport, &ViewportPanel::selectionChanged, this, &MainWindow::handleSelectionChanged);
 
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &MainWindow::updateWindowTitle);
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, m_objectProperties, &ObjectPropertiesPanel::clearProperties);
-    connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, [this]() { setSelectionState(-1); });
+    connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, [this]() {
+        m_viewport->setSelectedIndexes({});
+        m_objectList->selectRows({});
+        setSelectionState(false);
+    });
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, m_objectList, &ObjectListPanel::refreshList);
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, m_viewport, QOverload<>::of(&QWidget::update));
 
     connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, m_viewport, QOverload<>::of(&QWidget::update));
     connect(m_viewport, &ViewportPanel::objectChanged, this, [this]() {
-        m_objectProperties->showObjectProperties(m_viewport->getSelectedIndex());
+        const QList<int> indexes = m_viewport->getSelectedIndexes();
+        if (indexes.size() == 1)
+            m_objectProperties->showObjectProperties(indexes.first());
+        else
+            m_objectProperties->clearProperties();
     });
 
     connect(m_objectLibrary, &ObjectLibraryPanel::objectRequested, this, &MainWindow::createObjectOfType);
@@ -476,10 +485,10 @@ void MainWindow::connectSignals()
             return;
 
         m_objectList->refreshList();
-        m_objectList->selectRow(index);
-        m_viewport->setSelectedIndex(index);
+        m_objectList->selectRows({index});
+        m_viewport->setSelectedIndexes({index});
         m_objectProperties->showObjectProperties(index);
-        setSelectionState(index);
+        setSelectionState(true);
         m_viewport->update();
     });
 
@@ -527,10 +536,10 @@ void MainWindow::createObjectOfType(const QString &typeName)
         return;
 
     m_objectList->refreshList();
-    m_objectList->selectRow(index);
-    m_viewport->setSelectedIndex(index);
+    m_objectList->selectRows({index});
+    m_viewport->setSelectedIndexes({index});
     m_objectProperties->showObjectProperties(index);
-    setSelectionState(index);
+    setSelectionState(true);
     m_viewport->update();
 }
 
@@ -541,34 +550,35 @@ void MainWindow::createObjectAtPosition(const QString &typeName, const QPointF &
         return;
 
     m_objectList->refreshList();
-    m_objectList->selectRow(index);
-    m_viewport->setSelectedIndex(index);
+    m_objectList->selectRows({index});
+    m_viewport->setSelectedIndexes({index});
     m_objectProperties->showObjectProperties(index);
-    setSelectionState(index);
+    setSelectionState(true);
     m_viewport->update();
 }
 
 void MainWindow::deleteSelectedObject()
 {
-    const int index = m_viewport->getSelectedIndex();
-    if (index < 0)
+    QList<int> indexes = m_viewport->getSelectedIndexes();
+    if (indexes.isEmpty())
         return;
 
-    if (!ProjectManager::instance()->removeObject(index))
-        return;
+    std::sort(indexes.begin(), indexes.end(), std::greater<int>());
+    for (int index : indexes)
+        ProjectManager::instance()->removeObject(index);
 
     m_objectList->refreshList();
-    m_objectList->selectRow(-1);
-    m_viewport->setSelectedIndex(-1);
+    m_objectList->selectRows({});
+    m_viewport->setSelectedIndexes({});
     m_objectProperties->clearProperties();
-    setSelectionState(-1);
+    setSelectionState(false);
     m_viewport->update();
 }
 
 void MainWindow::alignSelectedObject(int actionId)
 {
-    const int index = m_viewport->getSelectedIndex();
-    if (index < 0)
+    const QList<int> indexes = m_viewport->getSelectedIndexes();
+    if (indexes.isEmpty())
         return;
 
     ObjectAlignment alignment = ObjectAlignment::Left;
@@ -595,17 +605,75 @@ void MainWindow::alignSelectedObject(int actionId)
         break;
     }
 
-    if (!ProjectManager::instance()->alignObject(index, alignment))
+    if (indexes.size() == 1) {
+        const int index = indexes.first();
+        if (!ProjectManager::instance()->alignObject(index, alignment))
+            return;
+        m_objectProperties->showObjectProperties(index);
+        m_viewport->update();
+        return;
+    }
+
+    QRectF bounds;
+    bool hasBounds = false;
+    auto *project = ProjectManager::instance();
+    for (int index : indexes) {
+        const auto object = project->getObjectAt(index);
+        if (!object)
+            continue;
+        bounds = hasBounds ? bounds.united(object->getBoundingRect()) : object->getBoundingRect();
+        hasBounds = true;
+    }
+
+    if (!hasBounds || bounds.isEmpty())
         return;
 
-    m_objectProperties->showObjectProperties(index);
+    double dx = 0.0;
+    double dy = 0.0;
+    switch (alignment) {
+    case ObjectAlignment::Left:
+        dx = -bounds.left();
+        break;
+    case ObjectAlignment::HCenter:
+        dx = project->getCanvasWidth() / 2.0 - bounds.center().x();
+        break;
+    case ObjectAlignment::Right:
+        dx = project->getCanvasWidth() - bounds.right();
+        break;
+    case ObjectAlignment::Top:
+        dy = -bounds.top();
+        break;
+    case ObjectAlignment::VCenter:
+        dy = project->getCanvasHeight() / 2.0 - bounds.center().y();
+        break;
+    case ObjectAlignment::Bottom:
+        dy = project->getCanvasHeight() - bounds.bottom();
+        break;
+    }
+
+    for (int index : indexes) {
+        const auto object = project->getObjectAt(index);
+        if (object)
+            object->moveBy(dx, dy);
+    }
+    m_objectProperties->clearProperties();
     m_viewport->update();
 }
 
-void MainWindow::setSelectionState(int index)
+void MainWindow::handleSelectionChanged(const QList<int> &indexes)
+{
+    if (indexes.size() == 1)
+        m_objectProperties->showObjectProperties(indexes.first());
+    else
+        m_objectProperties->clearProperties();
+
+    setSelectionState(!indexes.isEmpty());
+}
+
+void MainWindow::setSelectionState(bool active)
 {
     if (m_selectionToolStrip) {
-        m_selectionToolStrip->setSelectionActive(index >= 0);
+        m_selectionToolStrip->setSelectionActive(active);
     }
 }
 
