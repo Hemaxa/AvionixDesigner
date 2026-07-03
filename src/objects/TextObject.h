@@ -1,4 +1,4 @@
-//TextObject - редакторский объект текста, сохраняемый как staticgroup
+//TextObject - редакторский объект текста, экспортируемый в FPGA XML через font/text ресурсы
 
 #pragma once
 
@@ -40,9 +40,6 @@ public:
     QString text = QStringLiteral("TEXT");
     QString fontFamily = QStringLiteral("Arial");
     int pixelSize = 14;
-    bool bold = false;
-    bool italic = false;
-    bool underline = false;
     int fontIndex = 0;
     bool restrictedAtlasEditing = false;
 

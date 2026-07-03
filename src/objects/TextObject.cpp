@@ -58,10 +58,6 @@ QList<QPair<QString, QString>> TextObject::getProperties() const
 
     if (restrictedAtlasEditing) {
         props.append(qMakePair(QStringLiteral("Доступно символов"), QString::number(m_hasFontAtlas ? m_fontAtlas.glyphs.size() : 0)));
-    } else {
-        props.append(qMakePair(QStringLiteral("Жирный"), bold ? QStringLiteral("да") : QStringLiteral("нет")));
-        props.append(qMakePair(QStringLiteral("Курсив"), italic ? QStringLiteral("да") : QStringLiteral("нет")));
-        props.append(qMakePair(QStringLiteral("Подчеркнутый"), underline ? QStringLiteral("да") : QStringLiteral("нет")));
     }
 
     return props;
@@ -73,19 +69,6 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
         return false;
 
     clearValidationMessage();
-
-    auto parseBool = [](const QString &raw, bool &target) {
-        const QString value = raw.trimmed().toLower();
-        if (value == "да" || value == "yes" || value == "1" || value == "true") {
-            target = true;
-            return true;
-        }
-        if (value == "нет" || value == "no" || value == "0" || value == "false") {
-            target = false;
-            return true;
-        }
-        return false;
-    };
 
     bool ok = false;
     bool needsRebuild = false;
@@ -142,18 +125,6 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
             return false;
         }
         fontIndex = value.toInt(&ok);
-    }
-    else if (name == "Жирный") {
-        ok = parseBool(value, bold);
-        needsRebuild = ok;
-    }
-    else if (name == "Курсив") {
-        ok = parseBool(value, italic);
-        needsRebuild = ok;
-    }
-    else if (name == "Подчеркнутый") {
-        ok = parseBool(value, underline);
-        needsRebuild = ok;
     }
     else if (name == "Цвет") {
         const QColor color(value);
@@ -223,7 +194,7 @@ void TextObject::resizeBy(int edgeFlags, double dx, double dy)
 void TextObject::rebuildMask()
 {
     // Всегда рендерим через системный QFont для гладкого отображения в viewport.
-    // Атлас (rebuildMaskFromAtlas) используется исключительно для экспорта <data>.
+    // Атлас импортированного FPGA-шрифта ограничивает доступные символы и метрики.
     rebuildMaskFromQtFont();
 }
 
@@ -237,9 +208,6 @@ void TextObject::rebuildMaskFromQtFont()
 
     QFont font(fontFamily, pixelSize);
     font.setPixelSize(pixelSize);
-    font.setBold(bold);
-    font.setItalic(italic);
-    font.setUnderline(underline);
 
     QFontMetrics metrics(font);
     const QRect textRect = metrics.boundingRect(drawText);

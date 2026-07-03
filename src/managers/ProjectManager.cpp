@@ -303,6 +303,61 @@ void appendParameterSchemas(QDomDocument &doc, QDomElement &root, const QSet<QSt
     }
 }
 
+QSet<QString> collectEditableSchemaNames(const QList<QSharedPointer<BaseObject>> &objects,
+                                         const QStringList &objectTags,
+                                         const QMap<QString, QString> &schemaAliases)
+{
+    QSet<QString> schemaNames;
+    auto *registry = FpgaSchemaRegistry::instance();
+
+    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
+        const auto &obj = objects[objIdx];
+        if (dynamic_cast<ImageObject*>(obj.data()) || dynamic_cast<TextObject*>(obj.data()))
+            continue;
+
+        const QString tagName = objIdx < objectTags.size() ? objectTags[objIdx] : QString();
+        if (tagName.isEmpty())
+            continue;
+
+        schemaNames.insert(schemaAliases.value(tagName, registry->canonicalSchemaName(tagName)));
+    }
+
+    return schemaNames;
+}
+
+QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>> &objects,
+                                         const QStringList &objectTags,
+                                         const QMap<QString, QString> &schemaAliases)
+{
+    QSet<QString> schemaNames;
+    auto *registry = FpgaSchemaRegistry::instance();
+
+    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
+        const auto &obj = objects[objIdx];
+        if (!obj->isExportEnabled())
+            continue;
+
+        if (dynamic_cast<ImageObject*>(obj.data())) {
+            schemaNames.insert(QStringLiteral("staticgroup"));
+            continue;
+        }
+
+        if (dynamic_cast<TextObject*>(obj.data())) {
+            schemaNames.insert(QStringLiteral("font"));
+            schemaNames.insert(QStringLiteral("text"));
+            continue;
+        }
+
+        const QString tagName = objIdx < objectTags.size() ? objectTags[objIdx] : QString();
+        if (tagName.isEmpty())
+            continue;
+
+        schemaNames.insert(schemaAliases.value(tagName, registry->canonicalSchemaName(tagName)));
+    }
+
+    return schemaNames;
+}
+
 QDomElement createImageObjectElement(QDomDocument &doc, const ImageObject *image)
 {
     QDomElement imageEl = doc.createElement("image");
@@ -568,10 +623,7 @@ QDomDocument buildEditableXmlDocument(const QString &projectName,
     root.setAttribute("snap_objects", snapToObjects ? 1 : 0);
     doc.appendChild(root);
 
-    QSet<QString> schemasToWrite;
-    for (const QString &schemaName : FpgaSchemaRegistry::instance()->defaultSchemaNames())
-        schemasToWrite.insert(schemaName);
-    appendParameterSchemas(doc, root, schemasToWrite);
+    appendParameterSchemas(doc, root, collectEditableSchemaNames(objects, objectTags, schemaAliases));
 
     QDomElement objectsEl = doc.createElement("objects");
     root.appendChild(objectsEl);
@@ -606,10 +658,6 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                                       int canvasWidth,
                                       int canvasHeight,
                                       const QColor &backgroundColor,
-                                      bool showGrid,
-                                      bool snapToCanvas,
-                                      bool snapToGrid,
-                                      bool snapToObjects,
                                       const QMap<QString, ParamSchema> &schemas,
                                       const QMap<QString, QString> &schemaAliases,
                                       const QList<QSharedPointer<BaseObject>> &objects,
@@ -625,17 +673,9 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     root.setAttribute("width", canvasWidth);
     root.setAttribute("height", canvasHeight);
     root.setAttribute("bgcolor", formatProjectColor(backgroundColor));
-    root.setAttribute("mode", "compiled");
-    root.setAttribute("grid", showGrid ? 1 : 0);
-    root.setAttribute("snap_screen", snapToCanvas ? 1 : 0);
-    root.setAttribute("snap_grid", snapToGrid ? 1 : 0);
-    root.setAttribute("snap_objects", snapToObjects ? 1 : 0);
     doc.appendChild(root);
 
-    QSet<QString> schemasToWrite;
-    for (const QString &schemaName : FpgaSchemaRegistry::instance()->defaultSchemaNames())
-        schemasToWrite.insert(schemaName);
-    appendParameterSchemas(doc, root, schemasToWrite);
+    appendParameterSchemas(doc, root, collectCompiledSchemaNames(objects, objectTags, schemaAliases));
 
     QDomElement objectsEl = doc.createElement("objects");
     root.appendChild(objectsEl);
@@ -1298,10 +1338,6 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QStri
         m_document->canvasWidth(),
         m_document->canvasHeight(),
         m_document->backgroundColor(),
-        m_showGrid,
-        m_snapToCanvas,
-        m_snapToGrid,
-        m_snapToObjects,
         m_schemas,
         m_schemaAliases,
         m_objects,

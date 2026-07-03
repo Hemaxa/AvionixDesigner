@@ -46,9 +46,6 @@ public:
 
         const QSet<QString> boolNames = {
             QStringLiteral("Включен"),
-            QStringLiteral("Жирный"),
-            QStringLiteral("Курсив"),
-            QStringLiteral("Подчеркнутый"),
             QStringLiteral("Видимость")
         };
 
@@ -360,8 +357,5 @@ bool ObjectPropertiesPanel::isColorProperty(const QString &name) const
 bool ObjectPropertiesPanel::isBooleanProperty(const QString &name) const
 {
     return name == QStringLiteral("Включен")
-        || name == QStringLiteral("Жирный")
-        || name == QStringLiteral("Курсив")
-        || name == QStringLiteral("Подчеркнутый")
         || name.endsWith(QStringLiteral("Видимость"));
 }
