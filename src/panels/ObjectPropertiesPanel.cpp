@@ -9,6 +9,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QMessageBox>
+#include <QScrollArea>
 #include <QSet>
 #include <QStackedWidget>
 #include <QStyledItemDelegate>

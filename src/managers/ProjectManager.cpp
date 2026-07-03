@@ -253,6 +253,31 @@ QStringList maskRowsToValues(const QString &rows)
     return values;
 }
 
+QStringList parseCharacterCodes(const QString &dataText)
+{
+    QStringList codes;
+    for (const QString &part : dataText.split(',', Qt::SkipEmptyParts))
+        codes.append(part.trimmed());
+    return codes;
+}
+
+QString textFromCharacterCodes(const QStringList &codes, int offset, int count)
+{
+    QString value;
+    if (offset < 0 || count <= 0 || offset >= codes.size())
+        return value;
+
+    const int end = qMin(codes.size(), offset + count);
+    value.reserve(end - offset);
+    for (int i = offset; i < end; ++i) {
+        bool ok = false;
+        const uint code = codes[i].toUInt(&ok);
+        if (ok)
+            value.append(QChar(static_cast<ushort>(code)));
+    }
+    return value;
+}
+
 QDomElement createSchemaElement(QDomDocument &doc, const QString &schemaName)
 {
     QDomElement schemaEl = doc.createElement(schemaName);
@@ -642,7 +667,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                 }
             }
             for (const QChar ch : text->text) {
-                if (!ch.isSpace() && !characters.contains(ch))
+                if (!characters.contains(ch))
                     characters.append(ch);
             }
         }
@@ -656,11 +681,6 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
         ++nextFontIndex;
     }
 
-    QDomElement textEl = doc.createElement("text");
-    QStringList textDataCodes;
-    int textLineIndex = 0;
-    bool textElementAppended = false;
-
     for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
         const auto &obj = objects[objIdx];
         if (!obj->isExportEnabled())
@@ -672,20 +692,18 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
         }
 
         if (auto text = dynamic_cast<TextObject*>(obj.data())) {
-            if (!textElementAppended) {
-                objectsEl.appendChild(textEl);
-                textElementAppended = true;
-            }
-
             const ExportFontKey key{text->fontFamily, text->pixelSize};
             const int fontIndex = fontIndexByKey.value(key, 0);
             const GroupState state = text->states.isEmpty() ? GroupState{} : text->states.first();
-            const int charOffset = textDataCodes.size();
+            QStringList textDataCodes;
             for (const QChar ch : text->text)
                 textDataCodes.append(QString::number(ch.unicode()));
 
+            QDomElement textEl = doc.createElement("text");
+            textEl.setAttribute("count", 1);
+
             QDomElement initEl = doc.createElement("init");
-            initEl.setAttribute("index", textLineIndex);
+            initEl.setAttribute("index", 0);
             initEl.setAttribute("text", text->text);
             initEl.appendChild(doc.createTextNode(buildInitHex(textSchema, {
                 {"enb", text->isViewVisible() ? 1u : 0u},
@@ -693,11 +711,16 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                 {"x", static_cast<quint32>(state.x)},
                 {"y", static_cast<quint32>(state.y)},
                 {"font_index", static_cast<quint32>(fontIndex)},
-                {"char_offset", static_cast<quint32>(charOffset)},
+                {"char_offset", 0u},
                 {"char_count", static_cast<quint32>(text->text.size())}
             })));
             textEl.appendChild(initEl);
-            ++textLineIndex;
+
+            QDomElement dataEl = doc.createElement("data");
+            dataEl.appendChild(doc.createTextNode(textDataCodes.join(", ")));
+            textEl.appendChild(dataEl);
+
+            objectsEl.appendChild(textEl);
             continue;
         }
 
@@ -706,13 +729,6 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
         if (tagName.isEmpty() || !schemas.contains(schemaName))
             continue;
         objectsEl.appendChild(createObjectElement(doc, tagName, schemas[schemaName], obj));
-    }
-
-    if (textLineIndex > 0) {
-        textEl.setAttribute("count", textLineIndex);
-        QDomElement dataEl = doc.createElement("data");
-        dataEl.appendChild(doc.createTextNode(textDataCodes.join(", ")));
-        textEl.appendChild(dataEl);
     }
 
     if (fontsOut)
@@ -878,12 +894,16 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
         }
         else if (tagName == QStringLiteral("text")) {
             const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
+            const QStringList characterCodes = parseCharacterCodes(objEl.firstChildElement("data").text());
             QDomElement initEl = objEl.firstChildElement("init");
             while (!initEl.isNull()) {
                 const QString hex = initEl.text().trimmed();
                 const int fontIndex = BitParser::extract(hex, textSchema["font_index"].offset, textSchema["font_index"].size);
+                const int charOffset = BitParser::extract(hex, textSchema["char_offset"].offset, textSchema["char_offset"].size);
+                const int charCount = BitParser::extract(hex, textSchema["char_count"].offset, textSchema["char_count"].size);
                 auto *textObject = new TextObject();
-                textObject->text = initEl.attribute("text");
+                const QString dataText = textFromCharacterCodes(characterCodes, charOffset, charCount);
+                textObject->text = dataText.isEmpty() ? initEl.attribute("text") : dataText;
                 textObject->fontIndex = fontIndex;
                 if (!textObject->states.isEmpty()) {
                     GroupState &state = textObject->states[0];
