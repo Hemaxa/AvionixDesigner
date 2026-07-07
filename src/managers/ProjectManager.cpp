@@ -740,10 +740,9 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                 textDataCodes.append(QString::number(ch.unicode()));
 
             QDomElement textEl = doc.createElement("text");
-            textEl.setAttribute("count", 1);
 
             QDomElement initEl = doc.createElement("init");
-            initEl.setAttribute("index", 0);
+            initEl.setAttribute("index", fontIndex);
             initEl.setAttribute("text", text->text);
             initEl.appendChild(doc.createTextNode(buildInitHex(textSchema, {
                 {"enb", text->isViewVisible() ? 1u : 0u},
