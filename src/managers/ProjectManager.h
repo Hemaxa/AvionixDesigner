@@ -70,6 +70,9 @@ public:
 
     int gridStep() const;
     QColor gridColor() const;
+    QColor snapCanvasGuideColor() const;
+    QColor snapGridGuideColor() const;
+    QColor snapObjectGuideColor() const;
     void reloadGlobalSettings();
 
     void setBackgroundColor(const QColor &color);
@@ -107,4 +110,7 @@ private:
     
     int m_gridStep = 10;
     QColor m_gridColor = QColor(120, 180, 200, 55);
+    QColor m_snapCanvasGuideColor = QColor(255, 92, 122, 210);
+    QColor m_snapGridGuideColor = QColor(86, 211, 255, 210);
+    QColor m_snapObjectGuideColor = QColor(255, 202, 88, 220);
 };

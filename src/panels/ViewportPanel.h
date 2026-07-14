@@ -66,8 +66,26 @@ private:
     enum DragMode { None, Move, Resize, Rotate, Pan, MarqueeSelect };
     DragMode m_dragMode = None;
     int m_resizeEdgeFlags = 0; // Битовая маска: 1=Left, 2=Right, 4=Top, 8=Bottom
+
+    enum class SnapGuideKind { Canvas, Grid, Object };
+    struct SnapGuide
+    {
+        SnapGuideKind kind = SnapGuideKind::Object;
+        Qt::Orientation orientation = Qt::Vertical;
+        double position = 0.0;
+    };
+
+    struct SnapResult
+    {
+        QPointF delta;
+        QList<SnapGuide> guides;
+    };
     
     QPointF m_lastMousePos; // Последняя позиция мыши для расчёта дельт
+    QPointF m_dragStartCanvasPos;
+    QRectF m_dragStartBounds;
+    QPointF m_dragLastAppliedDelta;
+    QList<SnapGuide> m_activeSnapGuides;
     QPointF m_marqueeStartPos;
     QPointF m_marqueeCurrentPos;
     
@@ -77,9 +95,11 @@ private:
     // Отрисовка манипуляторов
     void drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate);
     void drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale);
-    QPointF snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;
-    QPointF snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const;
+    void drawSnapGuides(QPainter &painter, int canvasW, int canvasH);
+    SnapResult snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;
+    SnapResult snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const;
     int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canResize, bool canRotate) const;
     QRectF selectedObjectsRect() const;
     bool selectedObjectContains(const QPointF &canvasPos) const;
+    void beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds);
 };

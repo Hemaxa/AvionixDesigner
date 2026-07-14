@@ -1,6 +1,6 @@
 <RCC>
     <qresource prefix="/themes">
-        <file>themes/AvionixTheme.qss</file>
+        <file>themes/AvionixDesignerTheme.qss</file>
     </qresource>
     <qresource prefix="/icons">
         <file>icons/library/rectangle.svg</file>

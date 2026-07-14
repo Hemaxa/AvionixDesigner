@@ -87,7 +87,7 @@ AvionixDesigner/
 ├── res/
 │   ├── icons/             # Иконки интерфейса
 │   ├── themes/
-│   │   └── AvionixTheme.qss
+│   │   └── AvionixDesignerTheme.qss
 │   └── resources.qrc
 └── src/
     ├── editor/

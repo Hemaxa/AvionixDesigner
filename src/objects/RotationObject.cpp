@@ -263,6 +263,7 @@ QMap<QString, quint32> RotationObject::serializeParams() const
 {
     const int width = qMax(1, qRound(right - left));
     return {
+        {"enb", isViewVisible() ? 1u : 0u},
         {"xrot", static_cast<quint32>(xRot)},
         {"yrot", static_cast<quint32>(yRot)},
         {"top", static_cast<quint32>(static_cast<qint32>(top))},

@@ -16,6 +16,22 @@ QList<FpgaSchemaField> rectangleFields()
     };
 }
 
+QList<FpgaSchemaField> rectangleAlphaFields()
+{
+    return {
+        {"enb", 0, 1},
+        {"color", 1, 24},
+        {"colorb", 25, 24},
+        {"alph", 49, 3},
+        {"x0", 52, 12},
+        {"y0", 64, 12},
+        {"w", 76, 12},
+        {"h", 88, 12},
+        {"a", 100, 12},
+        {"padding", 112, 38}
+    };
+}
+
 QList<FpgaSchemaField> rotationObjectFields()
 {
     return {
@@ -140,8 +156,6 @@ FpgaSchemaRegistry* FpgaSchemaRegistry::instance()
 
 QString FpgaSchemaRegistry::canonicalSchemaName(const QString &typeName) const
 {
-    if (typeName == "rectangle_a")
-        return QStringLiteral("rectangle");
     if (typeName == "aviahorizont")
         return QStringLiteral("aviagorizont");
     if (typeName == "text")
@@ -153,8 +167,6 @@ QString FpgaSchemaRegistry::canonicalSchemaName(const QString &typeName) const
 
 QString FpgaSchemaRegistry::canonicalObjectTag(const QString &typeName) const
 {
-    if (typeName == "rectangle_a")
-        return QStringLiteral("rectangle");
     if (typeName == "aviahorizont")
         return QStringLiteral("aviagorizont");
     if (typeName == "text")
@@ -168,6 +180,8 @@ QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schema
 {
     if (schemaName == "rectangle")
         return rectangleFields();
+    if (schemaName == "rectangle_a")
+        return rectangleAlphaFields();
     if (schemaName == "rotationobject")
         return rotationObjectFields();
     if (schemaName == "staticgroup")
@@ -197,7 +211,7 @@ ParamSchema FpgaSchemaRegistry::buildSchema(const QString &schemaName) const
 
 QStringList FpgaSchemaRegistry::orderedSchemaNames() const
 {
-    return {"rectangle", "rotationobject", "staticgroup", "aviagorizont", "dashed_line", "RibonScale", "font", "text"};
+    return {"rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviagorizont", "dashed_line", "RibonScale", "font", "text"};
 }
 
 QStringList FpgaSchemaRegistry::defaultSchemaNames() const
@@ -208,7 +222,6 @@ QStringList FpgaSchemaRegistry::defaultSchemaNames() const
 QMap<QString, QString> FpgaSchemaRegistry::defaultSchemaAliases() const
 {
     return {
-        {"rectangle_a", "rectangle"},
         {"aviahorizont", "aviagorizont"},
         {"ribonscale", "RibonScale"}
     };

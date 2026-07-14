@@ -30,14 +30,14 @@ private slots:
     //сброс всех настроек до стандартных
     void resetAllSettings();
     
-    void onGridColorClicked();
-
 private:
     //метод создания виджетов и панелей
     void createWidgets();
 
     //метод загрузки настроек
     void loadSettings();
+    void chooseColor(QColor *targetColor, QPushButton *button, const QString &title);
+    void updateColorButtonIcon(QPushButton *button, const QColor &color);
 
     //элементы интерфейса
     QListWidget *m_listWidget;
@@ -46,5 +46,11 @@ private:
     
     QSpinBox *m_gridStepSpin;
     QPushButton *m_gridColorButton;
+    QPushButton *m_snapCanvasColorButton;
+    QPushButton *m_snapGridColorButton;
+    QPushButton *m_snapObjectColorButton;
     QColor m_currentGridColor;
+    QColor m_currentSnapCanvasColor;
+    QColor m_currentSnapGridColor;
+    QColor m_currentSnapObjectColor;
 };

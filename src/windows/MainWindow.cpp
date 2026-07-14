@@ -22,10 +22,13 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QGroupBox>
+#include <QIcon>
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
 #include <QSettings>
 #include <QSet>
 #include <QTimer>
@@ -63,10 +66,36 @@ QSet<QString> detectAlphabetGroups()
     return groups;
 }
 
-QCheckBox* addAlphabetCheck(QVBoxLayout *layout, const QString &title, const QString &key, const QSet<QString> &autoGroups)
+QIcon makeAlphabetIcon(const QString &text, const QColor &accent)
+{
+    QPixmap pixmap(34, 26);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setBrush(QColor(16, 24, 30));
+    painter.setPen(QPen(accent, 1));
+    painter.drawRoundedRect(QRectF(1, 1, 32, 24), 6, 6);
+    QFont font = painter.font();
+    font.setBold(true);
+    font.setPixelSize(text.size() > 2 ? 10 : 14);
+    painter.setFont(font);
+    painter.setPen(QColor(238, 247, 255));
+    painter.drawText(pixmap.rect(), Qt::AlignCenter, text);
+    painter.end();
+    return QIcon(pixmap);
+}
+
+QCheckBox* addAlphabetCheck(QVBoxLayout *layout,
+                            const QString &title,
+                            const QString &key,
+                            const QString &iconText,
+                            const QColor &iconColor,
+                            const QSet<QString> &autoGroups)
 {
     auto *check = new QCheckBox(title);
     check->setProperty("alphabetKey", key);
+    check->setIcon(makeAlphabetIcon(iconText, iconColor));
+    check->setIconSize(QSize(34, 26));
     check->setChecked(autoGroups.contains(key));
     layout->addWidget(check);
     return check;
@@ -76,7 +105,7 @@ bool collectExportOptions(QWidget *parent, QSet<QString> *alphabetGroups)
 {
     QDialog dialog(parent);
     dialog.setWindowTitle(QStringLiteral("Экспорт кадра в XML"));
-    dialog.setMinimumWidth(430);
+    dialog.setMinimumSize(560, 360);
 
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(16, 16, 16, 16);
@@ -91,13 +120,14 @@ bool collectExportOptions(QWidget *parent, QSet<QString> *alphabetGroups)
 
     auto *groupBox = new QGroupBox(QStringLiteral("Алфавиты для добавления в XML"), &dialog);
     auto *groupLayout = new QVBoxLayout(groupBox);
+    groupLayout->setSpacing(8);
     const QSet<QString> autoGroups = detectAlphabetGroups();
     QList<QCheckBox*> checks = {
-        addAlphabetCheck(groupLayout, QStringLiteral("Цифры 0-9"), QStringLiteral("digits"), autoGroups),
-        addAlphabetCheck(groupLayout, QStringLiteral("Английские заглавные A-Z"), QStringLiteral("latin_upper"), autoGroups),
-        addAlphabetCheck(groupLayout, QStringLiteral("Английские строчные a-z"), QStringLiteral("latin_lower"), autoGroups),
-        addAlphabetCheck(groupLayout, QStringLiteral("Русские заглавные А-Я, Ё"), QStringLiteral("cyrillic_upper"), autoGroups),
-        addAlphabetCheck(groupLayout, QStringLiteral("Русские строчные а-я, ё"), QStringLiteral("cyrillic_lower"), autoGroups)
+        addAlphabetCheck(groupLayout, QStringLiteral("Цифры 0-9"), QStringLiteral("digits"), QStringLiteral("0-9"), QColor("#56d3ff"), autoGroups),
+        addAlphabetCheck(groupLayout, QStringLiteral("Английские заглавные A-Z"), QStringLiteral("latin_upper"), QStringLiteral("A"), QColor("#ffca58"), autoGroups),
+        addAlphabetCheck(groupLayout, QStringLiteral("Английские строчные a-z"), QStringLiteral("latin_lower"), QStringLiteral("a"), QColor("#8de1a3"), autoGroups),
+        addAlphabetCheck(groupLayout, QStringLiteral("Русские заглавные А-Я, Ё"), QStringLiteral("cyrillic_upper"), QStringLiteral("А"), QColor("#ff7aa2"), autoGroups),
+        addAlphabetCheck(groupLayout, QStringLiteral("Русские строчные а-я, ё"), QStringLiteral("cyrillic_lower"), QStringLiteral("я"), QColor("#b89cff"), autoGroups)
     };
     layout->addWidget(groupBox);
 

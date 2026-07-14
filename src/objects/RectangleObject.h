@@ -19,6 +19,7 @@ public:
     QColor strokeColor; //цвет обводки
     double strokeWidth = 0; //толщина обводки
     int alpha = 255; //прозрачность
+    bool explicitAlpha = false; //признак использования схемы rectangle_a
     
     explicit RectangleObject(QObject *parent = nullptr);
     
@@ -36,4 +37,5 @@ public:
     
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;
+    bool usesAlpha() const;
 };

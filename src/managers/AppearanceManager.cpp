@@ -52,8 +52,8 @@ bool AppearanceManager::loadStyleSheet(const QString &filePath)
 void AppearanceManager::applyAvionixTheme()
 {
     //загружаем тему Avionix Designer из ресурсов
-    if (!loadStyleSheet(":/themes/themes/AvionixTheme.qss")) {
-        qWarning("AppearanceManager: Не удалось загрузить AvionixTheme.qss");
+    if (!loadStyleSheet(":/themes/themes/AvionixDesignerTheme.qss")) {
+        qWarning("AppearanceManager: Не удалось загрузить AvionixDesignerTheme.qss");
     }
     
     //обновляем палитру цветов с циановым акцентом

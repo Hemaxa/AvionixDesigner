@@ -8,6 +8,7 @@
 #include <QImageReader>
 #include <QSvgRenderer>
 #include <QSettings>
+#include <QtMath>
 
 #include "ProjectManager.h"
 #include "EditorProjectDocument.h"
@@ -278,6 +279,18 @@ QString textFromCharacterCodes(const QStringList &codes, int offset, int count)
     return value;
 }
 
+QString objectTagForSerialization(int objIdx,
+                                  const QList<QSharedPointer<BaseObject>> &objects,
+                                  const QStringList &objectTags)
+{
+    if (objIdx >= 0 && objIdx < objects.size()) {
+        if (auto rectangle = dynamic_cast<RectangleObject*>(objects[objIdx].data()))
+            return rectangle->usesAlpha() ? QStringLiteral("rectangle_a") : QStringLiteral("rectangle");
+    }
+
+    return objIdx >= 0 && objIdx < objectTags.size() ? objectTags[objIdx] : QString();
+}
+
 QDomElement createSchemaElement(QDomDocument &doc, const QString &schemaName)
 {
     QDomElement schemaEl = doc.createElement(schemaName);
@@ -315,7 +328,7 @@ QSet<QString> collectEditableSchemaNames(const QList<QSharedPointer<BaseObject>>
         if (dynamic_cast<ImageObject*>(obj.data()) || dynamic_cast<TextObject*>(obj.data()))
             continue;
 
-        const QString tagName = objIdx < objectTags.size() ? objectTags[objIdx] : QString();
+        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
         if (tagName.isEmpty())
             continue;
 
@@ -332,13 +345,13 @@ QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>>
     QSet<QString> schemaNames;
     auto *registry = FpgaSchemaRegistry::instance();
 
-    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
+    for (int objIdx = objects.size() - 1; objIdx >= 0; --objIdx) {
         const auto &obj = objects[objIdx];
         if (!obj->isExportEnabled())
             continue;
 
-        if (dynamic_cast<ImageObject*>(obj.data())) {
-            schemaNames.insert(QStringLiteral("staticgroup"));
+        if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
+            schemaNames.insert(image->hasRotation() ? QStringLiteral("rotationobject") : QStringLiteral("staticgroup"));
             continue;
         }
 
@@ -348,7 +361,7 @@ QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>>
             continue;
         }
 
-        const QString tagName = objIdx < objectTags.size() ? objectTags[objIdx] : QString();
+        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
         if (tagName.isEmpty())
             continue;
 
@@ -365,6 +378,7 @@ QDomElement createImageObjectElement(QDomDocument &doc, const ImageObject *image
     imageEl.setAttribute("y", qRound(image->y));
     imageEl.setAttribute("width", qRound(image->width));
     imageEl.setAttribute("height", qRound(image->height));
+    imageEl.setAttribute("rotation", image->rotationDegrees);
     imageEl.setAttribute("format", image->format);
     imageEl.setAttribute("source_name", image->sourceName);
     imageEl.setAttribute("mask_color", image->maskColor.name());
@@ -376,6 +390,20 @@ QDomElement createImageObjectElement(QDomDocument &doc, const ImageObject *image
     sourceEl.setAttribute("encoding", "base64");
     sourceEl.appendChild(doc.createTextNode(QString::fromLatin1(image->sourcePayload().toBase64())));
     imageEl.appendChild(sourceEl);
+
+    const QList<ImageColorLayer> layers = image->colorLayers();
+    if (!layers.isEmpty()) {
+        QDomElement layersEl = doc.createElement("color_layers");
+        for (int i = 0; i < layers.size(); ++i) {
+            QDomElement layerEl = doc.createElement("layer");
+            layerEl.setAttribute("index", i);
+            layerEl.setAttribute("source", layers[i].sourceColor.name());
+            layerEl.setAttribute("color", layers[i].maskColor.name());
+            layerEl.setAttribute("auto", layers[i].autoMaskColor ? 1 : 0);
+            layersEl.appendChild(layerEl);
+        }
+        imageEl.appendChild(layersEl);
+    }
     return imageEl;
 }
 
@@ -398,18 +426,87 @@ QDomElement createEditableTextElement(QDomDocument &doc, const TextObject *text)
 QDomElement createStaticGroupElementFromImage(QDomDocument &doc, const ParamSchema &schema, const ImageObject *image)
 {
     StaticGroupObject group;
-    GroupState state;
-    state.x = qRound(image->x);
-    state.y = qRound(image->y);
-    state.w = qMax(1, qRound(image->width));
-    state.h = qMax(1, qRound(image->height));
-    state.addr = 0;
-    state.color = image->effectiveMaskColor();
-    state.enabled = image->isViewVisible();
-    group.groupNumber = 1;
-    group.states = {state};
-    group.maskImages = {image->renderedImage()};
+    const QList<ImageMaskComponent> components = image->maskComponents();
+    int nextAddr = 0;
+
+    if (components.isEmpty()) {
+        GroupState state;
+        state.x = qRound(image->x);
+        state.y = qRound(image->y);
+        state.w = qMax(1, qRound(image->width));
+        state.h = qMax(1, qRound(image->height));
+        state.addr = 0;
+        state.color = image->effectiveMaskColor();
+        state.enabled = image->isViewVisible();
+        group.states = {state};
+        group.maskImages = {image->renderedImage()};
+    } else {
+        for (const ImageMaskComponent &component : components) {
+            GroupState state;
+            state.x = qRound(image->x + component.bounds.left());
+            state.y = qRound(image->y + component.bounds.top());
+            state.w = qMax(1, component.bounds.width());
+            state.h = qMax(1, component.bounds.height());
+            state.addr = nextAddr;
+            state.color = component.color;
+            state.enabled = image->isViewVisible();
+            group.states.append(state);
+            group.maskImages.append(component.mask);
+            nextAddr += state.w * state.h;
+        }
+    }
+
+    group.groupNumber = qMax(1, group.states.size());
     return createObjectElement(doc, QStringLiteral("staticgroup"), schema, QSharedPointer<BaseObject>(&group, [](BaseObject*){}));
+}
+
+QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
+                                                         const ParamSchema &schema,
+                                                         const ImageObject *image,
+                                                         const ImageMaskComponent &component)
+{
+    RotationObject rotation;
+    rotation.setViewVisible(image->isViewVisible());
+    rotation.xRot = qRound(image->x + image->width / 2.0);
+    rotation.yRot = qRound(image->y + image->height / 2.0);
+
+    const double componentLeft = image->x + component.bounds.left();
+    const double componentTop = image->y + component.bounds.top();
+    rotation.left = qRound(componentLeft - rotation.xRot);
+    rotation.top = qRound(componentTop - rotation.yRot);
+    rotation.right = rotation.left + qMax(1, component.bounds.width());
+    rotation.bottom = rotation.top + qMax(1, component.bounds.height());
+    rotation.color = component.color;
+    rotation.maskImage = component.mask;
+    rotation.sinVal = qRound(qSin(qDegreesToRadians(image->rotationDegrees)) * 65536.0);
+    rotation.cosVal = qRound(qCos(qDegreesToRadians(image->rotationDegrees)) * 65536.0);
+
+    return createObjectElement(doc, QStringLiteral("rotationobject"), schema, QSharedPointer<BaseObject>(&rotation, [](BaseObject*){}));
+}
+
+void appendCompiledImageElements(QDomDocument &doc,
+                                 QDomElement &objectsEl,
+                                 const ParamSchema &staticSchema,
+                                 const ParamSchema &rotationSchema,
+                                 const ImageObject *image)
+{
+    if (!image->hasRotation()) {
+        objectsEl.appendChild(createStaticGroupElementFromImage(doc, staticSchema, image));
+        return;
+    }
+
+    const QList<ImageMaskComponent> components = image->maskComponents();
+    if (components.isEmpty()) {
+        ImageMaskComponent component;
+        component.bounds = QRect(0, 0, qMax(1, qRound(image->width)), qMax(1, qRound(image->height)));
+        component.color = image->effectiveMaskColor();
+        component.mask = image->renderedImage();
+        objectsEl.appendChild(createRotationObjectElementFromImageComponent(doc, rotationSchema, image, component));
+        return;
+    }
+
+    for (const ImageMaskComponent &component : components)
+        objectsEl.appendChild(createRotationObjectElementFromImageComponent(doc, rotationSchema, image, component));
 }
 
 struct ExportFontKey
@@ -640,7 +737,7 @@ QDomDocument buildEditableXmlDocument(const QString &projectName,
             continue;
         }
 
-        const QString tagName = objIdx < objectTags.size() ? objectTags[objIdx] : QString();
+        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
         const QString schemaName = schemaAliases.value(tagName, registry->canonicalSchemaName(tagName));
         if (tagName.isEmpty() || !schemas.contains(schemaName))
             continue;
@@ -682,6 +779,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
 
     auto *registry = FpgaSchemaRegistry::instance();
     const ParamSchema staticSchema = schemas.value(QStringLiteral("staticgroup"), registry->buildSchema(QStringLiteral("staticgroup")));
+    const ParamSchema rotationSchema = schemas.value(QStringLiteral("rotationobject"), registry->buildSchema(QStringLiteral("rotationobject")));
     const ParamSchema fontSchema = registry->buildSchema(QStringLiteral("font"));
     const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
 
@@ -721,13 +819,13 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
         ++nextFontIndex;
     }
 
-    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
+    for (int objIdx = objects.size() - 1; objIdx >= 0; --objIdx) {
         const auto &obj = objects[objIdx];
         if (!obj->isExportEnabled())
             continue;
 
         if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
-            objectsEl.appendChild(createStaticGroupElementFromImage(doc, staticSchema, image));
+            appendCompiledImageElements(doc, objectsEl, staticSchema, rotationSchema, image);
             continue;
         }
 
@@ -763,7 +861,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
             continue;
         }
 
-        const QString tagName = objIdx < objectTags.size() ? objectTags[objIdx] : QString();
+        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
         const QString schemaName = schemaAliases.value(tagName, registry->canonicalSchemaName(tagName));
         if (tagName.isEmpty() || !schemas.contains(schemaName))
             continue;
@@ -854,6 +952,14 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
         for (const QString &schemaName : registry->defaultSchemaNames()) {
             m_schemas.insert(schemaName, registry->buildSchema(schemaName));
         }
+    } else {
+        for (const QString &schemaName : registry->defaultSchemaNames()) {
+            if (!m_schemas.contains(schemaName)) {
+                const ParamSchema schema = registry->buildSchema(schemaName);
+                if (!schema.isEmpty())
+                    m_schemas.insert(schemaName, schema);
+            }
+        }
     }
 
     QDomElement objectsEl = root.firstChildElement("objects");
@@ -902,6 +1008,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             image->y = objEl.attribute("y", "0").toDouble();
             image->width = objEl.attribute("width", "1").toDouble();
             image->height = objEl.attribute("height", "1").toDouble();
+            image->rotationDegrees = objEl.attribute("rotation", "0").toDouble();
             image->format = objEl.attribute("format", "raster");
             image->sourceName = objEl.attribute("source_name");
             image->maskColor = QColor(objEl.attribute("mask_color", "#FFFFFF"));
@@ -909,6 +1016,18 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             image->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
             image->setExportEnabled(objEl.attribute("export", "1").toInt() != 0);
             image->setSourcePayload(QByteArray::fromBase64(objEl.firstChildElement("source").text().toLatin1()));
+            QList<ImageColorLayer> layers;
+            QDomElement layerEl = objEl.firstChildElement("color_layers").firstChildElement("layer");
+            while (!layerEl.isNull()) {
+                ImageColorLayer layer;
+                layer.sourceColor = QColor(layerEl.attribute("source", "#FFFFFF"));
+                layer.maskColor = QColor(layerEl.attribute("color", layer.sourceColor.name()));
+                layer.autoMaskColor = layerEl.attribute("auto", "1").toInt() != 0;
+                layers.append(layer);
+                layerEl = layerEl.nextSiblingElement("layer");
+            }
+            if (!layers.isEmpty())
+                image->setColorLayers(layers);
             m_objects.append(QSharedPointer<BaseObject>(image));
             m_objectTags.append(QStringLiteral("image"));
         }
@@ -1504,6 +1623,9 @@ QString ProjectManager::editModeName() const
 
 int ProjectManager::gridStep() const { return m_gridStep; }
 QColor ProjectManager::gridColor() const { return m_gridColor; }
+QColor ProjectManager::snapCanvasGuideColor() const { return m_snapCanvasGuideColor; }
+QColor ProjectManager::snapGridGuideColor() const { return m_snapGridGuideColor; }
+QColor ProjectManager::snapObjectGuideColor() const { return m_snapObjectGuideColor; }
 
 void ProjectManager::reloadGlobalSettings()
 {
@@ -1512,6 +1634,9 @@ void ProjectManager::reloadGlobalSettings()
     
     QString colorStr = settings.value("gridColor", "#3778b4c8").toString();
     m_gridColor = QColor(colorStr);
+    m_snapCanvasGuideColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
+    m_snapGridGuideColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
+    m_snapObjectGuideColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
     
     emit projectChanged();
 }
