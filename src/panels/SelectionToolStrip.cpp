@@ -67,8 +67,6 @@ QToolButton* SelectionToolStrip::createActionButton(const QString &iconPath, con
     auto *button = new QToolButton(this);
     button->setObjectName("SelectionToolButton");
     button->setIcon(QIcon(iconPath));
-    button->setFixedSize(48, 48);
-    button->setIconSize(QSize(24, 24));
     button->setToolTip(toolTip);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     return button;

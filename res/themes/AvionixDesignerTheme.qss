@@ -297,6 +297,34 @@ QToolButton:pressed {
     background-color: #0f171d;
 }
 
+QToolButton#LibraryCard {
+    min-width: 56px;
+    max-width: 56px;
+    min-height: 56px;
+    max-height: 56px;
+    padding: 0;
+    qproperty-iconSize: 32px 32px;
+}
+
+QToolButton#SelectionToolButton,
+QToolButton#SettingsToolButton,
+QPushButton#SettingsColorButton {
+    min-width: 48px;
+    max-width: 48px;
+    min-height: 48px;
+    max-height: 48px;
+    padding: 0;
+}
+
+QToolButton#SelectionToolButton,
+QToolButton#SettingsToolButton {
+    qproperty-iconSize: 24px 24px;
+}
+
+QPushButton#SettingsColorButton {
+    qproperty-iconSize: 28px 28px;
+}
+
 QPushButton#ResetButton {
     color: #ffd5dc;
     border-color: #5b2f3a;

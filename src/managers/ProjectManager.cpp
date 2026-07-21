@@ -1131,6 +1131,15 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
         
         objNode = objNode.nextSibling();
     }
+
+    if (m_editMode == ProjectEditMode::RestrictedFpgaXml) {
+        std::reverse(m_objects.begin(), m_objects.end());
+        std::reverse(m_objectTags.begin(), m_objectTags.end());
+        if (debugElements.size() == m_objects.size()) {
+            std::reverse(debugElements.begin(), debugElements.end());
+            std::reverse(debugTypes.begin(), debugTypes.end());
+        }
+    }
     
     emit logMessage(tr("Загружено объектов: %1").arg(m_objects.size()));
     if (m_editMode == ProjectEditMode::RestrictedFpgaXml)

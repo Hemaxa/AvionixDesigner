@@ -124,8 +124,6 @@ QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, cons
     button->setObjectName("LibraryCard");
     button->setToolButtonStyle(Qt::ToolButtonIconOnly);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    button->setFixedSize(QSize(56, 56));
-    button->setIconSize(QSize(32, 32));
     button->setToolTip(title);
     button->setStatusTip(title);
 

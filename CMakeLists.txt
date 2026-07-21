@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner LANGUAGES CXX)
+project(AvionixDesigner VERSION 0.1.0 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg)
 
@@ -111,6 +111,7 @@ set_target_properties(AvionixDesigner PROPERTIES
     AUTOMOC ON
     AUTOUIC ON
     AUTORCC ON
+    VERSION ${PROJECT_VERSION}
 )
 
 file(COPY ${CMAKE_SOURCE_DIR}/res DESTINATION ${CMAKE_BINARY_DIR})
@@ -129,3 +130,17 @@ qt_generate_deploy_app_script(
     NO_UNSUPPORTED_PLATFORM_ERROR
 )
 install(SCRIPT ${deploy_script})
+
+set(CPACK_PACKAGE_NAME "AvionixDesigner")
+set(CPACK_PACKAGE_VENDOR "Avionix")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_FILE_NAME "AvionixDesigner-${PROJECT_VERSION}-windows-x64")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "AvionixDesigner")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/README.md")
+if(WIN32)
+    set(CPACK_GENERATOR "NSIS")
+endif()
+set(CPACK_NSIS_DISPLAY_NAME "Avionix Designer")
+set(CPACK_NSIS_PACKAGE_NAME "Avionix Designer")
+set(CPACK_NSIS_MODIFY_PATH OFF)
+include(CPack)

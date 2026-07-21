@@ -6,7 +6,10 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -18,10 +21,22 @@ QToolButton* createSettingsToggle(const QString &iconPath, const QString &toolTi
     button->setObjectName("SettingsToolButton");
     button->setCheckable(true);
     button->setIcon(QIcon(iconPath));
-    button->setIconSize(QSize(24, 24));
     button->setToolTip(toolTip);
-    button->setFixedSize(48, 48);
+    button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     return button;
+}
+
+QIcon createColorSwatchIcon(const QColor &color)
+{
+    QPixmap pixmap(28, 28);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setBrush(color);
+    painter.setPen(QPen(QColor(230, 245, 255, 170), 1));
+    painter.drawRoundedRect(QRectF(3, 3, 22, 22), 5, 5);
+    return QIcon(pixmap);
 }
 }
 
@@ -59,7 +74,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
 
     m_bgColorButton = new QPushButton(this);
     m_bgColorButton->setObjectName("SettingsColorButton");
-    m_bgColorButton->setFixedSize(48, 48);
+    m_bgColorButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_bgColorButton->setToolTip(QStringLiteral("Цвет фона"));
     canvasColumn->addWidget(m_bgColorButton);
 
@@ -120,12 +135,7 @@ void ViewportSettingsPanel::refreshInfo()
     m_snapObjectsButton->setChecked(project->snapToObjects());
 
     const QColor background = project->getBackgroundColor();
-    m_bgColorButton->setStyleSheet(QString(
-        "QPushButton#SettingsColorButton {"
-        "background-color: %1;"
-        "border-radius: 9px;"
-        "padding: 0px;"
-        "}").arg(background.name()));
+    m_bgColorButton->setIcon(createColorSwatchIcon(background));
 
     m_refreshing = false;
 }
