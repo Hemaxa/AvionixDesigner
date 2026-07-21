@@ -1257,10 +1257,10 @@ int ProjectManager::addObject(const QString &typeName)
     }
     else if (auto horizon = dynamic_cast<AviaHorizonObject*>(rawObject)) {
         horizon->enabled = true;
-        horizon->xCenter = centerX;
-        horizon->yCenter = centerY;
-        horizon->areaWidth = 220.0;
-        horizon->areaHeight = 220.0;
+        horizon->xCenter = m_document->canvasWidth() / 2.0;
+        horizon->yCenter = m_document->canvasHeight() / 2.0;
+        horizon->areaWidth = m_document->canvasWidth();
+        horizon->areaHeight = m_document->canvasHeight();
         horizon->lineWidth = 4.0;
         horizon->earthColor = QColor("#C27D1B");
         horizon->skyColor = QColor("#4FCAF7");
@@ -1330,6 +1330,11 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
         return index;
 
     auto obj = m_objects[index];
+    if (dynamic_cast<AviaHorizonObject*>(obj.data())) {
+        emit projectChanged();
+        return index;
+    }
+
     // Перемещаем объект так, чтобы его центр оказался в точке (x, y)
     const QRectF bounds = obj->getBoundingRect();
     const double dx = x - bounds.center().x();

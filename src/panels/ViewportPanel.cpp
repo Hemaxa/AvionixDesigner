@@ -1,11 +1,13 @@
 #include "ViewportPanel.h"
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
+#include "DashedLineObject.h"
 #include <QPainter>
 #include <QWheelEvent>
 #include <QMouseEvent>
 #include <QDragEnterEvent>
 #include <QFileInfo>
+#include <QLineF>
 #include <QMimeData>
 #include <QSet>
 #include <QUrl>
@@ -97,6 +99,24 @@ QPointF ViewportPanel::mapToCanvas(const QPoint &widgetPoint) const
     return QPointF((widgetPoint.x() - offsetX) / totalScale, (widgetPoint.y() - offsetY) / totalScale);
 }
 
+double ViewportPanel::currentTotalScale() const
+{
+    auto pm = ProjectManager::instance();
+    const double canvasW = qMax(1, pm->getCanvasWidth());
+    const double canvasH = qMax(1, pm->getCanvasHeight());
+
+    const double scaleX = static_cast<double>(width()) / canvasW;
+    const double scaleY = static_cast<double>(height()) / canvasH;
+    const double fitScale = qMin(scaleX, scaleY) * 0.95;
+
+    return qMax(0.001, fitScale * m_scale);
+}
+
+double ViewportPanel::handleSizeInCanvas() const
+{
+    return 8.0 / currentTotalScale();
+}
+
 void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate)
 {
     painter.save();
@@ -108,7 +128,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(rect);
     
-    const double size = 6.0 / m_scale; // Фиксированный визуальный размер
+    const double size = handleSizeInCanvas();
     const double half = size / 2.0;
 
     if (canResize) {
@@ -137,6 +157,32 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
         painter.drawEllipse(QPointF(rect.center().x(), rect.top() - size * 3), half, half);
     }
     
+    painter.restore();
+}
+
+void ViewportPanel::drawDashedLineEndpointManipulators(QPainter &painter, const DashedLineObject *line)
+{
+    if (!line)
+        return;
+
+    painter.save();
+
+    QPen guidePen(Qt::blue, 1, Qt::DashLine);
+    guidePen.setCosmetic(true);
+    painter.setPen(guidePen);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRect(line->getBoundingRect());
+
+    const double size = handleSizeInCanvas();
+    const double radius = size * 0.55;
+
+    QPen endpointPen(Qt::blue, 1.4);
+    endpointPen.setCosmetic(true);
+    painter.setPen(endpointPen);
+    painter.setBrush(Qt::white);
+    painter.drawEllipse(QPointF(line->x0, line->y0), radius, radius);
+    painter.drawEllipse(QPointF(line->x1, line->y1), radius, radius);
+
     painter.restore();
 }
 
@@ -371,14 +417,15 @@ void ViewportPanel::beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds
 
 int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, bool canResize, bool canRotate) const
 {
-    const double size = 6.0 / m_scale * 1.5; // Чуть больше зона клика
+    const double baseSize = handleSizeInCanvas();
+    const double size = baseSize * 1.5; // Чуть больше зона клика
     const double half = size / 2.0;
     
     auto isHit = [pos, half](double x, double y) {
         return qAbs(pos.x() - x) <= half && qAbs(pos.y() - y) <= half;
     };
     
-    if (canRotate && isHit(rect.center().x(), rect.top() - (6.0 / m_scale) * 3)) return 100; // Rotate enum
+    if (canRotate && isHit(rect.center().x(), rect.top() - baseSize * 3)) return 100; // Rotate enum
 
     if (!canResize)
         return 0;
@@ -393,6 +440,23 @@ int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, b
     if (isHit(rect.left(), rect.center().y())) return 1;      // Left
     
     return 0; // Нет попадания
+}
+
+int ViewportPanel::hitTestDashedLineEndpoints(const QPointF &canvasPos, const DashedLineObject *line) const
+{
+    if (!line)
+        return -1;
+
+    const double radius = handleSizeInCanvas() * 1.25;
+    const QPointF start(line->x0, line->y0);
+    const QPointF end(line->x1, line->y1);
+
+    if (QLineF(canvasPos, start).length() <= radius)
+        return 0;
+    if (QLineF(canvasPos, end).length() <= radius)
+        return 1;
+
+    return -1;
 }
 
 void ViewportPanel::paintEvent(QPaintEvent *event)
@@ -440,9 +504,16 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         
         // Рисуем выделение
         if (m_selectedIndexes.contains(i)) {
+            const bool singleSelection = m_selectedIndexes.size() == 1;
+            if (singleSelection) {
+                if (auto dashedLine = dynamic_cast<DashedLineObject*>(objects[i].data())) {
+                    drawDashedLineEndpointManipulators(painter, dashedLine);
+                    continue;
+                }
+            }
+
             QRectF rect = objects[i]->getBoundingRect();
             bool canRotate = objects[i]->supportsRotationHandle();
-            const bool singleSelection = m_selectedIndexes.size() == 1;
             drawManipulators(painter, rect, singleSelection && objects[i]->canResize(), singleSelection && canRotate);
         }
     }
@@ -509,6 +580,15 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             }
             QRectF rect = obj->getBoundingRect();
             bool canRotate = obj->supportsRotationHandle();
+
+            if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
+                const int endpoint = hitTestDashedLineEndpoints(canvasPos, dashedLine);
+                if (endpoint >= 0) {
+                    m_dragMode = LineEndpoint;
+                    m_lineEndpointIndex = endpoint;
+                    return;
+                }
+            }
             
             int hit = hitTestManipulators(canvasPos, rect, obj->canResize(), canRotate);
             if (hit == 100) {
@@ -550,8 +630,19 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
 
         if (newSelection >= 0) {
             auto selected = pm->getObjectAt(newSelection);
-            if (selected)
-                beginMoveDrag(canvasPos, selected->getBoundingRect());
+            if (selected) {
+                if (auto dashedLine = dynamic_cast<DashedLineObject*>(selected.data())) {
+                    const int endpoint = hitTestDashedLineEndpoints(canvasPos, dashedLine);
+                    if (endpoint >= 0) {
+                        m_dragMode = LineEndpoint;
+                        m_lineEndpointIndex = endpoint;
+                    } else {
+                        beginMoveDrag(canvasPos, selected->getBoundingRect());
+                    }
+                } else {
+                    beginMoveDrag(canvasPos, selected->getBoundingRect());
+                }
+            }
         }
         
         if (m_dragMode == None) {
@@ -621,6 +712,13 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             obj->resizeBy(m_resizeEdgeFlags, dx, dy);
             emit objectChanged();
             update();
+        } else if (m_dragMode == LineEndpoint) {
+            m_activeSnapGuides.clear();
+            if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
+                dashedLine->setEndpoint(m_lineEndpointIndex, canvasPos);
+                emit objectChanged();
+                update();
+            }
         } else if (m_dragMode == Rotate && obj->supportsRotationHandle()) {
             m_activeSnapGuides.clear();
             QRectF rect = obj->getBoundingRect();
@@ -628,6 +726,8 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             double angleRad = qAtan2(canvasPos.y() - center.y(), canvasPos.x() - center.x());
             // Добавляем 90 градусов так как 0 градусов указывает направо, а ручка смотрит вверх
             double angleDeg = qRadiansToDegrees(angleRad) + 90.0;
+            if (event->modifiers() & Qt::ControlModifier)
+                angleDeg = qRound(angleDeg / 90.0) * 90.0;
             obj->setRotation(angleDeg);
             emit objectChanged();
             update();
@@ -662,6 +762,7 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
     }
     
     m_dragMode = None;
+    m_lineEndpointIndex = -1;
     m_activeSnapGuides.clear();
     m_dragLastAppliedDelta = QPointF(0.0, 0.0);
     update();

@@ -28,10 +28,12 @@ public:
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
+    bool canResize() const override { return false; }
     bool contains(const QPointF &point) const override;
 
     void moveBy(double dx, double dy) override;
     void resizeBy(int edgeFlags, double dx, double dy) override;
+    void setEndpoint(int endpointIndex, const QPointF &point);
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;
 
