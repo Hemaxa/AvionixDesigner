@@ -52,7 +52,18 @@ void PanelsManager::closeAllPanels()
 
 void PanelsManager::connectSignals()
 {
+    // List -> Properties
     connect(m_objectList, &ObjectListPanel::objectSelected, m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
+    // Viewport -> List
+    connect(m_viewport, &ViewportPanel::objectSelected, m_objectList, &ObjectListPanel::selectRow);
+    // Viewport change -> Properties
+    connect(m_viewport, &ViewportPanel::objectChanged, [this]() {
+        // Перепоказать свойства для текущего выбранного объекта
+        if (m_objectList) {
+            // Эмулируем повторный выбор для обновления таблицы свойств
+            m_objectProperties->showObjectProperties(m_viewport->getSelectedIndex());
+        }
+    });
     
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, m_objectList, &ObjectListPanel::refreshList);
 }

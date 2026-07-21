@@ -49,39 +49,11 @@ bool AppearanceManager::loadStyleSheet(const QString &filePath)
     return true;
 }
 
-void AppearanceManager::applyDarkTheme()
-{
-    //загружаем тёмную тему из ресурсов
-    if (!loadStyleSheet(":/themes/themes/DarkTheme.qss")) {
-        qWarning("AppearanceManager: Не удалось загрузить DarkTheme.qss");
-    }
-    
-    //обновляем палитру цветов
-    m_colors["background"] = QColor(0x2d, 0x2d, 0x2d);
-    m_colors["foreground"] = QColor(0xe0, 0xe0, 0xe0);
-    m_colors["accent"] = QColor(0x4a, 0x90, 0xd9);
-    m_colors["viewport"] = QColor(0x1a, 0x1a, 0x1a);
-}
-
-void AppearanceManager::applyLightTheme()
-{
-    //загружаем светлую тему из ресурсов
-    if (!loadStyleSheet(":/themes/themes/LightTheme.qss")) {
-        qWarning("AppearanceManager: Не удалось загрузить LightTheme.qss");
-    }
-    
-    //обновляем палитру цветов
-    m_colors["background"] = QColor(0xf5, 0xf5, 0xf5);
-    m_colors["foreground"] = QColor(0x2d, 0x2d, 0x2d);
-    m_colors["accent"] = QColor(0x25, 0x63, 0xeb);
-    m_colors["viewport"] = QColor(0xe5, 0xe5, 0xe5);
-}
-
 void AppearanceManager::applyAvionixTheme()
 {
     //загружаем тему Avionix Designer из ресурсов
-    if (!loadStyleSheet(":/themes/themes/AvionixTheme.qss")) {
-        qWarning("AppearanceManager: Не удалось загрузить AvionixTheme.qss");
+    if (!loadStyleSheet(":/themes/themes/AvionixDesignerTheme.qss")) {
+        qWarning("AppearanceManager: Не удалось загрузить AvionixDesignerTheme.qss");
     }
     
     //обновляем палитру цветов с циановым акцентом

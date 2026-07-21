@@ -1,5 +1,6 @@
 #include "RotationObject.h"
 #include "BitParser.h"
+#include "ProportionalResize.h"
 #include "XmlReader.h"
 #include <QtMath>
 
@@ -103,6 +104,11 @@ QString RotationObject::getTypeName() const
     return "RotationObject";
 }
 
+QString RotationObject::getDisplayName() const
+{
+    return "Rotation Group";
+}
+
 double RotationObject::getAngleDegrees() const
 {
     //sinVal и cosVal — значения с фиксированной точкой xx.xxxxxxxxxxxxxxxx
@@ -140,20 +146,94 @@ QRectF RotationObject::getBoundingRect() const
     return QRectF(xRot + left, yRot + top, right - left, bottom - top);
 }
 
+bool RotationObject::contains(const QPointF &point) const
+{
+    // Учитываем поворот для определения попадания мыши
+    QTransform transform;
+    transform.translate(xRot, yRot);
+    transform.rotate(getAngleDegrees());
+    
+    // Инвертируем трансформацию, чтобы перевести точку клика в локальные координаты
+    QTransform invTransform = transform.inverted();
+    QPointF localPoint = invTransform.map(point);
+    
+    QRectF localRect(left, top, right - left, bottom - top);
+    return localRect.contains(localPoint);
+}
+
+void RotationObject::moveBy(double dx, double dy)
+{
+    xRot += dx;
+    yRot += dy;
+    emit changed();
+}
+
+void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
+{
+    if (!canResize())
+        return;
+
+    // Так как размеры хранятся как смещения (top, left, bottom, right),
+    // нам нужно учитывать текущий поворот.
+    // Проще всего конвертировать dx, dy в локальные координаты.
+    double angleRad = qDegreesToRadians(-getAngleDegrees()); // Обратный поворот
+    double localDx = dx * qCos(angleRad) - dy * qSin(angleRad);
+    double localDy = dx * qSin(angleRad) + dy * qCos(angleRad);
+
+    const QRectF oldRect(left, top, qMax(1.0, right - left), qMax(1.0, bottom - top));
+    const auto resized = proportionalResizeRect(oldRect, edgeFlags, localDx, localDy);
+    left = resized.rect.left();
+    top = resized.rect.top();
+    right = resized.rect.right();
+    bottom = resized.rect.bottom();
+
+    const int newWidth = qMax(1, qRound(resized.rect.width()));
+    const int newHeight = qMax(1, qRound(resized.rect.height()));
+    if (!maskImage.isNull() && (maskImage.width() != newWidth || maskImage.height() != newHeight)) {
+        maskImage = maskImage.scaled(newWidth, newHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+    }
+    
+    emit changed();
+}
+
+void RotationObject::setRotation(double angle)
+{
+    double angleRad = qDegreesToRadians(angle);
+    sinVal = qRound(qSin(angleRad) * 65536.0);
+    cosVal = qRound(qCos(angleRad) * 65536.0);
+    emit changed();
+}
+
 bool RotationObject::setObjectProperty(const QString &name, const QString &value)
 {
     bool ok = false;
     
     if (name == "Left" || name == "Left (смещ.)") {
+        if (!canResize()) {
+            setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
         left = value.toDouble(&ok);
     }
     else if (name == "Top" || name == "Top (смещ.)") {
+        if (!canResize()) {
+            setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
         top = value.toDouble(&ok);
     }
     else if (name == "Right" || name == "Right (смещ.)") {
+        if (!canResize()) {
+            setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
         right = value.toDouble(&ok);
     }
     else if (name == "Bottom" || name == "Bottom (смещ.)") {
+        if (!canResize()) {
+            setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
         bottom = value.toDouble(&ok);
     }
     else if (name == "X вращения") {
@@ -181,13 +261,16 @@ bool RotationObject::setObjectProperty(const QString &name, const QString &value
 
 QMap<QString, quint32> RotationObject::serializeParams() const
 {
+    const int width = qMax(1, qRound(right - left));
     return {
+        {"enb", isViewVisible() ? 1u : 0u},
         {"xrot", static_cast<quint32>(xRot)},
         {"yrot", static_cast<quint32>(yRot)},
         {"top", static_cast<quint32>(static_cast<qint32>(top))},
         {"left", static_cast<quint32>(static_cast<qint32>(left))},
         {"bottom", static_cast<quint32>(static_cast<qint32>(bottom))},
         {"right", static_cast<quint32>(static_cast<qint32>(right))},
+        {"sq", static_cast<quint32>(qCeil(width / 8.0))},
         {"color", BitParser::colorToBgr(color)},
         {"sin", static_cast<quint32>(sinVal)},
         {"cos", static_cast<quint32>(cosVal)}

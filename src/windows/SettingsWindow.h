@@ -3,10 +3,13 @@
 #pragma once
 
 #include <QDialog>
+#include <QColor>
 
-//предварительное объявление классов
-class QComboBox;
 class QCheckBox;
+class QListWidget;
+class QStackedWidget;
+class QSpinBox;
+class QPushButton;
 
 class SettingsWindow : public QDialog
 {
@@ -26,15 +29,28 @@ private slots:
     
     //сброс всех настроек до стандартных
     void resetAllSettings();
-
+    
 private:
     //метод создания виджетов и панелей
     void createWidgets();
 
     //метод загрузки настроек
     void loadSettings();
+    void chooseColor(QColor *targetColor, QPushButton *button, const QString &title);
+    void updateColorButtonIcon(QPushButton *button, const QColor &color);
 
     //элементы интерфейса
-    QComboBox *m_themeCombo;
+    QListWidget *m_listWidget;
+    QStackedWidget *m_stackedWidget;
     QCheckBox *m_autoLoadCheck;
+    
+    QSpinBox *m_gridStepSpin;
+    QPushButton *m_gridColorButton;
+    QPushButton *m_snapCanvasColorButton;
+    QPushButton *m_snapGridColorButton;
+    QPushButton *m_snapObjectColorButton;
+    QColor m_currentGridColor;
+    QColor m_currentSnapCanvasColor;
+    QColor m_currentSnapGridColor;
+    QColor m_currentSnapObjectColor;
 };

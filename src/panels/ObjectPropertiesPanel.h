@@ -8,6 +8,7 @@
 class QTableWidget;
 class QLabel;
 class QScrollArea;
+class QStackedWidget;
 class BaseObject;
 
 class ObjectPropertiesPanel : public BasePanel
@@ -34,6 +35,7 @@ signals:
 private slots:
     //обработка изменения ячейки таблицы
     void onCellChanged(int row, int column);
+    void onCellDoubleClicked(int row, int column);
 
 private:
     //заполняет таблицу свойствами объекта
@@ -41,10 +43,16 @@ private:
     
     //очищает таблицу
     void clearTable();
+    void refreshTableValues();
+    bool isColorProperty(const QString &name) const;
+    bool isBooleanProperty(const QString &name) const;
     
     QLabel *m_titleLabel; //заголовок панели
+    QLabel *m_subtitleLabel; //подзаголовок панели
+    QLabel *m_emptyStateLabel; //заглушка пустого состояния
     QTableWidget *m_tableWidget; //таблица свойств
     QScrollArea *m_scrollArea; //область прокрутки
+    QStackedWidget *m_contentStack; //переключатель состояний панели
     QSharedPointer<BaseObject> m_currentObject; //текущий объект
     bool m_updating = false; //флаг программного обновления
 };

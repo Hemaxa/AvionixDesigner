@@ -1,79 +1,146 @@
 #include "ObjectLibraryPanel.h"
-#include <QVBoxLayout>
-#include <QGridLayout>
-#include <QPushButton>
+
+#include "FpgaSchemaRegistry.h"
+
+#include <QDrag>
+#include <QHBoxLayout>
 #include <QIcon>
+#include <QMimeData>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPixmap>
+#include <QSizePolicy>
+#include <QToolButton>
+#include <QVBoxLayout>
+
+namespace {
+QIcon createPlaceholderIcon(const QString &glyph)
+{
+    QPixmap pixmap(64, 64);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor("#243447"));
+    painter.drawRoundedRect(QRectF(4, 4, 56, 56), 14, 14);
+
+    painter.setPen(QColor("#D9E4F2"));
+    QFont font("SF Pro Display", 22, QFont::DemiBold);
+    painter.setFont(font);
+    painter.drawText(pixmap.rect(), Qt::AlignCenter, glyph);
+
+    return QIcon(pixmap);
+}
+
+class DraggableToolButton : public QToolButton
+{
+public:
+    DraggableToolButton(const QString &typeName, QWidget *parent = nullptr)
+        : QToolButton(parent), m_typeName(typeName) {}
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+            m_dragStartPos = event->pos();
+        QToolButton::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if (!(event->buttons() & Qt::LeftButton))
+            return;
+
+        if ((event->pos() - m_dragStartPos).manhattanLength() < 10)
+            return;
+
+        auto *drag = new QDrag(this);
+        auto *mimeData = new QMimeData();
+        mimeData->setData("application/x-avionix-object", m_typeName.toUtf8());
+        drag->setMimeData(mimeData);
+
+        // Создаём иконку перетаскивания из иконки кнопки
+        QPixmap pixmap = icon().pixmap(QSize(48, 48));
+        if (!pixmap.isNull())
+            drag->setPixmap(pixmap);
+
+        drag->exec(Qt::CopyAction);
+    }
+
+private:
+    QString m_typeName;
+    QPoint m_dragStartPos;
+};
+}
 
 ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
 {
-    //устанавливаем имя для стилизации через QSS
     setPanelName("ObjectLibraryPanel");
-    
-    //главный layout
-    QVBoxLayout *mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(10, 10, 10, 10);
-    mainLayout->setSpacing(8);
-    
-    //создаём сетку кнопок
+
+    auto *mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(6, 6, 6, 6);
+    mainLayout->setSpacing(6);
+
     createButtons();
-    
-    //добавляем растяжку в конец
+    mainLayout->addLayout(m_rowLayout);
     mainLayout->addStretch();
 }
 
 void ObjectLibraryPanel::createButtons()
 {
-    //создаём grid layout для кнопок
-    m_gridLayout = new QGridLayout();
-    m_gridLayout->setSpacing(6);
-    
-    //пути к иконкам
-    //иконки загружаются из ресурсов Qt (:/ prefix)
-    m_rectButton = createLibraryButton(":/icons/icons/library/rectangle.svg", "Прямоугольник");
-    m_circleButton = createLibraryButton(":/icons/icons/library/circle.svg", "Круг");
-    m_lineButton = createLibraryButton(":/icons/icons/library/line.svg", "Линия");
-    m_polygonButton = createLibraryButton(":/icons/icons/library/polygon.svg", "Полигон");
-    m_textButton = createLibraryButton(":/icons/icons/library/text.svg", "Текст");
-    m_imageButton = createLibraryButton(":/icons/icons/library/image.svg", "Изображение");
-    
-    //размещаем кнопки в сетке 2x3
-    m_gridLayout->addWidget(m_rectButton, 0, 0);
-    m_gridLayout->addWidget(m_circleButton, 0, 1);
-    m_gridLayout->addWidget(m_lineButton, 0, 2);
-    m_gridLayout->addWidget(m_polygonButton, 1, 0);
-    m_gridLayout->addWidget(m_textButton, 1, 1);
-    m_gridLayout->addWidget(m_imageButton, 1, 2);
-    
-    //добавляем grid в главный layout
-    static_cast<QVBoxLayout*>(layout())->insertLayout(0, m_gridLayout);
+    m_rowLayout = new QHBoxLayout();
+    m_rowLayout->setSpacing(8);
+
+    QList<EditorObjectDescriptor> items;
+    for (const auto &descriptor : FpgaSchemaRegistry::instance()->editorObjectCatalog()) {
+        if (descriptor.creatableInLibrary) {
+            items.append(descriptor);
+        }
+    }
+
+    for (int i = 0; i < items.size(); ++i) {
+        const auto &item = items[i];
+        QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title);
+        m_libraryCards.append(card);
+        m_rowLayout->addWidget(card);
+    }
+
+    QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
+    m_libraryCards.append(imageButton);
+    m_rowLayout->addWidget(imageButton);
+
+    m_rowLayout->addStretch();
 }
 
-QPushButton* ObjectLibraryPanel::createLibraryButton(const QString &iconPath, const QString &tooltip)
+QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title)
 {
-    QPushButton *button = new QPushButton(this);
-    button->setObjectName("LibraryButton");
-    button->setToolTip(tooltip);
-    
-    //квадратная кнопка 48x48
-    button->setFixedSize(48, 48);
-    
-    //пытаемся загрузить иконку
+    QToolButton *button;
+    if (typeName != QStringLiteral("__image__")) {
+        button = new DraggableToolButton(typeName, this);
+    } else {
+        button = new QToolButton(this);
+    }
+    button->setObjectName("LibraryCard");
+    button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    button->setToolTip(title);
+    button->setStatusTip(title);
+
     QIcon icon(iconPath);
-    if (!icon.isNull() && !icon.availableSizes().isEmpty()) {
-        //иконка найдена — устанавливаем её
-        button->setIcon(icon);
-        button->setIconSize(QSize(28, 28));
+    if (icon.isNull()) {
+        const QString glyph = title.isEmpty() ? "?" : title.left(1).toUpper();
+        icon = createPlaceholderIcon(glyph);
     }
-    else {
-        //иконка не найдена — показываем первую букву tooltip как заглушку
-        QString fallbackText = tooltip.isEmpty() ? "?" : tooltip.left(1).toUpper();
-        button->setText(fallbackText);
-        QFont font = button->font();
-        font.setPointSize(16);
-        font.setBold(true);
-        button->setFont(font);
-    }
-    
+    button->setIcon(icon);
+
+    connect(button, &QToolButton::clicked, this, [this, typeName]() {
+        if (typeName == QStringLiteral("__image__")) {
+            emit imageImportRequested();
+            return;
+        }
+        emit objectRequested(typeName);
+    });
+
     return button;
 }
-

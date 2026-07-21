@@ -1,16 +1,29 @@
 <RCC>
     <qresource prefix="/themes">
-        <file>themes/DarkTheme.qss</file>
-        <file>themes/LightTheme.qss</file>
-        <file>themes/AvionixTheme.qss</file>
+        <file>themes/AvionixDesignerTheme.qss</file>
     </qresource>
     <qresource prefix="/icons">
-        <!-- Иконки библиотеки объектов (будут добавлены пользователем) -->
-        <!-- <file>icons/library/rectangle.svg</file> -->
-        <!-- <file>icons/library/circle.svg</file> -->
-        <!-- <file>icons/library/line.svg</file> -->
-        <!-- <file>icons/library/polygon.svg</file> -->
-        <!-- <file>icons/library/text.svg</file> -->
-        <!-- <file>icons/library/image.svg</file> -->
+        <file>icons/library/rectangle.svg</file>
+        <file>icons/library/dashedline.svg</file>
+        <file>icons/library/ribonscale.svg</file>
+        <file>icons/library/staticgroup.svg</file>
+        <file>icons/library/rotationgroup.svg</file>
+        <file>icons/library/aviahorizon.svg</file>
+        <file>icons/library/text.svg</file>
+        <file>icons/library/import-image.svg</file>
+        <file>icons/list/eye.svg</file>
+        <file>icons/list/eye-off.svg</file>
+        <file>icons/settings/grid.svg</file>
+        <file>icons/settings/snap-screen.svg</file>
+        <file>icons/settings/snap-grid.svg</file>
+        <file>icons/settings/snap-objects.svg</file>
+        <file>icons/selection/align-top.svg</file>
+        <file>icons/selection/align-vcenter.svg</file>
+        <file>icons/selection/align-bottom.svg</file>
+        <file>icons/selection/align-left.svg</file>
+        <file>icons/selection/align-hcenter.svg</file>
+        <file>icons/selection/align-right.svg</file>
+        <file>icons/selection/delete.svg</file>
+        <file>icons/selection/export-triangle.svg</file>
     </qresource>
 </RCC>

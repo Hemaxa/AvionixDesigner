@@ -1,86 +1,77 @@
-//MainWindow - главное окно приложения, которое является сборщиком панелей
+//MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели
 
-#pragma once //директива для единоразового включения заголовочного файла
+#pragma once
 
+#include <QCloseEvent>
+#include <QList>
 #include <QMainWindow>
 #include <QShowEvent>
-#include <QCloseEvent>
 
-//предварительное объявление классов (forward declaration)
+class QAction;
 class QDockWidget;
-class ViewportPanel;
+class EditorWorkspacePanel;
+class NewProjectDialog;
+class ObjectLibraryPanel;
 class ObjectListPanel;
 class ObjectPropertiesPanel;
-class ObjectLibraryPanel;
-class ViewportSettingsPanel;
+class SelectionToolStrip;
 class SettingsWindow;
+class ViewportPanel;
+class ViewportSettingsPanel;
 
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
-    
+
 public:
-    //конструктор с запретом на неявное преобразование типов
     explicit MainWindow(QWidget *parent = nullptr);
 
 public slots:
-    //сброс layout до стандартных значений
     void resetToDefaultLayout();
 
 private slots:
-    //слот, который вызывается при открытии файла проекта
+    void onNewProject();
     void onOpenFile();
-    
-    //слот, который вызывается при сохранении текущего проекта
     void onSaveFile();
-    
-    //слот, который вызывается при обновлении заголовока окна
+    void onSaveFileAs();
+    void onExportFpgaXml();
+    void onImportImage();
     void updateWindowTitle();
-    
-    //слот, который вызывается при открытии окна настроек
     void openSettings();
+    void createObjectOfType(const QString &typeName);
+    void createObjectAtPosition(const QString &typeName, const QPointF &pos);
+    void deleteSelectedObject();
+    void alignSelectedObject(int actionId);
+    void handleSelectionChanged(const QList<int> &indexes);
 
 protected:
-    //переопределение события показа окна для применения размеров
     void showEvent(QShowEvent *event) override;
-    
-    //переопределение события закрытия для сохранения layout
     void closeEvent(QCloseEvent *event) override;
 
 private:
-    //метод создания виджетов и панелей
     void createWidgets();
-    
-    //метод создания меню
     void createMenus();
-    
-    //метод соединения сигналов
     void connectSignals();
-    
-    //метод настройки размеров dock-виджетов
     void setupDockSizes();
-    
-    //сохранение и восстановление layout
+    QAction* createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member);
     void saveLayoutSettings();
     void restoreLayoutSettings();
-    
-    //указатели на панели
-    ViewportPanel *m_viewport;
-    ObjectListPanel *m_objectList;
-    ObjectPropertiesPanel *m_objectProperties;
-    ObjectLibraryPanel *m_objectLibrary;
-    ViewportSettingsPanel *m_viewportSettings;
-    
-    //dock-виджеты для каждой панели (перетаскиваемое окно)
-    QDockWidget *m_viewportDock;
-    QDockWidget *m_objectListDock;
-    QDockWidget *m_objectPropertiesDock;
-    QDockWidget *m_objectLibraryDock;
-    QDockWidget *m_viewportSettingsDock;
-    
-    //окно настроек
-    SettingsWindow *m_settingsWindow;
-    
-    //флаг первоначальной настройки размеров
+    void setSelectionState(bool active);
+
+    EditorWorkspacePanel *m_workspacePanel = nullptr;
+    ViewportPanel *m_viewport = nullptr;
+    SelectionToolStrip *m_selectionToolStrip = nullptr;
+    ObjectListPanel *m_objectList = nullptr;
+    ObjectPropertiesPanel *m_objectProperties = nullptr;
+    ObjectLibraryPanel *m_objectLibrary = nullptr;
+    ViewportSettingsPanel *m_viewportSettings = nullptr;
+
+    QDockWidget *m_objectListDock = nullptr;
+    QDockWidget *m_objectPropertiesDock = nullptr;
+    QDockWidget *m_objectLibraryDock = nullptr;
+    QDockWidget *m_viewportSettingsDock = nullptr;
+
+    SettingsWindow *m_settingsWindow = nullptr;
+    NewProjectDialog *m_newProjectDialog = nullptr;
     bool m_initialSizesSet = false;
 };

@@ -40,8 +40,28 @@ public:
     
     //виртуальные геттеры для свойств объекта
     virtual QString getTypeName() const = 0; //возвращает тип объекта
+    virtual QString getDisplayName() const { return getTypeName(); } //отображаемое имя для UI
     virtual QList<QPair<QString, QString>> getProperties() const = 0; //возвращает список свойств объекта
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
+    virtual bool supportsRotationHandle() const { return false; }
+    virtual bool canResize() const { return !m_resizeLocked; }
+    virtual bool isImportedHardwareObject() const { return m_importedHardwareObject; }
+    virtual void setImportedHardwareObject(bool imported) { m_importedHardwareObject = imported; }
+    virtual void setResizeLocked(bool locked) { m_resizeLocked = locked; }
+    virtual bool isViewVisible() const { return m_viewVisible; }
+    virtual void setViewVisible(bool visible) { m_viewVisible = visible; emit changed(); }
+    virtual bool isExportEnabled() const { return m_exportEnabled; }
+    virtual void setExportEnabled(bool enabled) { m_exportEnabled = enabled; emit changed(); }
+    virtual QString editRestrictionHint() const { return m_editRestrictionHint; }
+    virtual QString lastValidationMessage() const { return m_lastValidationMessage; }
+    virtual void clearValidationMessage() { m_lastValidationMessage.clear(); }
+
+    //геометрия и взаимодействие
+    virtual bool contains(const QPointF &point) const { return getBoundingRect().contains(point); }
+    virtual void moveBy(double dx, double dy) { Q_UNUSED(dx); Q_UNUSED(dy); }
+    virtual void resizeBy(int edgeFlags, double dx, double dy) { Q_UNUSED(edgeFlags); Q_UNUSED(dx); Q_UNUSED(dy); }
+    virtual void setRotation(double angle) { Q_UNUSED(angle); }
+
     
     //устанавливает значение свойства по имени, возвращает true при успехе
     virtual bool setObjectProperty(const QString &name, const QString &value) { Q_UNUSED(name); Q_UNUSED(value); return false; }
@@ -51,4 +71,16 @@ public:
 
 signals:
     void changed();  //сигнал об изменении объекта
+
+protected:
+    void setEditRestrictionHint(const QString &hint) { m_editRestrictionHint = hint; }
+    void setValidationMessage(const QString &message) const { m_lastValidationMessage = message; }
+
+private:
+    bool m_resizeLocked = false;
+    bool m_importedHardwareObject = false;
+    bool m_viewVisible = true;
+    bool m_exportEnabled = true;
+    QString m_editRestrictionHint;
+    mutable QString m_lastValidationMessage;
 };

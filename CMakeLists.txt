@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner LANGUAGES CXX)
+project(AvionixDesigner VERSION 0.1.0 LANGUAGES CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg)
 
 qt_standard_project_setup()
 
@@ -14,6 +14,14 @@ qt_add_executable(AvionixDesigner
     # Базовые классы
     src/BaseObject.h
     src/BasePanel.h
+
+    # Внутренняя модель редактора
+    src/editor/EditorProjectDocument.h
+    src/editor/EditorProjectDocument.cpp
+
+    # Реестр FPGA-схем
+    src/schema/FpgaSchemaRegistry.h
+    src/schema/FpgaSchemaRegistry.cpp
     
     # Менеджеры
     src/managers/ProjectManager.h
@@ -36,18 +44,34 @@ qt_add_executable(AvionixDesigner
     src/panels/ObjectLibraryPanel.cpp
     src/panels/ViewportSettingsPanel.h
     src/panels/ViewportSettingsPanel.cpp
+    src/panels/SelectionToolStrip.h
+    src/panels/SelectionToolStrip.cpp
+    src/panels/EditorWorkspacePanel.h
+    src/panels/EditorWorkspacePanel.cpp
     
     # Объекты
     src/objects/RectangleObject.h
     src/objects/RectangleObject.cpp
+    src/objects/DashedLineObject.h
+    src/objects/DashedLineObject.cpp
+    src/objects/RibbonScaleObject.h
+    src/objects/RibbonScaleObject.cpp
     src/objects/RotationObject.h
     src/objects/RotationObject.cpp
     src/objects/StaticGroupObject.h
     src/objects/StaticGroupObject.cpp
+    src/objects/ImageObject.h
+    src/objects/ImageObject.cpp
+    src/objects/AviaHorizonObject.h
+    src/objects/AviaHorizonObject.cpp
+    src/objects/TextObject.h
+    src/objects/TextObject.cpp
     
     # Окна
     src/windows/MainWindow.h
     src/windows/MainWindow.cpp
+    src/windows/NewProjectDialog.h
+    src/windows/NewProjectDialog.cpp
     src/windows/SettingsWindow.h
     src/windows/SettingsWindow.cpp
     
@@ -55,6 +79,7 @@ qt_add_executable(AvionixDesigner
     src/utils/BitParser.h
     src/utils/XmlReader.h
     src/utils/DebugDumper.h
+    src/utils/ProportionalResize.h
     
     # Ресурсы
     res/resources.qrc
@@ -65,6 +90,7 @@ target_link_libraries(AvionixDesigner
         Qt::Core
         Qt::Widgets
         Qt::Xml
+        Qt::Svg
 )
 
 target_compile_features(AvionixDesigner PRIVATE cxx_std_17)
@@ -75,6 +101,8 @@ target_include_directories(AvionixDesigner PRIVATE
     ${CMAKE_SOURCE_DIR}/src/managers
     ${CMAKE_SOURCE_DIR}/src/panels
     ${CMAKE_SOURCE_DIR}/src/objects
+    ${CMAKE_SOURCE_DIR}/src/editor
+    ${CMAKE_SOURCE_DIR}/src/schema
     ${CMAKE_SOURCE_DIR}/src/windows
     ${CMAKE_SOURCE_DIR}/src/utils
 )
@@ -83,6 +111,7 @@ set_target_properties(AvionixDesigner PROPERTIES
     AUTOMOC ON
     AUTOUIC ON
     AUTORCC ON
+    VERSION ${PROJECT_VERSION}
 )
 
 file(COPY ${CMAKE_SOURCE_DIR}/res DESTINATION ${CMAKE_BINARY_DIR})
@@ -101,3 +130,17 @@ qt_generate_deploy_app_script(
     NO_UNSUPPORTED_PLATFORM_ERROR
 )
 install(SCRIPT ${deploy_script})
+
+set(CPACK_PACKAGE_NAME "AvionixDesigner")
+set(CPACK_PACKAGE_VENDOR "Avionix")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_FILE_NAME "AvionixDesigner-${PROJECT_VERSION}-windows-x64")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "AvionixDesigner")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/README.md")
+if(WIN32)
+    set(CPACK_GENERATOR "NSIS")
+endif()
+set(CPACK_NSIS_DISPLAY_NAME "Avionix Designer")
+set(CPACK_NSIS_PACKAGE_NAME "Avionix Designer")
+set(CPACK_NSIS_MODIFY_PATH OFF)
+include(CPack)

@@ -6,7 +6,7 @@ BasePanel::BasePanel(const QString &objectName, QWidget *parent) : QWidget(paren
     setObjectName(objectName);
     
     //базовые настройки для всех панелей
-    setMinimumSize(100, 100);
+    setMinimumSize(48, 48);
     
     //вызываем инициализацию UI
     setupUI();

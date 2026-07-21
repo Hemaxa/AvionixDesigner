@@ -33,7 +33,13 @@ public:
     void parse(const QString &hexInit, const ParamSchema &schema) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
+    QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
+    
+    // Взаимодействие
+    void moveBy(double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy) override;
+    
     bool setObjectProperty(const QString &name, const QString &value) override;
     void parseExtraData(const QDomElement &element) override;
     QMap<QString, quint32> serializeParams() const override;
@@ -41,6 +47,9 @@ public:
 
     //сереализация параметров конкретного состояния
     QMap<QString, quint32> serializeState(int stateIndex) const;
+
+protected:
+    void rebuildStateAddresses();
 
 private:
     //парсит одно состояние из HEX-строки по схеме

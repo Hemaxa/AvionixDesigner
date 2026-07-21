@@ -1,6 +1,8 @@
 #include "RectangleObject.h"
 #include "BitParser.h"
 
+#include <QtMath>
+
 RectangleObject::RectangleObject(QObject *parent) : BaseObject(parent), fillColor(Qt::white), strokeColor(Qt::transparent) {}
 
 void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
@@ -40,8 +42,13 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
     //парсинг прозрачности
     if (schema.contains("alph")) {
         int rawAlpha = BitParser::extract(hexInit, schema["alph"].offset, schema["alph"].size);
-        alpha = qMin(255, rawAlpha * 4);
+        alpha = qBound(0, qRound((rawAlpha + 1) * 255.0 / 8.0), 255);
         fillColor.setAlpha(alpha);
+        explicitAlpha = true;
+    } else {
+        alpha = 255;
+        fillColor.setAlpha(alpha);
+        explicitAlpha = false;
     }
 }
 
@@ -74,6 +81,11 @@ QString RectangleObject::getTypeName() const
     return "Rectangle";
 }
 
+QString RectangleObject::getDisplayName() const
+{
+    return "Прямоугольник";
+}
+
 QList<QPair<QString, QString>> RectangleObject::getProperties() const
 {
     return {
@@ -91,6 +103,37 @@ QList<QPair<QString, QString>> RectangleObject::getProperties() const
 QRectF RectangleObject::getBoundingRect() const
 {
     return QRectF(x, y, width, height);
+}
+
+void RectangleObject::moveBy(double dx, double dy)
+{
+    x += dx;
+    y += dy;
+    emit changed();
+}
+
+void RectangleObject::resizeBy(int edgeFlags, double dx, double dy)
+{
+    //edgeFlags (1=Left, 2=Right, 4=Top, 8=Bottom)
+    if (edgeFlags & 1) { // Left
+        x += dx;
+        width -= dx;
+    }
+    if (edgeFlags & 2) { // Right
+        width += dx;
+    }
+    if (edgeFlags & 4) { // Top
+        y += dy;
+        height -= dy;
+    }
+    if (edgeFlags & 8) { // Bottom
+        height += dy;
+    }
+    
+    if (width < 1.0) width = 1.0;
+    if (height < 1.0) height = 1.0;
+    
+    emit changed();
 }
 
 bool RectangleObject::setObjectProperty(const QString &name, const QString &value)
@@ -112,6 +155,8 @@ bool RectangleObject::setObjectProperty(const QString &name, const QString &valu
     else if (name == "Заливка") {
         fillColor = QColor(value);
         ok = fillColor.isValid();
+        if (ok)
+            fillColor.setAlpha(alpha);
     }
     else if (name == "Обводка") {
         strokeColor = QColor(value);
@@ -121,8 +166,11 @@ bool RectangleObject::setObjectProperty(const QString &name, const QString &valu
         strokeWidth = value.toDouble(&ok);
     }
     else if (name == "Прозрачность") {
-        alpha = value.toInt(&ok);
-        if (ok) fillColor.setAlpha(alpha);
+        alpha = qBound(0, value.toInt(&ok), 255);
+        if (ok) {
+            fillColor.setAlpha(alpha);
+            explicitAlpha = true;
+        }
     }
     
     if (ok) emit changed();
@@ -132,6 +180,7 @@ bool RectangleObject::setObjectProperty(const QString &name, const QString &valu
 QMap<QString, quint32> RectangleObject::serializeParams() const
 {
     return {
+        {"enb", isViewVisible() ? 1u : 0u},
         {"x0", static_cast<quint32>(x)},
         {"y0", static_cast<quint32>(y)},
         {"w", static_cast<quint32>(width)},
@@ -139,6 +188,11 @@ QMap<QString, quint32> RectangleObject::serializeParams() const
         {"color", BitParser::colorToBgr(fillColor)},
         {"colorb", BitParser::colorToBgr(strokeColor)},
         {"a", static_cast<quint32>(strokeWidth)},
-        {"alph", static_cast<quint32>(qMin(255, alpha) / 4)}
+        {"alph", static_cast<quint32>(qBound(0, qRound(qBound(0, alpha, 255) * 8.0 / 255.0) - 1, 7))}
     };
+}
+
+bool RectangleObject::usesAlpha() const
+{
+    return explicitAlpha || alpha < 255 || fillColor.alpha() < 255;
 }

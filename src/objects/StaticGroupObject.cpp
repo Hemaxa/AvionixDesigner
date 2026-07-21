@@ -1,5 +1,6 @@
 #include "StaticGroupObject.h"
 #include "BitParser.h"
+#include "ProportionalResize.h"
 #include "XmlReader.h"
 
 StaticGroupObject::StaticGroupObject(QObject *parent) : BaseObject(parent) {}
@@ -155,6 +156,11 @@ QString StaticGroupObject::getTypeName() const
     return "StaticGroup";
 }
 
+QString StaticGroupObject::getDisplayName() const
+{
+    return "Static";
+}
+
 QList<QPair<QString, QString>> StaticGroupObject::getProperties() const
 {
     QList<QPair<QString, QString>> props;
@@ -188,16 +194,76 @@ QRectF StaticGroupObject::getBoundingRect() const
     
     //объединяем прямоугольники всех включённых состояний
     QRectF result;
+    bool first = true;
     for (const GroupState &s : states) {
         if (!s.enabled) continue;
         QRectF r(s.x, s.y, s.w, s.h);
-        if (result.isNull())
+        if (first) {
             result = r;
-        else
+            first = false;
+        } else {
             result = result.united(r);
+        }
     }
     
     return result;
+}
+
+void StaticGroupObject::moveBy(double dx, double dy)
+{
+    // Двигаем все состояния вместе
+    for (GroupState &s : states) {
+        s.x += dx;
+        s.y += dy;
+    }
+    emit changed();
+}
+
+void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
+{
+    if (!canResize())
+        return;
+
+    if (states.isEmpty())
+        return;
+
+    const QRectF oldBounds = getBoundingRect();
+    if (oldBounds.isEmpty())
+        return;
+
+    const auto resized = proportionalResizeRect(oldBounds, edgeFlags, dx, dy);
+    const QRectF newBounds = resized.rect;
+    const double scaleX = resized.scale;
+    const double scaleY = resized.scale;
+
+    for (int i = 0; i < states.size(); ++i) {
+        GroupState &s = states[i];
+        const QRectF stateRect(s.x, s.y, s.w, s.h);
+
+        const double relativeLeft = stateRect.left() - oldBounds.left();
+        const double relativeTop = stateRect.top() - oldBounds.top();
+        const double relativeRight = stateRect.right() - oldBounds.left();
+        const double relativeBottom = stateRect.bottom() - oldBounds.top();
+
+        const QRectF scaledRect(
+            newBounds.left() + relativeLeft * scaleX,
+            newBounds.top() + relativeTop * scaleY,
+            qMax(1.0, stateRect.width() * scaleX),
+            qMax(1.0, stateRect.height() * scaleY)
+        );
+
+        s.x = qRound(scaledRect.left());
+        s.y = qRound(scaledRect.top());
+        s.w = qMax(1, qRound(qMax(1.0, relativeRight * scaleX - relativeLeft * scaleX)));
+        s.h = qMax(1, qRound(qMax(1.0, relativeBottom * scaleY - relativeTop * scaleY)));
+
+        if (i < maskImages.size() && !maskImages[i].isNull()) {
+            maskImages[i] = maskImages[i].scaled(s.w, s.h, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+        }
+    }
+
+    rebuildStateAddresses();
+    emit changed();
 }
 
 bool StaticGroupObject::setObjectProperty(const QString &name, const QString &value)
@@ -206,6 +272,44 @@ bool StaticGroupObject::setObjectProperty(const QString &name, const QString &va
     
     if (name == "Номер группы") {
         groupNumber = value.toInt(&ok);
+    }
+    else if (name.startsWith("Состояние ")) {
+        // Парсинг "Состояние N: Свойство"
+        int colonIdx = name.indexOf(':');
+        if (colonIdx > 0) {
+            QString stateStr = name.mid(10, colonIdx - 10);
+            int stateIdx = stateStr.toInt(&ok);
+            if (ok && stateIdx >= 0 && stateIdx < states.size()) {
+                QString prop = name.mid(colonIdx + 2).trimmed();
+                GroupState &s = states[stateIdx];
+                
+                if (prop == "X") s.x = value.toDouble(&ok);
+                else if (prop == "Y") s.y = value.toDouble(&ok);
+                else if (prop == "Ширина") {
+                    if (!canResize()) {
+                        setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+                        return false;
+                    }
+                    s.w = value.toDouble(&ok);
+                }
+                else if (prop == "Высота") {
+                    if (!canResize()) {
+                        setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+                        return false;
+                    }
+                    s.h = value.toDouble(&ok);
+                }
+                else if (prop == "Адрес") s.addr = value.toInt(&ok);
+                else if (prop == "Цвет") {
+                    s.color = QColor(value);
+                    ok = s.color.isValid();
+                }
+                else if (prop == "Видимость") {
+                    if (value.toLower() == "да" || value.toLower() == "yes" || value == "1") { s.enabled = true; ok = true; }
+                    else if (value.toLower() == "нет" || value.toLower() == "no" || value == "0") { s.enabled = false; ok = true; }
+                }
+            }
+        }
     }
     
     if (ok) emit changed();
@@ -231,4 +335,13 @@ QMap<QString, quint32> StaticGroupObject::serializeState(int stateIndex) const
         {"color", BitParser::colorToBgr(s.color)},
         {"enb", s.enabled ? 1u : 0u}
     };
+}
+
+void StaticGroupObject::rebuildStateAddresses()
+{
+    int nextAddr = 0;
+    for (GroupState &state : states) {
+        state.addr = nextAddr;
+        nextAddr += qMax(1, state.w) * qMax(1, state.h);
+    }
 }
