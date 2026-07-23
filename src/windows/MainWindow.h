@@ -41,6 +41,10 @@ private slots:
     void createObjectOfType(const QString &typeName);
     void createObjectAtPosition(const QString &typeName, const QPointF &pos);
     void deleteSelectedObject();
+    void undo();
+    void redo();
+    void copySelectedObjects();
+    void pasteObjects();
     void alignSelectedObject(int actionId);
     void handleSelectionChanged(const QList<int> &indexes);
 
@@ -57,6 +61,7 @@ private:
     void saveLayoutSettings();
     void restoreLayoutSettings();
     void setSelectionState(bool active);
+    void updateCommandState();
 
     EditorWorkspacePanel *m_workspacePanel = nullptr;
     ViewportPanel *m_viewport = nullptr;

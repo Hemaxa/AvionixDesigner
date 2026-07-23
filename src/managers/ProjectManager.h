@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QSet>
 #include <QSharedPointer>
+#include <QStringList>
 
 #include "BaseObject.h"
 #include "TextObject.h"
@@ -47,7 +48,17 @@ public:
     int addObject(const QString &typeName);
     int addObject(const QString &typeName, double x, double y);
     bool removeObject(int index);
+    bool removeObjects(const QList<int> &indexes);
     bool reorderObjects(const QList<int> &order);
+    bool sendObjectsToFront(const QList<int> &indexes);
+    bool sendObjectsToBack(const QList<int> &indexes);
+    bool copyObjects(const QList<int> &indexes);
+    QList<int> pasteObjects();
+    bool canPasteObjects() const;
+    bool undo();
+    bool redo();
+    bool canUndo() const;
+    bool canRedo() const;
     bool alignObject(int index, ObjectAlignment alignment);
     bool setObjectViewVisible(int index, bool visible);
     bool setObjectExportEnabled(int index, bool enabled);
@@ -88,12 +99,23 @@ signals:
     void logMessage(const QString &message);
 
 private:
+    struct ProjectSnapshot
+    {
+        QList<QSharedPointer<BaseObject>> objects;
+        QStringList objectTags;
+    };
+
     ProjectManager();
 
     bool loadXmlProject(const QString &fileName);
     bool saveEditableXml(const QString &targetFile);
     void applyRestrictedMode();
     void resetFontsToDefault();
+    void recordHistory();
+    ProjectSnapshot captureSnapshot() const;
+    void restoreSnapshot(const ProjectSnapshot &snapshot);
+    void clearHistory();
+    void insertObjectAtFront(BaseObject *object, const QString &tagName);
 
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
@@ -103,6 +125,10 @@ private:
     QMap<QString, ParamSchema> m_schemas;
     QMap<QString, QString> m_schemaAliases;
     QMap<int, FpgaFont> m_fonts;
+    QList<ProjectSnapshot> m_undoStack;
+    QList<ProjectSnapshot> m_redoStack;
+    QList<QSharedPointer<BaseObject>> m_clipboardObjects;
+    QStringList m_clipboardTags;
     bool m_showGrid = false;
     bool m_snapToCanvas = true;
     bool m_snapToGrid = false;

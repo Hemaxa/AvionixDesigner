@@ -52,6 +52,136 @@ QString buildInitHex(const ParamSchema &schema, const QMap<QString, quint32> &pa
     return hexStr;
 }
 
+void copyBaseFlags(const BaseObject *source, BaseObject *target)
+{
+    target->setViewVisible(source->isViewVisible());
+    target->setExportEnabled(source->isExportEnabled());
+    target->setImportedHardwareObject(source->isImportedHardwareObject());
+    target->setResizeLocked(!source->canResize());
+}
+
+QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
+{
+    if (!source)
+        return {};
+
+    BaseObject *rawClone = nullptr;
+
+    if (auto rect = dynamic_cast<RectangleObject*>(source.data())) {
+        auto *clone = new RectangleObject();
+        clone->x = rect->x;
+        clone->y = rect->y;
+        clone->width = rect->width;
+        clone->height = rect->height;
+        clone->fillColor = rect->fillColor;
+        clone->strokeColor = rect->strokeColor;
+        clone->strokeWidth = rect->strokeWidth;
+        clone->alpha = rect->alpha;
+        clone->explicitAlpha = rect->explicitAlpha;
+        rawClone = clone;
+    } else if (auto dashed = dynamic_cast<DashedLineObject*>(source.data())) {
+        auto *clone = new DashedLineObject();
+        clone->enabled = dashed->enabled;
+        clone->color = dashed->color;
+        clone->x0 = dashed->x0;
+        clone->y0 = dashed->y0;
+        clone->x1 = dashed->x1;
+        clone->y1 = dashed->y1;
+        clone->dashPeriod = dashed->dashPeriod;
+        clone->dashLength = dashed->dashLength;
+        clone->dashPhase = dashed->dashPhase;
+        clone->lineWidth = dashed->lineWidth;
+        rawClone = clone;
+    } else if (auto ribbon = dynamic_cast<RibbonScaleObject*>(source.data())) {
+        auto *clone = new RibbonScaleObject();
+        clone->enabled = ribbon->enabled;
+        clone->color = ribbon->color;
+        clone->left = ribbon->left;
+        clone->right = ribbon->right;
+        clone->top = ribbon->top;
+        clone->bottom = ribbon->bottom;
+        clone->lineWidth = ribbon->lineWidth;
+        clone->period = ribbon->period;
+        clone->yStart = ribbon->yStart;
+        rawClone = clone;
+    } else if (auto horizon = dynamic_cast<AviaHorizonObject*>(source.data())) {
+        auto *clone = new AviaHorizonObject();
+        clone->enabled = horizon->enabled;
+        clone->earthColor = horizon->earthColor;
+        clone->skyColor = horizon->skyColor;
+        clone->horizonLineColor = horizon->horizonLineColor;
+        clone->lineWidth = horizon->lineWidth;
+        clone->xCenter = horizon->xCenter;
+        clone->yCenter = horizon->yCenter;
+        clone->areaWidth = horizon->areaWidth;
+        clone->areaHeight = horizon->areaHeight;
+        clone->sinVal = horizon->sinVal;
+        clone->cosVal = horizon->cosVal;
+        rawClone = clone;
+    } else if (auto text = dynamic_cast<TextObject*>(source.data())) {
+        auto *clone = new TextObject();
+        clone->states = text->states;
+        clone->groupNumber = text->groupNumber;
+        clone->maskImages = text->maskImages;
+        clone->text = text->text;
+        clone->fontFamily = text->fontFamily;
+        clone->pixelSize = text->pixelSize;
+        clone->fontIndex = text->fontIndex;
+        clone->restrictedAtlasEditing = text->restrictedAtlasEditing;
+        if (text->hasFontAtlas())
+            clone->setFontAtlas(text->fontAtlas(), text->restrictedAtlasEditing);
+        rawClone = clone;
+    } else if (auto group = dynamic_cast<StaticGroupObject*>(source.data())) {
+        auto *clone = new StaticGroupObject();
+        clone->states = group->states;
+        clone->groupNumber = group->groupNumber;
+        clone->maskImages = group->maskImages;
+        rawClone = clone;
+    } else if (auto rotation = dynamic_cast<RotationObject*>(source.data())) {
+        auto *clone = new RotationObject();
+        clone->left = rotation->left;
+        clone->top = rotation->top;
+        clone->right = rotation->right;
+        clone->bottom = rotation->bottom;
+        clone->xRot = rotation->xRot;
+        clone->yRot = rotation->yRot;
+        clone->sinVal = rotation->sinVal;
+        clone->cosVal = rotation->cosVal;
+        clone->color = rotation->color;
+        clone->maskImage = rotation->maskImage;
+        rawClone = clone;
+    } else if (auto image = dynamic_cast<ImageObject*>(source.data())) {
+        auto *clone = new ImageObject();
+        clone->x = image->x;
+        clone->y = image->y;
+        clone->width = image->width;
+        clone->height = image->height;
+        clone->maskColor = image->maskColor;
+        clone->autoMaskColor = image->autoMaskColor;
+        clone->rotationDegrees = image->rotationDegrees;
+        clone->sourceName = image->sourceName;
+        clone->format = image->format;
+        clone->setSourcePayload(image->sourcePayload());
+        clone->setColorLayers(image->colorLayers());
+        rawClone = clone;
+    }
+
+    if (!rawClone)
+        return {};
+
+    copyBaseFlags(source.data(), rawClone);
+    return QSharedPointer<BaseObject>(rawClone);
+}
+
+QList<QSharedPointer<BaseObject>> cloneObjectList(const QList<QSharedPointer<BaseObject>> &objects)
+{
+    QList<QSharedPointer<BaseObject>> clones;
+    clones.reserve(objects.size());
+    for (const auto &object : objects)
+        clones.append(cloneObject(object));
+    return clones;
+}
+
 QString serializeMaskData(const QImage &image)
 {
     QStringList values;
@@ -898,6 +1028,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     m_objects.clear();
     m_objectTags.clear();
     m_fonts.clear();
+    clearHistory();
     
     emit logMessage(tr("Загрузка: %1").arg(fileName));
     
@@ -1169,6 +1300,7 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 
     m_objects.clear();
     m_objectTags.clear();
+    clearHistory();
     m_schemaAliases = registry->defaultSchemaAliases();
     resetFontsToDefault();
 
@@ -1182,6 +1314,76 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     emit projectLoaded();
     emit projectChanged();
     return true;
+}
+
+ProjectManager::ProjectSnapshot ProjectManager::captureSnapshot() const
+{
+    return {cloneObjectList(m_objects), m_objectTags};
+}
+
+void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
+{
+    m_objects = cloneObjectList(snapshot.objects);
+    m_objectTags = snapshot.objectTags;
+}
+
+void ProjectManager::recordHistory()
+{
+    m_undoStack.append(captureSnapshot());
+    m_redoStack.clear();
+    constexpr int maxHistoryDepth = 80;
+    while (m_undoStack.size() > maxHistoryDepth)
+        m_undoStack.removeFirst();
+}
+
+void ProjectManager::clearHistory()
+{
+    m_undoStack.clear();
+    m_redoStack.clear();
+    m_clipboardObjects.clear();
+    m_clipboardTags.clear();
+}
+
+void ProjectManager::insertObjectAtFront(BaseObject *object, const QString &tagName)
+{
+    m_objects.prepend(QSharedPointer<BaseObject>(object));
+    m_objectTags.prepend(tagName);
+}
+
+bool ProjectManager::undo()
+{
+    if (m_undoStack.isEmpty())
+        return false;
+
+    m_redoStack.append(captureSnapshot());
+    const ProjectSnapshot snapshot = m_undoStack.takeLast();
+    restoreSnapshot(snapshot);
+    emit projectChanged();
+    emit logMessage(tr("Отмена действия"));
+    return true;
+}
+
+bool ProjectManager::redo()
+{
+    if (m_redoStack.isEmpty())
+        return false;
+
+    m_undoStack.append(captureSnapshot());
+    const ProjectSnapshot snapshot = m_redoStack.takeLast();
+    restoreSnapshot(snapshot);
+    emit projectChanged();
+    emit logMessage(tr("Повтор действия"));
+    return true;
+}
+
+bool ProjectManager::canUndo() const
+{
+    return !m_undoStack.isEmpty();
+}
+
+bool ProjectManager::canRedo() const
+{
+    return !m_redoStack.isEmpty();
 }
 
 //метод регистрации стандартых типов объектов (получение словаря поддерживаемых объектов)
@@ -1220,8 +1422,7 @@ int ProjectManager::addObject(const QString &typeName)
         return -1;
     }
 
-    const int index = m_objects.size();
-    const int offset = 24 * (index % 6);
+    const int offset = 24 * (m_objects.size() % 6);
     const double centerX = qBound(40.0, m_document->canvasWidth() * 0.35 + offset, m_document->canvasWidth() - 40.0);
     const double centerY = qBound(40.0, m_document->canvasHeight() * 0.35 + offset, m_document->canvasHeight() - 40.0);
 
@@ -1315,12 +1516,12 @@ int ProjectManager::addObject(const QString &typeName)
         }
     }
 
-    m_objects.append(QSharedPointer<BaseObject>(rawObject));
-    m_objectTags.append(registry->canonicalObjectTag(typeName));
+    recordHistory();
+    insertObjectAtFront(rawObject, registry->canonicalObjectTag(typeName));
 
     emit projectChanged();
     emit logMessage(tr("Добавлен объект: %1").arg(typeName));
-    return m_objects.size() - 1;
+    return 0;
 }
 
 int ProjectManager::addObject(const QString &typeName, double x, double y)
@@ -1347,16 +1548,33 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
 
 bool ProjectManager::removeObject(int index)
 {
-    if (index < 0 || index >= m_objects.size())
+    return removeObjects(QList<int>{index});
+}
+
+bool ProjectManager::removeObjects(const QList<int> &indexes)
+{
+    QList<int> normalized;
+    QSet<int> seen;
+    for (int index : indexes) {
+        if (index < 0 || index >= m_objects.size() || seen.contains(index))
+            continue;
+        seen.insert(index);
+        normalized.append(index);
+    }
+
+    if (normalized.isEmpty())
         return false;
 
-    m_objects.removeAt(index);
-    if (index < m_objectTags.size()) {
-        m_objectTags.removeAt(index);
+    recordHistory();
+    std::sort(normalized.begin(), normalized.end(), std::greater<int>());
+    for (int index : normalized) {
+        m_objects.removeAt(index);
+        if (index < m_objectTags.size())
+            m_objectTags.removeAt(index);
     }
 
     emit projectChanged();
-    emit logMessage(tr("Удалён объект #%1").arg(index + 1));
+    emit logMessage(tr("Удалено объектов: %1").arg(normalized.size()));
     return true;
 }
 
@@ -1364,6 +1582,16 @@ bool ProjectManager::reorderObjects(const QList<int> &order)
 {
     if (order.size() != m_objects.size())
         return false;
+
+    bool changed = false;
+    for (int i = 0; i < order.size(); ++i) {
+        if (order[i] != i) {
+            changed = true;
+            break;
+        }
+    }
+    if (!changed)
+        return true;
 
     QList<QSharedPointer<BaseObject>> reorderedObjects;
     QStringList reorderedTags;
@@ -1380,11 +1608,106 @@ bool ProjectManager::reorderObjects(const QList<int> &order)
         reorderedTags.append(index < m_objectTags.size() ? m_objectTags[index] : QString());
     }
 
+    recordHistory();
     m_objects = reorderedObjects;
     m_objectTags = reorderedTags;
     emit projectChanged();
     emit logMessage(tr("Изменён порядок слоёв объектов"));
     return true;
+}
+
+bool ProjectManager::sendObjectsToFront(const QList<int> &indexes)
+{
+    QSet<int> selected;
+    for (int index : indexes) {
+        if (index >= 0 && index < m_objects.size())
+            selected.insert(index);
+    }
+    if (selected.isEmpty())
+        return false;
+
+    QList<int> order;
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (selected.contains(i))
+            order.append(i);
+    }
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (!selected.contains(i))
+            order.append(i);
+    }
+    return reorderObjects(order);
+}
+
+bool ProjectManager::sendObjectsToBack(const QList<int> &indexes)
+{
+    QSet<int> selected;
+    for (int index : indexes) {
+        if (index >= 0 && index < m_objects.size())
+            selected.insert(index);
+    }
+    if (selected.isEmpty())
+        return false;
+
+    QList<int> order;
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (!selected.contains(i))
+            order.append(i);
+    }
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (selected.contains(i))
+            order.append(i);
+    }
+    return reorderObjects(order);
+}
+
+bool ProjectManager::copyObjects(const QList<int> &indexes)
+{
+    m_clipboardObjects.clear();
+    m_clipboardTags.clear();
+
+    QSet<int> seen;
+    for (int index : indexes) {
+        if (index < 0 || index >= m_objects.size() || seen.contains(index))
+            continue;
+        seen.insert(index);
+        m_clipboardObjects.append(cloneObject(m_objects[index]));
+        m_clipboardTags.append(index < m_objectTags.size() ? m_objectTags[index] : QString());
+    }
+
+    if (m_clipboardObjects.isEmpty())
+        return false;
+
+    emit logMessage(tr("Скопировано объектов: %1").arg(m_clipboardObjects.size()));
+    return true;
+}
+
+QList<int> ProjectManager::pasteObjects()
+{
+    QList<int> pastedIndexes;
+    if (m_clipboardObjects.isEmpty())
+        return pastedIndexes;
+
+    recordHistory();
+    for (int i = m_clipboardObjects.size() - 1; i >= 0; --i) {
+        const auto clone = cloneObject(m_clipboardObjects[i]);
+        if (!clone)
+            continue;
+        clone->moveBy(24.0, 24.0);
+        m_objects.prepend(clone);
+        m_objectTags.prepend(i < m_clipboardTags.size() ? m_clipboardTags[i] : QString());
+    }
+
+    for (int i = 0; i < m_clipboardObjects.size(); ++i)
+        pastedIndexes.append(i);
+
+    emit projectChanged();
+    emit logMessage(tr("Вставлено объектов: %1").arg(pastedIndexes.size()));
+    return pastedIndexes;
+}
+
+bool ProjectManager::canPasteObjects() const
+{
+    return !m_clipboardObjects.isEmpty();
 }
 
 bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
@@ -1420,6 +1743,7 @@ bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
         break;
     }
 
+    recordHistory();
     object->moveBy(dx, dy);
     emit projectChanged();
     emit logMessage(tr("Выполнено выравнивание объекта"));
@@ -1431,6 +1755,10 @@ bool ProjectManager::setObjectViewVisible(int index, bool visible)
     if (index < 0 || index >= m_objects.size())
         return false;
 
+    if (m_objects[index]->isViewVisible() == visible)
+        return true;
+
+    recordHistory();
     m_objects[index]->setViewVisible(visible);
     emit projectChanged();
     return true;
@@ -1441,6 +1769,10 @@ bool ProjectManager::setObjectExportEnabled(int index, bool enabled)
     if (index < 0 || index >= m_objects.size())
         return false;
 
+    if (m_objects[index]->isExportEnabled() == enabled)
+        return true;
+
+    recordHistory();
     m_objects[index]->setExportEnabled(enabled);
     emit projectChanged();
     return true;
@@ -1579,11 +1911,11 @@ int ProjectManager::importImageAsStaticGroup(const QString &fileName)
     imageObject->x = qMax(0.0, (m_document->canvasWidth() - imageObject->width) / 2.0);
     imageObject->y = qMax(0.0, (m_document->canvasHeight() - imageObject->height) / 2.0);
 
-    m_objects.append(QSharedPointer<BaseObject>(imageObject));
-    m_objectTags.append(QStringLiteral("image"));
+    recordHistory();
+    insertObjectAtFront(imageObject, QStringLiteral("image"));
     emit projectChanged();
     emit logMessage(tr("Изображение добавлено: %1").arg(fileName));
-    return m_objects.size() - 1;
+    return 0;
 }
 
 void ProjectManager::applyRestrictedMode()

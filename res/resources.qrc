@@ -23,6 +23,12 @@
         <file>icons/selection/align-left.svg</file>
         <file>icons/selection/align-hcenter.svg</file>
         <file>icons/selection/align-right.svg</file>
+        <file>icons/selection/undo.svg</file>
+        <file>icons/selection/redo.svg</file>
+        <file>icons/selection/copy.svg</file>
+        <file>icons/selection/paste.svg</file>
+        <file>icons/selection/send-front.svg</file>
+        <file>icons/selection/send-back.svg</file>
         <file>icons/selection/delete.svg</file>
         <file>icons/selection/export-triangle.svg</file>
     </qresource>

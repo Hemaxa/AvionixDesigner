@@ -422,6 +422,27 @@ void MainWindow::createMenus()
     fileMenu->addSeparator();
     fileMenu->addAction(createAction("Выход", QKeySequence::Quit, this, SLOT(close())));
 
+    QMenu *editMenu = menuBar()->addMenu("Правка");
+    editMenu->addAction(createAction("Отменить", QKeySequence::Undo, this, SLOT(undo())));
+    editMenu->addAction(createAction("Повторить", QKeySequence::Redo, this, SLOT(redo())));
+    editMenu->addSeparator();
+    editMenu->addAction(createAction("Копировать", QKeySequence::Copy, this, SLOT(copySelectedObjects())));
+    editMenu->addAction(createAction("Вставить", QKeySequence::Paste, this, SLOT(pasteObjects())));
+    editMenu->addSeparator();
+    QAction *frontAction = editMenu->addAction("На передний план");
+    frontAction->setShortcut(QKeySequence("Ctrl+]"));
+    connect(frontAction, &QAction::triggered, this, [this]() {
+        alignSelectedObject(SelectionToolStrip::SendToFront);
+    });
+    addAction(frontAction);
+
+    QAction *backAction = editMenu->addAction("На задний план");
+    backAction->setShortcut(QKeySequence("Ctrl+["));
+    connect(backAction, &QAction::triggered, this, [this]() {
+        alignSelectedObject(SelectionToolStrip::SendToBack);
+    });
+    addAction(backAction);
+
     QMenu *objectsMenu = menuBar()->addMenu("Объекты");
     auto addObjectAction = [this, objectsMenu](const QString &title, const QKeySequence &shortcut, const QString &typeName) {
         QAction *action = objectsMenu->addAction(title);
@@ -491,9 +512,11 @@ void MainWindow::connectSignals()
         m_viewport->setSelectedIndexes({});
         m_objectList->selectRows({});
         setSelectionState(false);
+        updateCommandState();
     });
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, m_objectList, &ObjectListPanel::refreshList);
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, m_viewport, QOverload<>::of(&QWidget::update));
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &MainWindow::updateCommandState);
 
     connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, m_viewport, QOverload<>::of(&QWidget::update));
     connect(m_viewport, &ViewportPanel::objectChanged, this, [this]() {
@@ -507,6 +530,10 @@ void MainWindow::connectSignals()
     connect(m_objectLibrary, &ObjectLibraryPanel::objectRequested, this, &MainWindow::createObjectOfType);
     connect(m_objectLibrary, &ObjectLibraryPanel::imageImportRequested, this, &MainWindow::onImportImage);
     connect(m_selectionToolStrip, &SelectionToolStrip::alignRequested, this, &MainWindow::alignSelectedObject);
+    connect(m_selectionToolStrip, &SelectionToolStrip::undoRequested, this, &MainWindow::undo);
+    connect(m_selectionToolStrip, &SelectionToolStrip::redoRequested, this, &MainWindow::redo);
+    connect(m_selectionToolStrip, &SelectionToolStrip::copyRequested, this, &MainWindow::copySelectedObjects);
+    connect(m_selectionToolStrip, &SelectionToolStrip::pasteRequested, this, &MainWindow::pasteObjects);
     connect(m_selectionToolStrip, &SelectionToolStrip::deleteRequested, this, &MainWindow::deleteSelectedObject);
     connect(m_selectionToolStrip, &SelectionToolStrip::exportRequested, this, &MainWindow::onExportFpgaXml);
     connect(m_viewport, &ViewportPanel::imageDropped, this, [this](const QString &fileName) {
@@ -593,9 +620,8 @@ void MainWindow::deleteSelectedObject()
     if (indexes.isEmpty())
         return;
 
-    std::sort(indexes.begin(), indexes.end(), std::greater<int>());
-    for (int index : indexes)
-        ProjectManager::instance()->removeObject(index);
+    if (!ProjectManager::instance()->removeObjects(indexes))
+        return;
 
     m_objectList->refreshList();
     m_objectList->selectRows({});
@@ -605,11 +631,83 @@ void MainWindow::deleteSelectedObject()
     m_viewport->update();
 }
 
+void MainWindow::undo()
+{
+    if (!ProjectManager::instance()->undo())
+        return;
+
+    m_objectList->selectRows({});
+    m_viewport->setSelectedIndexes({});
+    m_objectProperties->clearProperties();
+    setSelectionState(false);
+    updateCommandState();
+}
+
+void MainWindow::redo()
+{
+    if (!ProjectManager::instance()->redo())
+        return;
+
+    m_objectList->selectRows({});
+    m_viewport->setSelectedIndexes({});
+    m_objectProperties->clearProperties();
+    setSelectionState(false);
+    updateCommandState();
+}
+
+void MainWindow::copySelectedObjects()
+{
+    const QList<int> indexes = m_viewport->getSelectedIndexes();
+    if (indexes.isEmpty())
+        return;
+
+    ProjectManager::instance()->copyObjects(indexes);
+    updateCommandState();
+}
+
+void MainWindow::pasteObjects()
+{
+    const QList<int> pastedIndexes = ProjectManager::instance()->pasteObjects();
+    if (pastedIndexes.isEmpty())
+        return;
+
+    m_objectList->refreshList();
+    m_objectList->selectRows(pastedIndexes);
+    m_viewport->setSelectedIndexes(pastedIndexes);
+    handleSelectionChanged(pastedIndexes);
+    m_viewport->update();
+    updateCommandState();
+}
+
 void MainWindow::alignSelectedObject(int actionId)
 {
     const QList<int> indexes = m_viewport->getSelectedIndexes();
     if (indexes.isEmpty())
         return;
+
+    if (actionId == SelectionToolStrip::SendToFront || actionId == SelectionToolStrip::SendToBack) {
+        auto *project = ProjectManager::instance();
+        const bool ok = actionId == SelectionToolStrip::SendToFront
+            ? project->sendObjectsToFront(indexes)
+            : project->sendObjectsToBack(indexes);
+        if (!ok)
+            return;
+
+        QList<int> newIndexes;
+        if (actionId == SelectionToolStrip::SendToFront) {
+            for (int i = 0; i < indexes.size(); ++i)
+                newIndexes.append(i);
+        } else {
+            const int first = project->getObjectCount() - indexes.size();
+            for (int i = 0; i < indexes.size(); ++i)
+                newIndexes.append(first + i);
+        }
+        m_objectList->refreshList();
+        m_objectList->selectRows(newIndexes);
+        m_viewport->setSelectedIndexes(newIndexes);
+        handleSelectionChanged(newIndexes);
+        return;
+    }
 
     ObjectAlignment alignment = ObjectAlignment::Left;
     switch (actionId) {
@@ -705,6 +803,17 @@ void MainWindow::setSelectionState(bool active)
     if (m_selectionToolStrip) {
         m_selectionToolStrip->setSelectionActive(active);
     }
+    updateCommandState();
+}
+
+void MainWindow::updateCommandState()
+{
+    if (!m_selectionToolStrip)
+        return;
+
+    auto *project = ProjectManager::instance();
+    m_selectionToolStrip->setHistoryAvailable(project->canUndo(), project->canRedo());
+    m_selectionToolStrip->setPasteAvailable(project->canPasteObjects());
 }
 
 QAction* MainWindow::createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member)
