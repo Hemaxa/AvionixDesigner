@@ -114,7 +114,6 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Открыть проект:", new QLabel("Ctrl+O", this));
     hotkeysLayout->addRow("Сохранить проект:", new QLabel("Ctrl+S", this));
     hotkeysLayout->addRow("Сохранить как:", new QLabel("Ctrl+Shift+S", this));
-    hotkeysLayout->addRow("Экспорт кадра:", new QLabel("Ctrl+E", this));
     hotkeysLayout->addRow("Добавить изображение:", new QLabel("Ctrl+I", this));
 
     hotkeysLayout->addRow(new QLabel("<br><b>Редактирование:</b>", this));

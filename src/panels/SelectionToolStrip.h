@@ -39,7 +39,6 @@ signals:
     void copyRequested();
     void pasteRequested();
     void deleteRequested();
-    void exportRequested();
 
 private:
     QToolButton* createActionButton(const QString &iconPath, const QString &toolTip);
@@ -50,6 +49,5 @@ private:
     QToolButton *m_redoButton = nullptr;
     QToolButton *m_copyButton = nullptr;
     QToolButton *m_pasteButton = nullptr;
-    QToolButton *m_exportButton = nullptr;
     QToolButton *m_deleteButton = nullptr;
 };

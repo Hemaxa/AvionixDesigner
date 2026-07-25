@@ -23,7 +23,6 @@
 #include "AviaHorizonObject.h"
 #include "TextObject.h"
 #include "BitParser.h"
-#include "DebugDumper.h"
 
 #include <algorithm>
 
@@ -230,15 +229,16 @@ QString serializeStaticGroupData(const StaticGroupObject *group)
 
         const int width = qMin(image.width(), qMax(1, state.w));
         const int height = qMin(image.height(), qMax(1, state.h));
-        int idx = qMax(0, state.addr);
+        const int startAddr = qMax(0, state.addr);
 
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
+                const int idx = startAddr + y * qMax(1, state.w) + x;
                 if (idx >= values.size())
                     break;
 
                 const int alpha = image.pixelColor(x, y).alpha();
-                values[idx++] = qBound(0, qRound(alpha * 7.0 / 255.0), 7);
+                values[idx] = qBound(0, qRound(alpha * 7.0 / 255.0), 7);
             }
         }
     }
@@ -528,28 +528,6 @@ void appendParameterSchemas(QDomDocument &doc, QDomElement &root, const QSet<QSt
     }
 }
 
-QSet<QString> collectEditableSchemaNames(const QList<QSharedPointer<BaseObject>> &objects,
-                                         const QStringList &objectTags,
-                                         const QMap<QString, QString> &schemaAliases)
-{
-    QSet<QString> schemaNames;
-    auto *registry = FpgaSchemaRegistry::instance();
-
-    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
-        const auto &obj = objects[objIdx];
-        if (dynamic_cast<ImageObject*>(obj.data()) || dynamic_cast<TextObject*>(obj.data()))
-            continue;
-
-        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
-        if (tagName.isEmpty())
-            continue;
-
-        schemaNames.insert(schemaAliases.value(tagName, registry->canonicalSchemaName(tagName)));
-    }
-
-    return schemaNames;
-}
-
 QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>> &objects,
                                          const QStringList &objectTags,
                                          const QMap<QString, QString> &schemaAliases)
@@ -581,58 +559,6 @@ QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>>
     }
 
     return schemaNames;
-}
-
-QDomElement createImageObjectElement(QDomDocument &doc, const ImageObject *image)
-{
-    QDomElement imageEl = doc.createElement("image");
-    imageEl.setAttribute("x", qRound(image->x));
-    imageEl.setAttribute("y", qRound(image->y));
-    imageEl.setAttribute("width", qRound(image->width));
-    imageEl.setAttribute("height", qRound(image->height));
-    imageEl.setAttribute("rotation", image->rotationDegrees);
-    imageEl.setAttribute("format", image->format);
-    imageEl.setAttribute("source_name", image->sourceName);
-    imageEl.setAttribute("mask_color", image->maskColor.name());
-    imageEl.setAttribute("mask_color_auto", image->autoMaskColor ? 1 : 0);
-    imageEl.setAttribute("visible", image->isViewVisible() ? 1 : 0);
-    imageEl.setAttribute("export", image->isExportEnabled() ? 1 : 0);
-
-    QDomElement sourceEl = doc.createElement("source");
-    sourceEl.setAttribute("encoding", "base64");
-    sourceEl.appendChild(doc.createTextNode(QString::fromLatin1(image->sourcePayload().toBase64())));
-    imageEl.appendChild(sourceEl);
-
-    const QList<ImageColorLayer> layers = image->colorLayers();
-    if (!layers.isEmpty()) {
-        QDomElement layersEl = doc.createElement("color_layers");
-        for (int i = 0; i < layers.size(); ++i) {
-            QDomElement layerEl = doc.createElement("layer");
-            layerEl.setAttribute("index", i);
-            layerEl.setAttribute("source", layers[i].sourceColor.name());
-            layerEl.setAttribute("color", layers[i].maskColor.name());
-            layerEl.setAttribute("auto", layers[i].autoMaskColor ? 1 : 0);
-            layersEl.appendChild(layerEl);
-        }
-        imageEl.appendChild(layersEl);
-    }
-    return imageEl;
-}
-
-QDomElement createEditableTextElement(QDomDocument &doc, const TextObject *text)
-{
-    const GroupState state = text->states.isEmpty() ? GroupState{} : text->states.first();
-    QDomElement textEl = doc.createElement("textobject");
-    textEl.setAttribute("text", text->text);
-    textEl.setAttribute("x", state.x);
-    textEl.setAttribute("y", state.y);
-    textEl.setAttribute("font_family", text->fontFamily);
-    textEl.setAttribute("font_size", text->pixelSize);
-    textEl.setAttribute("font_index", text->fontIndex);
-    textEl.setAttribute("color", state.color.name());
-    textEl.setAttribute("visible", text->isViewVisible() ? 1 : 0);
-    textEl.setAttribute("export", text->isExportEnabled() ? 1 : 0);
-    return textEl;
 }
 
 QDomElement createStaticGroupElementFromImage(QDomDocument &doc, const ParamSchema &schema, const ImageObject *image)
@@ -1021,65 +947,6 @@ FpgaFont parseFontElement(const QDomElement &fontEl)
     return font;
 }
 
-QDomDocument buildEditableXmlDocument(const QString &projectName,
-                                      int canvasWidth,
-                                      int canvasHeight,
-                                      const QColor &backgroundColor,
-                                      bool showGrid,
-                                      bool snapToCanvas,
-                                      bool snapToGrid,
-                                      bool snapToObjects,
-                                      const QMap<QString, ParamSchema> &schemas,
-                                      const QMap<QString, QString> &schemaAliases,
-                                      const QList<QSharedPointer<BaseObject>> &objects,
-                                      const QStringList &objectTags)
-{
-    QDomDocument doc;
-    doc.appendChild(doc.createProcessingInstruction("xml", "version='1.0' encoding='windows-1251'"));
-
-    QDomElement root = doc.createElement("project");
-    root.setAttribute("name", projectName.isEmpty() ? QStringLiteral("Untitled") : projectName);
-    root.setAttribute("width", canvasWidth);
-    root.setAttribute("height", canvasHeight);
-    root.setAttribute("bgcolor", formatProjectColor(backgroundColor));
-    root.setAttribute("mode", "editable");
-    root.setAttribute("grid", showGrid ? 1 : 0);
-    root.setAttribute("snap_screen", snapToCanvas ? 1 : 0);
-    root.setAttribute("snap_grid", snapToGrid ? 1 : 0);
-    root.setAttribute("snap_objects", snapToObjects ? 1 : 0);
-    doc.appendChild(root);
-
-    appendParameterSchemas(doc, root, collectEditableSchemaNames(objects, objectTags, schemaAliases));
-
-    QDomElement objectsEl = doc.createElement("objects");
-    root.appendChild(objectsEl);
-    auto *registry = FpgaSchemaRegistry::instance();
-
-    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
-        const auto &obj = objects[objIdx];
-        if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
-            objectsEl.appendChild(createImageObjectElement(doc, image));
-            continue;
-        }
-        if (auto text = dynamic_cast<TextObject*>(obj.data())) {
-            objectsEl.appendChild(createEditableTextElement(doc, text));
-            continue;
-        }
-
-        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
-        const QString schemaName = schemaAliases.value(tagName, registry->canonicalSchemaName(tagName));
-        if (tagName.isEmpty() || !schemas.contains(schemaName))
-            continue;
-
-        QDomElement element = createObjectElement(doc, tagName, schemas[schemaName], obj);
-        element.setAttribute("visible", obj->isViewVisible() ? 1 : 0);
-        element.setAttribute("export", obj->isExportEnabled() ? 1 : 0);
-        objectsEl.appendChild(element);
-    }
-
-    return doc;
-}
-
 QDomDocument buildCompiledXmlDocument(const QString &projectName,
                                       int canvasWidth,
                                       int canvasHeight,
@@ -1268,10 +1135,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     
     //получаем корневой элемент
     QDomElement root = doc.documentElement();
-    m_editMode = root.attribute("mode") == QStringLiteral("editable")
-        ? ProjectEditMode::EditableXml
-        : ProjectEditMode::RestrictedFpgaXml;
-    
     //читаем метаданные проекта
     m_document->setProjectName(root.attribute("name", "Untitled"));
     m_document->setCanvasSize(root.attribute("width", "640").toInt(), root.attribute("height", "480").toInt());
@@ -1336,10 +1199,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     //парсим объекты
     QDomNode objNode = objectsEl.isNull() ? root.firstChild() : objectsEl.firstChild();
     
-    //списки для отладочного дампа
-    QList<QDomElement> debugElements;
-    QStringList debugTypes;
-
     while (!objNode.isNull()) {
         QDomElement objEl = objNode.toElement();
         QString tagName = objEl.tagName();
@@ -1378,25 +1237,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 image->setColorLayers(layers);
             m_objects.append(QSharedPointer<BaseObject>(image));
             m_objectTags.append(QStringLiteral("image"));
-        }
-        else if (tagName == QStringLiteral("textobject")) {
-            auto *textObject = new TextObject();
-            textObject->text = objEl.attribute("text");
-            textObject->fontFamily = objEl.attribute("font_family", "Arial");
-            textObject->pixelSize = objEl.attribute("font_size", "14").toInt();
-            textObject->fontIndex = objEl.attribute("font_index", "0").toInt();
-            if (!textObject->states.isEmpty()) {
-                GroupState &state = textObject->states[0];
-                state.x = objEl.attribute("x", "0").toInt();
-                state.y = objEl.attribute("y", "0").toInt();
-                state.color = QColor(objEl.attribute("color", "#FFFFFF"));
-                state.enabled = true;
-            }
-            textObject->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
-            textObject->setExportEnabled(objEl.attribute("export", "1").toInt() != 0);
-            textObject->setObjectProperty(QStringLiteral("Текст"), textObject->text);
-            m_objects.append(QSharedPointer<BaseObject>(textObject));
-            m_objectTags.append(QStringLiteral("text"));
         }
         else if (tagName == QStringLiteral("text")) {
             const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
@@ -1471,31 +1311,17 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 m_objects.append(QSharedPointer<BaseObject>(obj));
                 m_objectTags.append(tagName);
                 
-                //сохраняем данные для дампа
-                debugElements.append(objEl);
-                debugTypes.append(tagName);
             }
         }
         
         objNode = objNode.nextSibling();
     }
 
-    if (m_editMode == ProjectEditMode::RestrictedFpgaXml) {
-        std::reverse(m_objects.begin(), m_objects.end());
-        std::reverse(m_objectTags.begin(), m_objectTags.end());
-        if (debugElements.size() == m_objects.size()) {
-            std::reverse(debugElements.begin(), debugElements.end());
-            std::reverse(debugTypes.begin(), debugTypes.end());
-        }
-    }
+    std::reverse(m_objects.begin(), m_objects.end());
+    std::reverse(m_objectTags.begin(), m_objectTags.end());
     
     emit logMessage(tr("Загружено объектов: %1").arg(m_objects.size()));
-    if (m_editMode == ProjectEditMode::RestrictedFpgaXml)
-        applyRestrictedMode();
-    
-    //формируем отладочный дамп парсинга
-    DebugDumper::dumpToFile(fileName, m_objects, m_schemas, debugElements, debugTypes);
-    emit logMessage(tr("Отладочный дамп сформирован"));
+    applyRestrictedMode();
     
     emit projectLoaded();
     
@@ -1509,7 +1335,6 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_document->setCanvasSize(width, height);
     m_document->setBackgroundColor(backgroundColor);
     m_filePath = filePath;
-    m_editMode = ProjectEditMode::EditableXml;
     m_showGrid = false;
     m_snapToCanvas = true;
     m_snapToGrid = false;
@@ -1519,7 +1344,7 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_objectTags.clear();
     clearHistory();
     m_schemaAliases = registry->defaultSchemaAliases();
-    resetFontsToDefault();
+    m_fonts.clear();
 
     m_schemas.clear();
     const QStringList defaultSchemas = registry->defaultSchemaNames();
@@ -1701,8 +1526,15 @@ int ProjectManager::addObject(const QString &typeName)
         rotation->maskImage.fill(QColor(255, 255, 255, 255));
     }
     else if (auto textObject = dynamic_cast<TextObject*>(rawObject)) {
-        textObject->pixelSize = 14;
-        textObject->fontFamily = QStringLiteral("Arial");
+        if (!m_fonts.isEmpty()) {
+            const FpgaFont font = m_fonts.constBegin().value();
+            const QString characters = orderedFontCharacters(font);
+            textObject->text = characters.isEmpty() ? QStringLiteral(" ") : QString(characters.front());
+            textObject->setFontAtlas(font, true);
+        } else {
+            textObject->pixelSize = 14;
+            textObject->fontFamily = QStringLiteral("Arial");
+        }
         if (!textObject->states.isEmpty()) {
             textObject->states[0].x = qMax(12, qRound(centerX - textObject->states[0].w / 2.0));
             textObject->states[0].y = qMax(12, qRound(centerY - textObject->states[0].h / 2.0));
@@ -2046,14 +1878,7 @@ bool ProjectManager::setObjectProperty(BaseObject *object, const QString &proper
 
 bool ProjectManager::saveToFile(const QString &targetFile)
 {
-    const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
-    if (outPath.isEmpty())
-        return false;
-
-    if (m_editMode == ProjectEditMode::RestrictedFpgaXml)
-        return exportToFpgaXml(outPath);
-
-    return saveEditableXml(outPath);
+    return exportToFpgaXml(targetFile);
 }
 
 bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QString> &alphabetGroups)
@@ -2089,50 +1914,8 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QStri
     outFile.write(encodedXml);
     outFile.close();
 
-    m_fonts = generatedFonts;
-    m_filePath = outPath;
-    m_editMode = ProjectEditMode::RestrictedFpgaXml;
-    applyRestrictedMode();
-    emit projectLoaded();
-    emit projectChanged();
     emit logMessage(tr("Кадр для ПЛИС сохранён: %1").arg(outPath));
-    return true;
-}
-
-bool ProjectManager::saveEditableXml(const QString &targetFile)
-{
-    const QDomDocument doc = buildEditableXmlDocument(
-        m_document->projectName(),
-        m_document->canvasWidth(),
-        m_document->canvasHeight(),
-        m_document->backgroundColor(),
-        m_showGrid,
-        m_snapToCanvas,
-        m_snapToGrid,
-        m_snapToObjects,
-        m_schemas,
-        m_schemaAliases,
-        m_objects,
-        m_objectTags
-    );
-
-    QFile outFile(targetFile);
-    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return false;
-
-    const QString xmlText = doc.toString(4);
-    QStringEncoder encoder("windows-1251");
-    QByteArray encodedXml = encoder(xmlText);
-    if (encodedXml.isEmpty() && !xmlText.isEmpty())
-        encodedXml = xmlText.toUtf8();
-    outFile.write(encodedXml);
-    outFile.close();
-
-    m_filePath = targetFile;
-    m_editMode = ProjectEditMode::EditableXml;
-    emit projectLoaded();
-    emit logMessage(tr("Проект сохранён: %1").arg(targetFile));
-    return true;
+    return loadXmlProject(outPath);
 }
 
 int ProjectManager::importImageAsStaticGroup(const QString &fileName)
@@ -2195,16 +1978,6 @@ void ProjectManager::applyRestrictedMode()
     }
 }
 
-void ProjectManager::resetFontsToDefault()
-{
-    m_fonts.clear();
-    FpgaFont font;
-    font.index = 0;
-    font.name = QStringLiteral("Arial");
-    font.size = 14;
-    m_fonts.insert(font.index, font);
-}
-
 QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const
 {
     if (index >= 0 && index < m_objects.size()) {
@@ -2221,17 +1994,10 @@ int ProjectManager::getCanvasHeight() const { return m_document->canvasHeight();
 QColor ProjectManager::getBackgroundColor() const { return m_document->backgroundColor(); }
 QString ProjectManager::getFilePath() const { return m_filePath; }
 const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }
-ProjectEditMode ProjectManager::editMode() const { return m_editMode; }
 bool ProjectManager::showGrid() const { return m_showGrid; }
 bool ProjectManager::snapToCanvas() const { return m_snapToCanvas; }
 bool ProjectManager::snapToGrid() const { return m_snapToGrid; }
 bool ProjectManager::snapToObjects() const { return m_snapToObjects; }
-QString ProjectManager::editModeName() const
-{
-    return m_editMode == ProjectEditMode::RestrictedFpgaXml
-        ? tr("Ограниченное редактирование XML")
-        : tr("Редактируемый XML");
-}
 
 int ProjectManager::gridStep() const { return m_gridStep; }
 QColor ProjectManager::gridColor() const { return m_gridColor; }

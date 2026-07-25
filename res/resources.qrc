@@ -30,6 +30,5 @@
         <file>icons/selection/send-front.svg</file>
         <file>icons/selection/send-back.svg</file>
         <file>icons/selection/delete.svg</file>
-        <file>icons/selection/export-triangle.svg</file>
     </qresource>
 </RCC>

@@ -24,12 +24,6 @@ enum class ObjectAlignment
     Bottom
 };
 
-enum class ProjectEditMode
-{
-    EditableXml,
-    RestrictedFpgaXml
-};
-
 class ProjectManager : public QObject
 {
     Q_OBJECT
@@ -75,8 +69,6 @@ public:
     int getCanvasHeight() const;
     QColor getBackgroundColor() const;
     QString getFilePath() const;
-    ProjectEditMode editMode() const;
-    QString editModeName() const;
     bool showGrid() const;
     bool snapToCanvas() const;
     bool snapToGrid() const;
@@ -111,9 +103,7 @@ private:
     ProjectManager();
 
     bool loadXmlProject(const QString &fileName);
-    bool saveEditableXml(const QString &targetFile);
     void applyRestrictedMode();
-    void resetFontsToDefault();
     void recordHistory();
     ProjectSnapshot captureSnapshot() const;
     void restoreSnapshot(const ProjectSnapshot &snapshot);
@@ -122,7 +112,6 @@ private:
 
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
-    ProjectEditMode m_editMode = ProjectEditMode::EditableXml;
     QList<QSharedPointer<BaseObject>> m_objects;
     QStringList m_objectTags;
     QMap<QString, ParamSchema> m_schemas;

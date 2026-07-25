@@ -12,7 +12,7 @@
 namespace {
 constexpr int kVisibleAlphaThreshold = 24;
 constexpr int kColorBucket = 16;
-constexpr int kMinComponentAlphaWeight = 255 * 3;
+constexpr int kMinComponentAlphaWeight = 1;
 
 struct ColorStats
 {

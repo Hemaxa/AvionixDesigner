@@ -78,7 +78,6 @@ qt_add_executable(AvionixDesigner
     # Утилиты (header-only)
     src/utils/BitParser.h
     src/utils/XmlReader.h
-    src/utils/DebugDumper.h
     src/utils/ProportionalResize.h
     
     # Ресурсы

@@ -34,7 +34,6 @@ private slots:
     void onOpenFile();
     void onSaveFile();
     void onSaveFileAs();
-    void onExportFpgaXml();
     void onImportImage();
     void updateWindowTitle();
     void openSettings();
