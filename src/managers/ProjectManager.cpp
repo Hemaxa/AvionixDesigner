@@ -129,6 +129,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->restrictedAtlasEditing = text->restrictedAtlasEditing;
         if (text->hasFontAtlas())
             clone->setFontAtlas(text->fontAtlas(), text->restrictedAtlasEditing);
+        clone->extraCharacters = text->extraCharacters;
         rawClone = clone;
     } else if (auto group = dynamic_cast<StaticGroupObject*>(source.data())) {
         auto *clone = new StaticGroupObject();
@@ -328,7 +329,65 @@ QString alphabetCharacters(const QSet<QString> &groups)
         appendUnique(QStringLiteral("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"));
     if (groups.contains(QStringLiteral("cyrillic_lower")))
         appendUnique(QStringLiteral("абвгдеёжзийклмнопрстуфхцчшщъыьэюя"));
+    if (groups.contains(QStringLiteral("symbols")))
+        appendUnique(QStringLiteral("α°+-/"));
 
+    return characters;
+}
+
+QSet<QString> detectAlphabetCategories(const QString &characters)
+{
+    QSet<QString> groups;
+    for (const QChar ch : characters) {
+        const ushort u = ch.unicode();
+        if (ch.isDigit()) {
+            groups.insert(QStringLiteral("digits"));
+        } else if (u >= 'A' && u <= 'Z') {
+            groups.insert(QStringLiteral("latin_upper"));
+        } else if (u >= 'a' && u <= 'z') {
+            groups.insert(QStringLiteral("latin_lower"));
+        } else if ((u >= 0x0410 && u <= 0x042F) || u == 0x0401) {
+            groups.insert(QStringLiteral("cyrillic_upper"));
+        } else if ((u >= 0x0430 && u <= 0x044F) || u == 0x0451) {
+            groups.insert(QStringLiteral("cyrillic_lower"));
+        } else if (QStringLiteral("α°+-/").contains(ch)) {
+            groups.insert(QStringLiteral("symbols"));
+        }
+    }
+    return groups;
+}
+
+QString completeAlphabetForTextObjects(const QList<TextObject*> &texts)
+{
+    QSet<QString> groups;
+    QString explicitCharacters;
+
+    auto appendUniqueCharacter = [&explicitCharacters](const QChar ch) {
+        if (!explicitCharacters.contains(ch))
+            explicitCharacters.append(ch);
+    };
+
+    for (const TextObject *text : texts) {
+        if (!text)
+            continue;
+
+        const QString characters = text->exportCharacters();
+        groups.unite(detectAlphabetCategories(characters));
+        for (const QChar ch : characters) {
+            if (ch.isSpace()) {
+                appendUniqueCharacter(ch);
+                continue;
+            }
+            if (detectAlphabetCategories(QString(ch)).isEmpty())
+                appendUniqueCharacter(ch);
+        }
+    }
+
+    QString characters = alphabetCharacters(groups);
+    for (const QChar ch : explicitCharacters) {
+        if (!characters.contains(ch))
+            characters.append(ch);
+    }
     return characters;
 }
 
@@ -699,7 +758,6 @@ QDomElement createFontResourceElement(QDomDocument &doc,
     fontEl.setAttribute("index", fontIndex);
     fontEl.setAttribute("name", key.family);
     fontEl.setAttribute("size", key.size);
-    fontEl.setAttribute("count", characters.size());
 
     QFont qfont(key.family);
     qfont.setPixelSize(key.size);
@@ -742,6 +800,7 @@ QDomElement createFontResourceElement(QDomDocument &doc,
 
     font.volume = dataValues.size() * 3;
     fontEl.setAttribute("volume", font.volume);
+    fontEl.setAttribute("count", glyphIndex);
 
     QFontMetrics metrics(qfont);
     for (const QChar left : characters) {
@@ -788,7 +847,6 @@ QDomElement createFontResourceElementFromAtlas(QDomDocument &doc,
     fontEl.setAttribute("index", fontIndex);
     fontEl.setAttribute("name", sourceFont.name);
     fontEl.setAttribute("size", sourceFont.size);
-    fontEl.setAttribute("count", characters.size());
 
     QStringList dataValues;
     int offset = 0;
@@ -833,6 +891,7 @@ QDomElement createFontResourceElementFromAtlas(QDomDocument &doc,
 
     font.volume = dataValues.size() * 3;
     fontEl.setAttribute("volume", font.volume);
+    fontEl.setAttribute("count", glyphIndex);
 
     for (auto it = sourceFont.kerningPairs.constBegin(); it != sourceFont.kerningPairs.constEnd(); ++it) {
         if (it.key().size() < 2)
@@ -955,7 +1014,6 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                                       const QMap<QString, QString> &schemaAliases,
                                       const QList<QSharedPointer<BaseObject>> &objects,
                                       const QStringList &objectTags,
-                                      const QSet<QString> &alphabetGroups,
                                       QMap<int, FpgaFont> *fontsOut)
 {
     QDomDocument doc;
@@ -987,7 +1045,6 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
         }
     }
 
-    const QString baseCharacters = alphabetCharacters(alphabetGroups);
     QMap<ExportFontKey, int> fontIndexByKey;
     QMap<int, FpgaFont> generatedFonts;
     int nextFontIndex = 0;
@@ -1016,9 +1073,9 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
 
             objectsEl.appendChild(createFontResourceElementFromAtlas(doc, *sourceFont, nextFontIndex, characters, fontSchema, &font));
         } else {
-            QString characters = baseCharacters;
+            QString characters = completeAlphabetForTextObjects(it.value());
             for (TextObject *text : it.value()) {
-                for (const QChar ch : text->text) {
+                for (const QChar ch : text->exportCharacters()) {
                     if (!characters.contains(ch))
                         characters.append(ch);
                 }
@@ -1881,7 +1938,7 @@ bool ProjectManager::saveToFile(const QString &targetFile)
     return exportToFpgaXml(targetFile);
 }
 
-bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QString> &alphabetGroups)
+bool ProjectManager::exportToFpgaXml(const QString &targetFile)
 {
     const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
     if (outPath.isEmpty())
@@ -1897,7 +1954,6 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QStri
         m_schemaAliases,
         m_objects,
         m_objectTags,
-        alphabetGroups,
         &generatedFonts
     );
     
@@ -1905,7 +1961,8 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QStri
     QFile outFile(outPath);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
     
-    const QString xmlText = doc.toString(4);
+    QString xmlText = doc.toString(4);
+    xmlText.replace(QStringLiteral("α"), QStringLiteral("&#945;"));
     QStringEncoder encoder("windows-1251");
     QByteArray encodedXml = encoder(xmlText);
     if (encodedXml.isEmpty() && !xmlText.isEmpty()) {

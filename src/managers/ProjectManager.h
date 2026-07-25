@@ -5,7 +5,6 @@
 #include <QColor>
 #include <QList>
 #include <QObject>
-#include <QSet>
 #include <QSharedPointer>
 #include <QStringList>
 
@@ -34,7 +33,7 @@ public:
     bool loadFromFile(const QString &fileName);
     bool createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath = QString());
     bool saveToFile(const QString &targetFile = QString());
-    bool exportToFpgaXml(const QString &targetFile, const QSet<QString> &alphabetGroups = {});
+    bool exportToFpgaXml(const QString &targetFile);
     int importImageAsStaticGroup(const QString &fileName);
 
     void registerStandardTypes();

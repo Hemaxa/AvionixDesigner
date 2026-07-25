@@ -19,6 +19,55 @@ QStringList basicFontFamilies()
         QStringLiteral("Georgia")
     };
 }
+
+QString defaultSpecialCharacters()
+{
+    return QStringLiteral("α°+-/");
+}
+
+void appendUnique(QString *target, const QString &value)
+{
+    if (!target)
+        return;
+
+    for (const QChar ch : value) {
+        if (!target->contains(ch))
+            target->append(ch);
+    }
+}
+
+QString normalizedSpecialCharacters(const QString &value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QStringLiteral("нет") || normalized == QStringLiteral("no")
+        || normalized == QStringLiteral("0") || normalized == QStringLiteral("false")) {
+        return {};
+    }
+    if (normalized == QStringLiteral("да") || normalized == QStringLiteral("yes")
+        || normalized == QStringLiteral("1") || normalized == QStringLiteral("true")
+        || normalized == QStringLiteral("all")) {
+        return defaultSpecialCharacters();
+    }
+
+    QString result;
+    for (const QChar ch : value) {
+        if (defaultSpecialCharacters().contains(ch) && !result.contains(ch))
+            result.append(ch);
+    }
+
+    if (normalized.contains(QStringLiteral("альфа")) || normalized.contains(QStringLiteral("alpha")))
+        appendUnique(&result, QStringLiteral("α"));
+    if (normalized.contains(QStringLiteral("град")) || normalized.contains(QStringLiteral("degree")))
+        appendUnique(&result, QStringLiteral("°"));
+    if (normalized.contains(QStringLiteral("плюс")) || normalized.contains(QStringLiteral("plus")))
+        appendUnique(&result, QStringLiteral("+"));
+    if (normalized.contains(QStringLiteral("минус")) || normalized.contains(QStringLiteral("minus")))
+        appendUnique(&result, QStringLiteral("-"));
+    if (normalized.contains(QStringLiteral("слеш")) || normalized.contains(QStringLiteral("slash")))
+        appendUnique(&result, QStringLiteral("/"));
+
+    return result;
+}
 }
 
 TextObject::TextObject(QObject *parent) : StaticGroupObject(parent)
@@ -48,6 +97,7 @@ QList<QPair<QString, QString>> TextObject::getProperties() const
     const GroupState state = states.isEmpty() ? GroupState{} : states.first();
     QList<QPair<QString, QString>> props = {
         {"Текст", text},
+        {"Символы", extraCharacters},
         {"X", QString::number(state.x)},
         {"Y", QString::number(state.y)},
         {"Шрифт", fontFamily},
@@ -85,6 +135,18 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
         text = value;
         ok = true;
         needsRebuild = true;
+    }
+    else if (name == "Символы") {
+        const QString characters = normalizedSpecialCharacters(value);
+        if (restrictedAtlasEditing) {
+            QString missing;
+            if (!canUseText(characters, &missing)) {
+                setValidationMessage(QStringLiteral("В импортированном XML нет символов: %1").arg(missing));
+                return false;
+            }
+        }
+        extraCharacters = characters;
+        ok = true;
     }
     else if (name == "X") {
         state.x = value.toInt(&ok);
@@ -371,6 +433,14 @@ bool TextObject::canUseText(const QString &candidate, QString *missingCharacters
     return missing.isEmpty();
 }
 
+QString TextObject::exportCharacters() const
+{
+    QString characters;
+    appendUnique(&characters, text);
+    appendUnique(&characters, extraCharacters);
+    return characters;
+}
+
 void TextObject::setFontAtlas(const FpgaFont &font, bool restricted)
 {
     m_fontAtlas = font;
@@ -379,6 +449,11 @@ void TextObject::setFontAtlas(const FpgaFont &font, bool restricted)
     fontIndex = font.index;
     fontFamily = font.name;
     pixelSize = font.size;
+    extraCharacters.clear();
+    for (const QChar ch : defaultSpecialCharacters()) {
+        if (font.glyphs.contains(ch))
+            extraCharacters.append(ch);
+    }
     setImportedHardwareObject(restricted);
     setResizeLocked(restricted);
     if (restricted) {

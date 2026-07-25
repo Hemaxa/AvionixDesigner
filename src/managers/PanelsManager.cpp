@@ -8,7 +8,7 @@
 
 #include <QFileDialog>
 
-PanelsManager::PanelsManager() {}
+PanelsManager::PanelsManager() = default;
 
 PanelsManager::~PanelsManager()
 {
