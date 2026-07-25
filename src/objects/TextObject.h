@@ -28,6 +28,7 @@ struct FpgaFont
     QString name = QStringLiteral("Arial");
     int size = 14;
     int volume = 0;
+    QList<QChar> glyphOrder;
     QMap<QChar, FpgaGlyph> glyphs;
     QMap<QString, int> kerningPairs;
 };

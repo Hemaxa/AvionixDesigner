@@ -193,8 +193,11 @@ void TextObject::resizeBy(int edgeFlags, double dx, double dy)
 
 void TextObject::rebuildMask()
 {
-    // Всегда рендерим через системный QFont для гладкого отображения в viewport.
-    // Атлас импортированного FPGA-шрифта ограничивает доступные символы и метрики.
+    if (m_hasFontAtlas) {
+        rebuildMaskFromAtlas();
+        return;
+    }
+
     rebuildMaskFromQtFont();
 }
 
