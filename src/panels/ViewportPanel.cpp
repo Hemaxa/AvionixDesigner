@@ -415,6 +415,16 @@ void ViewportPanel::beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds
     m_activeSnapGuides.clear();
 }
 
+void ViewportPanel::ensureDragHistoryRecorded()
+{
+    if (m_dragHistoryRecorded)
+        return;
+
+    ProjectManager::instance()->recordObjectEdit();
+    m_dragHistoryRecorded = true;
+    m_dragEditedObjects = true;
+}
+
 int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, bool canResize, bool canRotate) const
 {
     const double baseSize = handleSizeInCanvas();
@@ -564,6 +574,9 @@ void ViewportPanel::wheelEvent(QWheelEvent *event)
 
 void ViewportPanel::mousePressEvent(QMouseEvent *event)
 {
+    m_dragHistoryRecorded = false;
+    m_dragEditedObjects = false;
+
     if (event->button() == Qt::LeftButton) {
         QPointF canvasPos = mapToCanvas(event->pos());
         m_lastMousePos = canvasPos;
@@ -687,6 +700,12 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         const QPointF desiredDelta = canvasPos - m_dragStartCanvasPos;
         const SnapResult snap = snappedMoveDeltaForSelection(m_selectedIndexes, m_dragStartBounds, desiredDelta);
         const QPointF applyDelta = snap.delta - m_dragLastAppliedDelta;
+        if (qFuzzyIsNull(applyDelta.x()) && qFuzzyIsNull(applyDelta.y())) {
+            m_activeSnapGuides = snap.guides;
+            update();
+            return;
+        }
+        ensureDragHistoryRecorded();
         for (int index : m_selectedIndexes) {
             auto object = ProjectManager::instance()->getObjectAt(index);
             if (object)
@@ -702,6 +721,12 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             const QPointF desiredDelta = canvasPos - m_dragStartCanvasPos;
             const SnapResult snap = snappedMoveDelta(m_selectedIndex, m_dragStartBounds, desiredDelta);
             const QPointF applyDelta = snap.delta - m_dragLastAppliedDelta;
+            if (qFuzzyIsNull(applyDelta.x()) && qFuzzyIsNull(applyDelta.y())) {
+                m_activeSnapGuides = snap.guides;
+                update();
+                return;
+            }
+            ensureDragHistoryRecorded();
             obj->moveBy(applyDelta.x(), applyDelta.y());
             m_dragLastAppliedDelta = snap.delta;
             m_activeSnapGuides = snap.guides;
@@ -709,12 +734,16 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             update();
         } else if (m_dragMode == Resize) {
             m_activeSnapGuides.clear();
+            if (qFuzzyIsNull(dx) && qFuzzyIsNull(dy))
+                return;
+            ensureDragHistoryRecorded();
             obj->resizeBy(m_resizeEdgeFlags, dx, dy);
             emit objectChanged();
             update();
         } else if (m_dragMode == LineEndpoint) {
             m_activeSnapGuides.clear();
             if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
+                ensureDragHistoryRecorded();
                 dashedLine->setEndpoint(m_lineEndpointIndex, canvasPos);
                 emit objectChanged();
                 update();
@@ -728,6 +757,7 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             double angleDeg = qRadiansToDegrees(angleRad) + 90.0;
             if (event->modifiers() & Qt::ControlModifier)
                 angleDeg = qRound(angleDeg / 90.0) * 90.0;
+            ensureDragHistoryRecorded();
             obj->setRotation(angleDeg);
             emit objectChanged();
             update();
@@ -761,10 +791,15 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
         update();
     }
     
+    if (m_dragEditedObjects)
+        ProjectManager::instance()->finishObjectEdit();
+
     m_dragMode = None;
     m_lineEndpointIndex = -1;
     m_activeSnapGuides.clear();
     m_dragLastAppliedDelta = QPointF(0.0, 0.0);
+    m_dragHistoryRecorded = false;
+    m_dragEditedObjects = false;
     update();
 }
 

@@ -779,11 +779,16 @@ void MainWindow::alignSelectedObject(int actionId)
         break;
     }
 
+    if (qFuzzyIsNull(dx) && qFuzzyIsNull(dy))
+        return;
+
+    project->recordObjectEdit();
     for (int index : indexes) {
         const auto object = project->getObjectAt(index);
         if (object)
             object->moveBy(dx, dy);
     }
+    project->finishObjectEdit(tr("Выполнено выравнивание объектов"));
     m_objectProperties->clearProperties();
     m_viewport->update();
 }

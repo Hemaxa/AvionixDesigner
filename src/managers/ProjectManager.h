@@ -62,6 +62,9 @@ public:
     bool alignObject(int index, ObjectAlignment alignment);
     bool setObjectViewVisible(int index, bool visible);
     bool setObjectExportEnabled(int index, bool enabled);
+    void recordObjectEdit();
+    void finishObjectEdit(const QString &message = QString());
+    bool setObjectProperty(BaseObject *object, const QString &propertyName, const QString &value);
 
     const QList<QSharedPointer<BaseObject>>& getObjects() const;
     QSharedPointer<BaseObject> getObjectAt(int index) const;

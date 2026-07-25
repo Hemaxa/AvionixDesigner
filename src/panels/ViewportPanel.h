@@ -86,6 +86,8 @@ private:
     QPointF m_dragStartCanvasPos;
     QRectF m_dragStartBounds;
     QPointF m_dragLastAppliedDelta;
+    bool m_dragHistoryRecorded = false;
+    bool m_dragEditedObjects = false;
     QList<SnapGuide> m_activeSnapGuides;
     QPointF m_marqueeStartPos;
     QPointF m_marqueeCurrentPos;
@@ -107,4 +109,5 @@ private:
     QRectF selectedObjectsRect() const;
     bool selectedObjectContains(const QPointF &canvasPos) const;
     void beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds);
+    void ensureDragHistoryRecorded();
 };

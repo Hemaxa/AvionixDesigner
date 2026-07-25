@@ -1778,6 +1778,55 @@ bool ProjectManager::setObjectExportEnabled(int index, bool enabled)
     return true;
 }
 
+void ProjectManager::recordObjectEdit()
+{
+    recordHistory();
+}
+
+void ProjectManager::finishObjectEdit(const QString &message)
+{
+    emit projectChanged();
+    if (!message.isEmpty())
+        emit logMessage(message);
+}
+
+bool ProjectManager::setObjectProperty(BaseObject *object, const QString &propertyName, const QString &value)
+{
+    if (!object)
+        return false;
+
+    bool objectBelongsToProject = false;
+    for (const auto &projectObject : m_objects) {
+        if (projectObject.data() == object) {
+            objectBelongsToProject = true;
+            break;
+        }
+    }
+    if (!objectBelongsToProject)
+        return false;
+
+    for (const auto &property : object->getProperties()) {
+        if (property.first == propertyName) {
+            if (property.second == value)
+                return true;
+            break;
+        }
+    }
+
+    const ProjectSnapshot before = captureSnapshot();
+    if (!object->setObjectProperty(propertyName, value))
+        return false;
+
+    m_undoStack.append(before);
+    m_redoStack.clear();
+    constexpr int maxHistoryDepth = 80;
+    while (m_undoStack.size() > maxHistoryDepth)
+        m_undoStack.removeFirst();
+
+    emit projectChanged();
+    return true;
+}
+
 bool ProjectManager::saveToFile(const QString &targetFile)
 {
     const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
