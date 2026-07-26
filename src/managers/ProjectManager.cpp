@@ -627,10 +627,12 @@ QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>>
     return schemaNames;
 }
 
-QDomElement createStaticGroupElementFromImage(QDomDocument &doc, const ParamSchema &schema, const ImageObject *image)
+QDomElement createStaticGroupElementFromImageLayers(QDomDocument &doc,
+                                                   const ParamSchema &schema,
+                                                   const ImageObject *image,
+                                                   const QList<ImageMaskComponent> &components)
 {
     StaticGroupObject group;
-    const QList<ImageMaskComponent> components = image->maskComponents();
     int nextAddr = 0;
 
     if (components.isEmpty()) {
@@ -695,7 +697,7 @@ void appendCompiledImageElements(QDomDocument &doc,
                                  const ImageObject *image)
 {
     if (!image->hasRotation()) {
-        objectsEl.appendChild(createStaticGroupElementFromImage(doc, staticSchema, image));
+        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, staticSchema, image, image->maskComponents()));
         return;
     }
 
@@ -1923,6 +1925,68 @@ bool ProjectManager::renameGroup(int groupId, const QString &name)
         return true;
     }
     return false;
+}
+
+bool ProjectManager::setGroupViewVisible(int groupId, bool visible)
+{
+    QList<int> members;
+    for (const ObjectGroup &group : m_groups) {
+        if (group.id == groupId) {
+            members = group.members;
+            break;
+        }
+    }
+    if (members.isEmpty())
+        return false;
+
+    bool hasChanges = false;
+    for (int index : members) {
+        if (index >= 0 && index < m_objects.size() && m_objects[index]->isViewVisible() != visible) {
+            hasChanges = true;
+            break;
+        }
+    }
+    if (!hasChanges)
+        return true;
+
+    recordHistory();
+    for (int index : members) {
+        if (index >= 0 && index < m_objects.size())
+            m_objects[index]->setViewVisible(visible);
+    }
+    emit projectChanged();
+    return true;
+}
+
+bool ProjectManager::setGroupExportEnabled(int groupId, bool enabled)
+{
+    QList<int> members;
+    for (const ObjectGroup &group : m_groups) {
+        if (group.id == groupId) {
+            members = group.members;
+            break;
+        }
+    }
+    if (members.isEmpty())
+        return false;
+
+    bool hasChanges = false;
+    for (int index : members) {
+        if (index >= 0 && index < m_objects.size() && m_objects[index]->isExportEnabled() != enabled) {
+            hasChanges = true;
+            break;
+        }
+    }
+    if (!hasChanges)
+        return true;
+
+    recordHistory();
+    for (int index : members) {
+        if (index >= 0 && index < m_objects.size())
+            m_objects[index]->setExportEnabled(enabled);
+    }
+    emit projectChanged();
+    return true;
 }
 
 bool ProjectManager::renameObject(int index, const QString &name)

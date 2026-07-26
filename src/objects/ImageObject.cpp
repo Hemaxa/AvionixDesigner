@@ -11,8 +11,10 @@
 
 namespace {
 constexpr int kVisibleAlphaThreshold = 24;
-constexpr int kColorBucket = 16;
-constexpr int kMinComponentAlphaWeight = 1;
+constexpr int kColorBucket = 32;
+constexpr int kMaxMaskLayers = 32;
+constexpr int kMinLayerAlphaWeight = 1;
+constexpr int kColorMergeDistanceSquared = 72 * 72;
 
 struct ColorStats
 {
@@ -21,6 +23,20 @@ struct ColorStats
     qint64 red = 0;
     qint64 green = 0;
     qint64 blue = 0;
+};
+
+struct PaletteEntry
+{
+    QColor sourceColor;
+    int firstIndex = 0;
+    qint64 weight = 0;
+};
+
+struct LayerAccumulator
+{
+    bool hasPixels = false;
+    QRect bounds;
+    qint64 alphaWeight = 0;
 };
 
 QRgb bucketColor(const QColor &color)
@@ -40,6 +56,176 @@ QColor averageColor(const ColorStats &stats, QRgb fallback)
                   qBound(0, static_cast<int>(stats.blue / stats.weight), 255));
 }
 
+int colorDistanceSquared(const QColor &a, const QColor &b)
+{
+    const int dr = a.red() - b.red();
+    const int dg = a.green() - b.green();
+    const int db = a.blue() - b.blue();
+    return dr * dr + dg * dg + db * db;
+}
+
+QList<PaletteEntry> paletteFromStoredLayers(const QList<ImageColorLayer> &storedLayers)
+{
+    QList<PaletteEntry> palette;
+    palette.reserve(qMin(kMaxMaskLayers, storedLayers.size()));
+
+    for (const ImageColorLayer &layer : storedLayers) {
+        if (!layer.sourceColor.isValid())
+            continue;
+        PaletteEntry entry;
+        entry.sourceColor = layer.sourceColor;
+        entry.firstIndex = palette.size();
+        entry.weight = 1;
+        palette.append(entry);
+        if (palette.size() >= kMaxMaskLayers)
+            break;
+    }
+
+    return palette;
+}
+
+QHash<QRgb, ColorStats> collectColorStats(const QImage &image)
+{
+    QHash<QRgb, ColorStats> statsByBucket;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.alpha() < kVisibleAlphaThreshold)
+                continue;
+
+            const QRgb bucket = bucketColor(pixel);
+            ColorStats stats = statsByBucket.value(bucket);
+            if (stats.weight == 0)
+                stats.firstIndex = y * image.width() + x;
+            stats.weight += pixel.alpha();
+            stats.red += pixel.red() * pixel.alpha();
+            stats.green += pixel.green() * pixel.alpha();
+            stats.blue += pixel.blue() * pixel.alpha();
+            statsByBucket.insert(bucket, stats);
+        }
+    }
+    return statsByBucket;
+}
+
+QList<PaletteEntry> paletteFromBuckets(const QHash<QRgb, ColorStats> &statsByBucket)
+{
+    QList<PaletteEntry> entries;
+    entries.reserve(statsByBucket.size());
+
+    for (auto it = statsByBucket.constBegin(); it != statsByBucket.constEnd(); ++it) {
+        const ColorStats stats = it.value();
+        if (stats.weight < kMinLayerAlphaWeight)
+            continue;
+
+        PaletteEntry entry;
+        entry.sourceColor = averageColor(stats, it.key());
+        entry.firstIndex = stats.firstIndex;
+        entry.weight = stats.weight;
+        entries.append(entry);
+    }
+
+    std::sort(entries.begin(), entries.end(), [](const PaletteEntry &a, const PaletteEntry &b) {
+        return a.firstIndex < b.firstIndex;
+    });
+
+    QList<PaletteEntry> clustered;
+    clustered.reserve(entries.size());
+    for (const PaletteEntry &entry : entries) {
+        int nearestIndex = -1;
+        int nearestDistance = 195075;
+        for (int i = 0; i < clustered.size(); ++i) {
+            const int distance = colorDistanceSquared(entry.sourceColor, clustered[i].sourceColor);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestIndex = i;
+            }
+        }
+
+        if (nearestIndex >= 0 && nearestDistance <= kColorMergeDistanceSquared) {
+            PaletteEntry &target = clustered[nearestIndex];
+            const qint64 totalWeight = target.weight + entry.weight;
+            target.sourceColor = QColor(
+                qBound(0, static_cast<int>((target.sourceColor.red() * target.weight + entry.sourceColor.red() * entry.weight) / totalWeight), 255),
+                qBound(0, static_cast<int>((target.sourceColor.green() * target.weight + entry.sourceColor.green() * entry.weight) / totalWeight), 255),
+                qBound(0, static_cast<int>((target.sourceColor.blue() * target.weight + entry.sourceColor.blue() * entry.weight) / totalWeight), 255));
+            target.firstIndex = qMin(target.firstIndex, entry.firstIndex);
+            target.weight = totalWeight;
+        } else {
+            clustered.append(entry);
+        }
+    }
+
+    std::sort(clustered.begin(), clustered.end(), [](const PaletteEntry &a, const PaletteEntry &b) {
+        return a.firstIndex < b.firstIndex;
+    });
+
+    entries = clustered;
+    if (entries.size() <= kMaxMaskLayers)
+        return entries;
+
+    QList<int> selectedIndexes;
+    int heaviestIndex = 0;
+    for (int i = 1; i < entries.size(); ++i) {
+        if (entries[i].weight > entries[heaviestIndex].weight)
+            heaviestIndex = i;
+    }
+    selectedIndexes.append(heaviestIndex);
+
+    while (selectedIndexes.size() < kMaxMaskLayers) {
+        int bestIndex = -1;
+        qint64 bestScore = -1;
+
+        for (int i = 0; i < entries.size(); ++i) {
+            if (selectedIndexes.contains(i))
+                continue;
+
+            int minDistance = 195075;
+            for (int selectedIndex : selectedIndexes) {
+                minDistance = qMin(minDistance,
+                                   colorDistanceSquared(entries[i].sourceColor,
+                                                        entries[selectedIndex].sourceColor));
+            }
+
+            const qint64 score = entries[i].weight * qMax(1, minDistance);
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = i;
+            }
+        }
+
+        if (bestIndex < 0)
+            break;
+        selectedIndexes.append(bestIndex);
+    }
+
+    QList<PaletteEntry> palette;
+    palette.reserve(selectedIndexes.size());
+    for (int index : selectedIndexes)
+        palette.append(entries[index]);
+
+    std::sort(palette.begin(), palette.end(), [](const PaletteEntry &a, const PaletteEntry &b) {
+        return a.firstIndex < b.firstIndex;
+    });
+
+    return palette;
+}
+
+int nearestPaletteIndex(const QColor &pixel, const QList<PaletteEntry> &palette)
+{
+    int bestIndex = 0;
+    int bestDistance = colorDistanceSquared(pixel, palette.first().sourceColor);
+
+    for (int i = 1; i < palette.size(); ++i) {
+        const int distance = colorDistanceSquared(pixel, palette[i].sourceColor);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = i;
+        }
+    }
+
+    return bestIndex;
+}
+
 QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<ImageColorLayer> &storedLayers)
 {
     QList<ImageMaskComponent> components;
@@ -51,124 +237,60 @@ QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<Im
     const int height = image.height();
     const int pixelCount = width * height;
 
-    QHash<QRgb, ColorStats> statsByBucket;
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            const QColor pixel = image.pixelColor(x, y);
-            if (pixel.alpha() < kVisibleAlphaThreshold)
-                continue;
-
-            const QRgb bucket = bucketColor(pixel);
-            ColorStats stats = statsByBucket.value(bucket);
-            if (stats.weight == 0)
-                stats.firstIndex = y * width + x;
-            stats.weight += pixel.alpha();
-            stats.red += pixel.red() * pixel.alpha();
-            stats.green += pixel.green() * pixel.alpha();
-            stats.blue += pixel.blue() * pixel.alpha();
-            statsByBucket.insert(bucket, stats);
-        }
-    }
-
-    QList<QRgb> buckets = statsByBucket.keys();
-    std::sort(buckets.begin(), buckets.end(), [&statsByBucket](QRgb a, QRgb b) {
-        return statsByBucket.value(a).firstIndex < statsByBucket.value(b).firstIndex;
-    });
-
-    QHash<QRgb, int> layerByBucket;
-    QList<QColor> sourceColors;
-    for (QRgb bucket : buckets) {
-        const ColorStats stats = statsByBucket.value(bucket);
-        if (stats.weight < kMinComponentAlphaWeight)
-            continue;
-        layerByBucket.insert(bucket, sourceColors.size());
-        sourceColors.append(averageColor(stats, bucket));
-    }
+    QList<PaletteEntry> palette = paletteFromStoredLayers(storedLayers);
+    if (palette.isEmpty())
+        palette = paletteFromBuckets(collectColorStats(image));
+    if (palette.isEmpty())
+        return components;
 
     QVector<int> labels(pixelCount, -1);
+    QVector<LayerAccumulator> layers(palette.size());
+
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             const QColor pixel = image.pixelColor(x, y);
             if (pixel.alpha() < kVisibleAlphaThreshold)
                 continue;
 
-            const QRgb bucket = bucketColor(pixel);
-            const auto it = layerByBucket.constFind(bucket);
-            if (it != layerByBucket.constEnd())
-                labels[y * width + x] = it.value();
+            const int layerIndex = nearestPaletteIndex(pixel, palette);
+            labels[y * width + x] = layerIndex;
+
+            LayerAccumulator &layer = layers[layerIndex];
+            const QRect pixelRect(x, y, 1, 1);
+            layer.bounds = layer.hasPixels ? layer.bounds.united(pixelRect) : pixelRect;
+            layer.hasPixels = true;
+            layer.alphaWeight += pixel.alpha();
         }
     }
 
-    QVector<uchar> visited(pixelCount, 0);
-    QVector<int> queue;
-    queue.reserve(pixelCount);
-
-    for (int start = 0; start < pixelCount; ++start) {
-        const int layerIndex = labels[start];
-        if (layerIndex < 0 || visited[start])
-            continue;
-
-        queue.clear();
-        queue.append(start);
-        visited[start] = 1;
-
-        QVector<int> pixels;
-        pixels.reserve(256);
-        QRect bounds(start % width, start / width, 1, 1);
-        qint64 alphaWeight = 0;
-
-        for (int head = 0; head < queue.size(); ++head) {
-            const int current = queue[head];
-            pixels.append(current);
-
-            const int cx = current % width;
-            const int cy = current / width;
-            bounds = bounds.united(QRect(cx, cy, 1, 1));
-            alphaWeight += image.pixelColor(cx, cy).alpha();
-
-            for (int oy = -1; oy <= 1; ++oy) {
-                for (int ox = -1; ox <= 1; ++ox) {
-                    if (ox == 0 && oy == 0)
-                        continue;
-
-                    const int nx = cx + ox;
-                    const int ny = cy + oy;
-                    if (nx < 0 || nx >= width || ny < 0 || ny >= height)
-                        continue;
-
-                    const int ni = ny * width + nx;
-                    if (visited[ni] || labels[ni] != layerIndex)
-                        continue;
-
-                    visited[ni] = 1;
-                    queue.append(ni);
-                }
-            }
-        }
-
-        if (alphaWeight < kMinComponentAlphaWeight)
+    for (int layerIndex = 0; layerIndex < layers.size(); ++layerIndex) {
+        const LayerAccumulator &layer = layers[layerIndex];
+        if (!layer.hasPixels || layer.alphaWeight < kMinLayerAlphaWeight)
             continue;
 
         ImageMaskComponent component;
-        component.layerIndex = components.size();
-        component.bounds = bounds;
+        component.layerIndex = layerIndex;
+        component.bounds = layer.bounds;
 
-        const QColor autoColor = layerIndex < sourceColors.size() ? sourceColors[layerIndex] : QColor(Qt::white);
-        if (component.layerIndex < storedLayers.size()) {
-            const ImageColorLayer &stored = storedLayers[component.layerIndex];
-            component.color = stored.autoMaskColor ? autoColor : stored.maskColor;
+        const QColor autoColor = palette[layerIndex].sourceColor;
+        if (layerIndex < storedLayers.size()) {
+            const ImageColorLayer &stored = storedLayers[layerIndex];
+            component.color = (!stored.autoMaskColor && stored.maskColor.isValid()) ? stored.maskColor : autoColor;
         } else {
             component.color = autoColor;
         }
 
-        component.mask = QImage(bounds.size(), QImage::Format_ARGB32);
+        component.mask = QImage(layer.bounds.size(), QImage::Format_ARGB32);
         component.mask.fill(Qt::transparent);
-        for (int index : pixels) {
-            const int px = index % width;
-            const int py = index / width;
-            QColor maskPixel = component.color;
-            maskPixel.setAlpha(image.pixelColor(px, py).alpha());
-            component.mask.setPixelColor(px - bounds.left(), py - bounds.top(), maskPixel);
+        for (int y = layer.bounds.top(); y <= layer.bounds.bottom(); ++y) {
+            for (int x = layer.bounds.left(); x <= layer.bounds.right(); ++x) {
+                if (labels[y * width + x] != layerIndex)
+                    continue;
+
+                QColor maskPixel = component.color;
+                maskPixel.setAlpha(image.pixelColor(x, y).alpha());
+                component.mask.setPixelColor(x - layer.bounds.left(), y - layer.bounds.top(), maskPixel);
+            }
         }
         components.append(component);
     }
@@ -396,8 +518,8 @@ QList<QPair<QString, QString>> ImageObject::getProperties() const
     if (components.size() > 1) {
         props.removeLast();
         props.removeLast();
-        for (int i = 0; i < components.size(); ++i)
-            props.append({QStringLiteral("Слой %1: Цвет").arg(i + 1), components[i].color.name()});
+        for (const ImageMaskComponent &component : components)
+            props.append({QStringLiteral("Слой %1: Цвет").arg(component.layerIndex + 1), component.color.name()});
     }
 
     return props;

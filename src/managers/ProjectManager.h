@@ -59,7 +59,7 @@ public:
     bool sendObjectsToFront(const QList<int> &indexes);
     //переносит объекты ближе к заднему плану
     bool sendObjectsToBack(const QList<int> &indexes);
-    //создаёт редакторскую группу; на XML-экспорт группировка не влияет
+    //создаёт редакторскую группу; группировка управляет удобством выбора и массовыми флагами
     int groupObjects(const QList<int> &indexes);
     //удаляет редакторские группы, содержащие выбранные объекты
     bool ungroupObjects(const QList<int> &indexes);
@@ -71,6 +71,10 @@ public:
     QString groupName(int groupId) const;
     //переименовывает редакторскую группу
     bool renameGroup(int groupId, const QString &name);
+    //задаёт видимость всех объектов редакторской группы
+    bool setGroupViewVisible(int groupId, bool visible);
+    //задаёт участие всех объектов редакторской группы в XML-экспорте
+    bool setGroupExportEnabled(int groupId, bool enabled);
     //задаёт пользовательское имя объекта для списка объектов
     bool renameObject(int index, const QString &name);
     //копирует объекты во внутренний буфер обмена редактора

@@ -203,6 +203,17 @@ void ObjectListPanel::refreshList() {
   };
 
   auto addGroupRow = [&](const ProjectManager::ObjectGroup &group) {
+    const QList<int> members = group.members;
+    bool anyVisible = false;
+    bool allExportEnabled = !members.isEmpty();
+    for (int member : members) {
+      const auto object = pm->getObjectAt(member);
+      if (!object)
+        continue;
+      anyVisible = anyVisible || object->isViewVisible();
+      allExportEnabled = allExportEnabled && object->isExportEnabled();
+    }
+
     QListWidgetItem *item = new QListWidgetItem();
     item->setData(KindRole, static_cast<int>(RowKind::Group));
     item->setData(ObjectIndexRole, -1);
@@ -217,6 +228,19 @@ void ObjectListPanel::refreshList() {
     rowLayout->setContentsMargins(6, 0, 6, 0);
     rowLayout->setSpacing(6);
     rowLayout->setAlignment(Qt::AlignVCenter);
+
+    auto *eyeButton = new QToolButton(rowWidget);
+    eyeButton->setObjectName("ObjectListIconButton");
+    eyeButton->setIcon(
+        QIcon(anyVisible
+                  ? QStringLiteral(":/icons/icons/list/eye.svg")
+                  : QStringLiteral(":/icons/icons/list/eye-off.svg")));
+    eyeButton->setToolTip(anyVisible
+                              ? QStringLiteral("Скрыть группу на холсте")
+                              : QStringLiteral("Показать группу на холсте"));
+    eyeButton->setFixedSize(24, 24);
+    eyeButton->setIconSize(QSize(16, 16));
+    rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
     auto *label = new QLabel(group.name, rowWidget);
     label->setObjectName("ObjectListRowLabel");
@@ -233,8 +257,24 @@ void ObjectListPanel::refreshList() {
     typeLabel->setMinimumWidth(82);
     rowLayout->addWidget(typeLabel, 0, Qt::AlignVCenter);
 
+    auto *exportCheck = new QCheckBox(rowWidget);
+    exportCheck->setObjectName("ObjectExportCheck");
+    exportCheck->setToolTip(QStringLiteral("Экспортировать группу в XML"));
+    exportCheck->setChecked(allExportEnabled);
+    exportCheck->setFixedSize(24, 24);
+    rowLayout->addWidget(exportCheck, 0, Qt::AlignVCenter);
+
     item->setSizeHint(QSize(0, 34));
     m_listWidget->setItemWidget(item, rowWidget);
+
+    connect(eyeButton, &QToolButton::clicked, this, [this, groupId = group.id, anyVisible]() {
+      ProjectManager::instance()->setGroupViewVisible(groupId, !anyVisible);
+      refreshList();
+    });
+
+    connect(exportCheck, &QCheckBox::toggled, this, [groupId = group.id](bool checked) {
+      ProjectManager::instance()->setGroupExportEnabled(groupId, checked);
+    });
   };
 
   // заполняем список объектами; группы выводятся как служебные строки редактора

@@ -235,7 +235,7 @@ QList<EditorObjectDescriptor> FpgaSchemaRegistry::editorObjectCatalog() const
         {"ribonscale", QStringLiteral("Ленточная шкала"), QStringLiteral(":/icons/icons/library/ribonscale.svg"), true, true},
         {"aviagorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
         {"text", QStringLiteral("Текст"), QStringLiteral(":/icons/icons/library/text.svg"), true, true},
-        {"staticgroup", QStringLiteral("Static"), QStringLiteral(":/icons/icons/library/staticgroup.svg"), false, false},
+        {"staticgroup", QStringLiteral("static_group"), QStringLiteral(":/icons/icons/library/staticgroup.svg"), false, false},
         {"rotationobject", QStringLiteral("Rotation Group"), QStringLiteral(":/icons/icons/library/rotationgroup.svg"), false, false}
     };
 }
