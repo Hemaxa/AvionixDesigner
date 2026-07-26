@@ -1873,21 +1873,6 @@ bool ProjectManager::ungroupObjects(const QList<int> &indexes)
     return true;
 }
 
-bool ProjectManager::selectionContainsGroup(const QList<int> &indexes) const
-{
-    QSet<int> selected;
-    for (int index : indexes)
-        selected.insert(index);
-
-    for (const ObjectGroup &group : m_groups) {
-        for (int member : group.members) {
-            if (selected.contains(member))
-                return true;
-        }
-    }
-    return false;
-}
-
 QList<int> ProjectManager::groupMembersForObject(int index) const
 {
     for (const ObjectGroup &group : m_groups) {

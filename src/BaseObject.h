@@ -55,7 +55,9 @@ public:
     virtual QString editRestrictionHint() const { return m_editRestrictionHint; }
     virtual QString lastValidationMessage() const { return m_lastValidationMessage; }
     virtual void clearValidationMessage() { m_lastValidationMessage.clear(); }
+    //возвращает пользовательское имя объекта для списка объектов
     QString customName() const { return m_customName; }
+    //задаёт пользовательское имя объекта; пустое имя возвращает отображение к имени по типу
     void setCustomName(const QString &name) { m_customName = name.trimmed(); }
 
     //геометрия и взаимодействие

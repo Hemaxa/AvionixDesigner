@@ -276,10 +276,6 @@ void ObjectListPanel::refreshList() {
   m_refreshing = false;
 }
 
-void ObjectListPanel::selectRow(int index) {
-  selectRows(index >= 0 ? QList<int>{index} : QList<int>{});
-}
-
 void ObjectListPanel::selectRows(const QList<int> &indexes) {
   const QSignalBlocker blocker(m_listWidget);
   m_refreshing = true;

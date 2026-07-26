@@ -31,8 +31,6 @@ AppearanceManager *AppearanceManager::instance() {
 bool AppearanceManager::loadStyleSheet(const QString &filePath) {
   QFile file(filePath);
   if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-    qWarning("AppearanceManager: Не удалось загрузить стиль: %s",
-             qPrintable(filePath));
     return false;
   }
 
@@ -48,10 +46,7 @@ bool AppearanceManager::loadStyleSheet(const QString &filePath) {
 
 void AppearanceManager::applyAvionixTheme() {
   // загружаем тему Avionix Designer из ресурсов
-  if (!loadStyleSheet(":/themes/themes/AvionixDesignerTheme.qss")) {
-    qWarning(
-        "AppearanceManager: Не удалось загрузить AvionixDesignerTheme.qss");
-  }
+  loadStyleSheet(":/themes/themes/AvionixDesignerTheme.qss");
 
   // обновляем палитру цветов с циановым акцентом
   m_colors["background"] = QColor(0x1e, 0x1e, 0x1e);

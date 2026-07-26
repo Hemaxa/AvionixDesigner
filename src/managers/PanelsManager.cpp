@@ -52,15 +52,16 @@ void PanelsManager::closeAllPanels()
 
 void PanelsManager::connectSignals()
 {
-    // List -> Properties
+    // Список -> свойства
     connect(m_objectList, &ObjectListPanel::objectSelected, m_objectProperties, &ObjectPropertiesPanel::showObjectProperties);
-    // Viewport -> List
-    connect(m_viewport, &ViewportPanel::objectSelected, m_objectList, &ObjectListPanel::selectRow);
-    // Viewport change -> Properties
+    // Холст -> список
+    connect(m_viewport, &ViewportPanel::objectSelected, m_objectList, [this](int index) {
+        m_objectList->selectRows(index >= 0 ? QList<int>{index} : QList<int>{});
+    });
+    // Изменение на холсте -> свойства
     connect(m_viewport, &ViewportPanel::objectChanged, [this]() {
-        // Перепоказать свойства для текущего выбранного объекта
+        // Перепоказать свойства для текущего выбранного объекта.
         if (m_objectList) {
-            // Эмулируем повторный выбор для обновления таблицы свойств
             m_objectProperties->showObjectProperties(m_viewport->getSelectedIndex());
         }
     });
