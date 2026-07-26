@@ -47,6 +47,7 @@ public:
     QImage renderedImage() const;
     QColor effectiveMaskColor() const;
     QList<ImageMaskComponent> maskComponents() const;
+    QList<QList<ImageMaskComponent>> maskComponentGroups() const;
     QList<ImageColorLayer> colorLayers() const;
     void setColorLayers(const QList<ImageColorLayer> &layers);
     bool hasRotation() const;

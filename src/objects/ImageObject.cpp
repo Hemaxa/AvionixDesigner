@@ -41,6 +41,13 @@ struct LayerAccumulator
     qint64 alphaWeight = 0;
 };
 
+struct ClassifiedImage
+{
+    QImage image;
+    QList<PaletteEntry> palette;
+    QVector<int> labels;
+};
+
 QRgb bucketColor(const QColor &color)
 {
     return qRgb((color.red() / kColorBucket) * kColorBucket,
@@ -56,6 +63,14 @@ QColor averageColor(const ColorStats &stats, QRgb fallback)
     return QColor(qBound(0, static_cast<int>(stats.red / stats.weight), 255),
                   qBound(0, static_cast<int>(stats.green / stats.weight), 255),
                   qBound(0, static_cast<int>(stats.blue / stats.weight), 255));
+}
+
+void addPixelToLayer(LayerAccumulator &layer, int x, int y, int alpha)
+{
+    const QRect pixelRect(x, y, 1, 1);
+    layer.bounds = layer.hasPixels ? layer.bounds.united(pixelRect) : pixelRect;
+    layer.hasPixels = true;
+    layer.alphaWeight += alpha;
 }
 
 void mergeClosePaletteEntry(PaletteEntry &target, const PaletteEntry &entry)
@@ -284,43 +299,57 @@ int nearestPaletteIndex(const QColor &pixel, const QList<PaletteEntry> &palette)
     return bestIndex;
 }
 
-QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<ImageColorLayer> &storedLayers)
+QColor maskColorForLayer(int layerIndex,
+                         const QList<PaletteEntry> &palette,
+                         const QList<ImageColorLayer> &storedLayers)
 {
-    QList<ImageMaskComponent> components;
+    const QColor autoColor = palette[layerIndex].sourceColor;
+    if (layerIndex >= storedLayers.size())
+        return autoColor;
+
+    const ImageColorLayer &stored = storedLayers[layerIndex];
+    return (!stored.autoMaskColor && stored.maskColor.isValid()) ? stored.maskColor : autoColor;
+}
+
+ClassifiedImage classifyImage(const QImage &source, const QList<ImageColorLayer> &storedLayers)
+{
+    ClassifiedImage classified;
     if (source.isNull())
-        return components;
+        return classified;
 
-    const QImage image = source.convertToFormat(QImage::Format_ARGB32);
-    const int width = image.width();
-    const int height = image.height();
-    const int pixelCount = width * height;
+    classified.image = source.convertToFormat(QImage::Format_ARGB32);
+    classified.palette = paletteFromStoredLayers(storedLayers);
+    if (classified.palette.isEmpty())
+        classified.palette = paletteFromBuckets(collectColorStats(classified.image));
+    if (classified.palette.isEmpty())
+        return classified;
 
-    QList<PaletteEntry> palette = paletteFromStoredLayers(storedLayers);
-    if (palette.isEmpty())
-        palette = paletteFromBuckets(collectColorStats(image));
-    if (palette.isEmpty())
-        return components;
-
-    QVector<int> labels(pixelCount, -1);
-    QVector<LayerAccumulator> layers(palette.size());
-
+    const int width = classified.image.width();
+    const int height = classified.image.height();
+    classified.labels.fill(-1, width * height);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            const QColor pixel = image.pixelColor(x, y);
+            const QColor pixel = classified.image.pixelColor(x, y);
             if (pixel.alpha() < kVisibleAlphaThreshold)
                 continue;
 
-            const int layerIndex = nearestPaletteIndex(pixel, palette);
-            labels[y * width + x] = layerIndex;
-
-            LayerAccumulator &layer = layers[layerIndex];
-            const QRect pixelRect(x, y, 1, 1);
-            layer.bounds = layer.hasPixels ? layer.bounds.united(pixelRect) : pixelRect;
-            layer.hasPixels = true;
-            layer.alphaWeight += pixel.alpha();
+            classified.labels[y * width + x] = nearestPaletteIndex(pixel, classified.palette);
         }
     }
 
+    return classified;
+}
+
+QList<ImageMaskComponent> buildComponentsFromPixels(const ClassifiedImage &classified,
+                                                    const QList<ImageColorLayer> &storedLayers,
+                                                    const QVector<int> &pixels,
+                                                    const QVector<LayerAccumulator> &layers)
+{
+    QList<ImageMaskComponent> components;
+    if (classified.image.isNull() || classified.palette.isEmpty())
+        return components;
+
+    QVector<int> componentIndexByLayer(classified.palette.size(), -1);
     for (int layerIndex = 0; layerIndex < layers.size(); ++layerIndex) {
         const LayerAccumulator &layer = layers[layerIndex];
         if (!layer.hasPixels || layer.alphaWeight < kMinLayerAlphaWeight)
@@ -329,31 +358,124 @@ QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<Im
         ImageMaskComponent component;
         component.layerIndex = layerIndex;
         component.bounds = layer.bounds;
-
-        const QColor autoColor = palette[layerIndex].sourceColor;
-        if (layerIndex < storedLayers.size()) {
-            const ImageColorLayer &stored = storedLayers[layerIndex];
-            component.color = (!stored.autoMaskColor && stored.maskColor.isValid()) ? stored.maskColor : autoColor;
-        } else {
-            component.color = autoColor;
-        }
-
+        component.color = maskColorForLayer(layerIndex, classified.palette, storedLayers);
         component.mask = QImage(layer.bounds.size(), QImage::Format_ARGB32);
         component.mask.fill(Qt::transparent);
-        for (int y = layer.bounds.top(); y <= layer.bounds.bottom(); ++y) {
-            for (int x = layer.bounds.left(); x <= layer.bounds.right(); ++x) {
-                if (labels[y * width + x] != layerIndex)
-                    continue;
-
-                QColor maskPixel = component.color;
-                maskPixel.setAlpha(image.pixelColor(x, y).alpha());
-                component.mask.setPixelColor(x - layer.bounds.left(), y - layer.bounds.top(), maskPixel);
-            }
-        }
+        componentIndexByLayer[layerIndex] = components.size();
         components.append(component);
     }
 
+    const int width = classified.image.width();
+    for (int index : pixels) {
+        const int layerIndex = classified.labels[index];
+        if (layerIndex < 0 || layerIndex >= componentIndexByLayer.size())
+            continue;
+
+        const int componentIndex = componentIndexByLayer[layerIndex];
+        if (componentIndex < 0)
+            continue;
+
+        ImageMaskComponent &component = components[componentIndex];
+        const int x = index % width;
+        const int y = index / width;
+        QColor maskPixel = component.color;
+        maskPixel.setAlpha(classified.image.pixelColor(x, y).alpha());
+        component.mask.setPixelColor(x - component.bounds.left(), y - component.bounds.top(), maskPixel);
+    }
+
     return components;
+}
+
+QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<ImageColorLayer> &storedLayers)
+{
+    QList<ImageMaskComponent> components;
+    const ClassifiedImage classified = classifyImage(source, storedLayers);
+    if (classified.image.isNull() || classified.palette.isEmpty())
+        return components;
+
+    const int width = classified.image.width();
+    const int height = classified.image.height();
+
+    QVector<int> pixels;
+    pixels.reserve(width * height);
+    QVector<LayerAccumulator> layers(classified.palette.size());
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const int pixelIndex = y * width + x;
+            const int layerIndex = classified.labels[pixelIndex];
+            if (layerIndex < 0)
+                continue;
+
+            const int alpha = classified.image.pixelColor(x, y).alpha();
+            addPixelToLayer(layers[layerIndex], x, y, alpha);
+            pixels.append(pixelIndex);
+        }
+    }
+
+    return buildComponentsFromPixels(classified, storedLayers, pixels, layers);
+}
+
+QList<QList<ImageMaskComponent>> extractComponentGroups(const QImage &source, const QList<ImageColorLayer> &storedLayers)
+{
+    QList<QList<ImageMaskComponent>> groups;
+    const ClassifiedImage classified = classifyImage(source, storedLayers);
+    if (classified.image.isNull() || classified.palette.isEmpty())
+        return groups;
+
+    const int width = classified.image.width();
+    const int height = classified.image.height();
+    const int pixelCount = width * height;
+    QVector<quint8> visited(pixelCount, 0);
+
+    constexpr int kNeighborCount = 8;
+    constexpr int dx[kNeighborCount] = {-1, 0, 1, -1, 1, -1, 0, 1};
+    constexpr int dy[kNeighborCount] = {-1, -1, -1, 0, 0, 1, 1, 1};
+
+    for (int startIndex = 0; startIndex < pixelCount; ++startIndex) {
+        if (classified.labels[startIndex] < 0 || visited[startIndex])
+            continue;
+
+        QVector<int> queue;
+        QVector<int> pixels;
+        QVector<LayerAccumulator> layers(classified.palette.size());
+        queue.reserve(256);
+        pixels.reserve(256);
+
+        visited[startIndex] = 1;
+        queue.append(startIndex);
+
+        for (int head = 0; head < queue.size(); ++head) {
+            const int pixelIndex = queue[head];
+            pixels.append(pixelIndex);
+
+            const int x = pixelIndex % width;
+            const int y = pixelIndex / width;
+            const int layerIndex = classified.labels[pixelIndex];
+            const int alpha = classified.image.pixelColor(x, y).alpha();
+            addPixelToLayer(layers[layerIndex], x, y, alpha);
+
+            for (int i = 0; i < kNeighborCount; ++i) {
+                const int nx = x + dx[i];
+                const int ny = y + dy[i];
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+                    continue;
+
+                const int neighborIndex = ny * width + nx;
+                if (visited[neighborIndex] || classified.labels[neighborIndex] < 0)
+                    continue;
+
+                visited[neighborIndex] = 1;
+                queue.append(neighborIndex);
+            }
+        }
+
+        const QList<ImageMaskComponent> components = buildComponentsFromPixels(classified, storedLayers, pixels, layers);
+        if (!components.isEmpty())
+            groups.append(components);
+    }
+
+    return groups;
 }
 }
 
@@ -472,6 +594,11 @@ QColor ImageObject::effectiveMaskColor() const
 QList<ImageMaskComponent> ImageObject::maskComponents() const
 {
     return extractComponents(renderedSourceImage(), m_colorLayers);
+}
+
+QList<QList<ImageMaskComponent>> ImageObject::maskComponentGroups() const
+{
+    return extractComponentGroups(renderedSourceImage(), m_colorLayers);
 }
 
 QList<ImageColorLayer> ImageObject::colorLayers() const

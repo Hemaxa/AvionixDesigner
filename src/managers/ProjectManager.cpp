@@ -788,23 +788,25 @@ void appendStaticGroupElementsFromImageLayers(QDomDocument &doc,
                                               const ParamSchema &schema,
                                               const ImageObject *image)
 {
-    QList<ImageMaskComponent> components = image->maskComponents();
-    if (components.isEmpty()) {
+    QList<QList<ImageMaskComponent>> componentGroups = image->maskComponentGroups();
+    if (componentGroups.isEmpty()) {
         ImageMaskComponent component;
         component.bounds = QRect(0, 0, qMax(1, qRound(image->width)), qMax(1, qRound(image->height)));
         component.color = image->effectiveMaskColor();
         component.mask = image->renderedImage();
-        components.append(component);
+        componentGroups.append({component});
     }
 
-    const QList<QList<ImageMaskComponent>> packedGroups = packStaticGroupComponents(schema, components);
-    if (packedGroups.isEmpty()) {
-        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, {}));
-        return;
-    }
+    for (const QList<ImageMaskComponent> &componentGroup : componentGroups) {
+        const QList<QList<ImageMaskComponent>> packedGroups = packStaticGroupComponents(schema, componentGroup);
+        if (packedGroups.isEmpty()) {
+            objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, {}));
+            continue;
+        }
 
-    for (const QList<ImageMaskComponent> &groupComponents : packedGroups)
-        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, groupComponents));
+        for (const QList<ImageMaskComponent> &groupComponents : packedGroups)
+            objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, groupComponents));
+    }
 }
 
 QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
