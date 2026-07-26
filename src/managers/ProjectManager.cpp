@@ -25,8 +25,12 @@
 #include "BitParser.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace {
+constexpr int kFallbackStaticGroupMaxDimension = 4095;
+constexpr int kFallbackStaticGroupAddressablePixels = 65536;
+
 int schemaBitLength(const ParamSchema &schema)
 {
     int maxBit = 0;
@@ -49,6 +53,119 @@ QString buildInitHex(const ParamSchema &schema, const QMap<QString, quint32> &pa
     }
 
     return hexStr;
+}
+
+int maxUnsignedFieldValue(const ParamSchema &schema, const QString &fieldName, int fallback)
+{
+    if (!schema.contains(fieldName))
+        return fallback;
+
+    const int size = schema[fieldName].size;
+    if (size <= 0)
+        return fallback;
+
+    const qint64 value = size >= 31
+        ? static_cast<qint64>(std::numeric_limits<int>::max())
+        : ((static_cast<qint64>(1) << size) - 1);
+    return static_cast<int>(qMin<qint64>(value, std::numeric_limits<int>::max()));
+}
+
+int staticGroupAddressablePixels(const ParamSchema &schema)
+{
+    const int maxAddr = maxUnsignedFieldValue(schema, QStringLiteral("addr"), kFallbackStaticGroupAddressablePixels - 1);
+    return qMax(1, maxAddr + 1);
+}
+
+QRect alphaBoundsInRect(const QImage &image, const QRect &rect)
+{
+    QRect bounds;
+    bool hasPixels = false;
+
+    const QRect clipped = rect.intersected(image.rect());
+    for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
+        for (int x = clipped.left(); x <= clipped.right(); ++x) {
+            if (image.pixelColor(x, y).alpha() <= 0)
+                continue;
+
+            const QRect pixelRect(x, y, 1, 1);
+            bounds = hasPixels ? bounds.united(pixelRect) : pixelRect;
+            hasPixels = true;
+        }
+    }
+
+    return hasPixels ? bounds : QRect();
+}
+
+QList<ImageMaskComponent> splitComponentForStaticGroup(const ImageMaskComponent &component,
+                                                       int maxWidth,
+                                                       int maxHeight,
+                                                       int maxPixels)
+{
+    QList<ImageMaskComponent> tiles;
+    if (component.mask.isNull() || component.bounds.isEmpty())
+        return tiles;
+
+    const int sourceWidth = component.mask.width();
+    const int sourceHeight = component.mask.height();
+    const int safeMaxWidth = qMax(1, qMin(maxWidth, maxPixels));
+    const int safeMaxHeight = qMax(1, maxHeight);
+
+    for (int left = 0; left < sourceWidth; left += safeMaxWidth) {
+        const int tileWidth = qMin(safeMaxWidth, sourceWidth - left);
+        const int maxRowsByAddress = qMax(1, maxPixels / qMax(1, tileWidth));
+        const int tileHeightLimit = qMax(1, qMin(safeMaxHeight, maxRowsByAddress));
+
+        for (int top = 0; top < sourceHeight; top += tileHeightLimit) {
+            const QRect candidate(left, top, tileWidth, qMin(tileHeightLimit, sourceHeight - top));
+            const QRect visibleBounds = alphaBoundsInRect(component.mask, candidate);
+            if (visibleBounds.isEmpty())
+                continue;
+
+            ImageMaskComponent tile;
+            tile.layerIndex = component.layerIndex;
+            tile.bounds = QRect(component.bounds.left() + visibleBounds.left(),
+                                component.bounds.top() + visibleBounds.top(),
+                                visibleBounds.width(),
+                                visibleBounds.height());
+            tile.color = component.color;
+            tile.mask = component.mask.copy(visibleBounds);
+            tiles.append(tile);
+        }
+    }
+
+    return tiles;
+}
+
+QList<QList<ImageMaskComponent>> packStaticGroupComponents(const ParamSchema &schema,
+                                                           const QList<ImageMaskComponent> &components)
+{
+    const int maxWidth = maxUnsignedFieldValue(schema, QStringLiteral("w"), kFallbackStaticGroupMaxDimension);
+    const int maxHeight = maxUnsignedFieldValue(schema, QStringLiteral("h"), kFallbackStaticGroupMaxDimension);
+    const int maxPixels = staticGroupAddressablePixels(schema);
+
+    QList<QList<ImageMaskComponent>> packedGroups;
+    QList<ImageMaskComponent> currentGroup;
+    int currentPixels = 0;
+
+    for (const ImageMaskComponent &component : components) {
+        const QList<ImageMaskComponent> tiles = splitComponentForStaticGroup(component, maxWidth, maxHeight, maxPixels);
+        for (const ImageMaskComponent &tile : tiles) {
+            const int tilePixels = qMax(1, tile.bounds.width() * tile.bounds.height());
+            if (!currentGroup.isEmpty() && currentPixels + tilePixels > maxPixels) {
+                packedGroups.append(currentGroup);
+                currentGroup.clear();
+                currentPixels = 0;
+            }
+
+            currentGroup.append(tile);
+            currentPixels += tilePixels;
+        }
+    }
+
+    if (!currentGroup.isEmpty())
+        packedGroups.append(currentGroup);
+
+    return packedGroups;
 }
 
 void copyBaseFlags(const BaseObject *source, BaseObject *target)
@@ -666,6 +783,30 @@ QDomElement createStaticGroupElementFromImageLayers(QDomDocument &doc,
     return createObjectElement(doc, QStringLiteral("staticgroup"), schema, QSharedPointer<BaseObject>(&group, [](BaseObject*){}));
 }
 
+void appendStaticGroupElementsFromImageLayers(QDomDocument &doc,
+                                              QDomElement &objectsEl,
+                                              const ParamSchema &schema,
+                                              const ImageObject *image)
+{
+    QList<ImageMaskComponent> components = image->maskComponents();
+    if (components.isEmpty()) {
+        ImageMaskComponent component;
+        component.bounds = QRect(0, 0, qMax(1, qRound(image->width)), qMax(1, qRound(image->height)));
+        component.color = image->effectiveMaskColor();
+        component.mask = image->renderedImage();
+        components.append(component);
+    }
+
+    const QList<QList<ImageMaskComponent>> packedGroups = packStaticGroupComponents(schema, components);
+    if (packedGroups.isEmpty()) {
+        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, {}));
+        return;
+    }
+
+    for (const QList<ImageMaskComponent> &groupComponents : packedGroups)
+        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, groupComponents));
+}
+
 QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
                                                          const ParamSchema &schema,
                                                          const ImageObject *image,
@@ -694,10 +835,10 @@ void appendCompiledImageElements(QDomDocument &doc,
                                  QDomElement &objectsEl,
                                  const ParamSchema &staticSchema,
                                  const ParamSchema &rotationSchema,
-                                 const ImageObject *image)
+    const ImageObject *image)
 {
     if (!image->hasRotation()) {
-        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, staticSchema, image, image->maskComponents()));
+        appendStaticGroupElementsFromImageLayers(doc, objectsEl, staticSchema, image);
         return;
     }
 

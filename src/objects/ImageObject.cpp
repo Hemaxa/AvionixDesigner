@@ -15,6 +15,8 @@ constexpr int kColorBucket = 32;
 constexpr int kMaxMaskLayers = 32;
 constexpr int kMinLayerAlphaWeight = 1;
 constexpr int kColorMergeDistanceSquared = 72 * 72;
+constexpr int kWeakColorMergeDistanceSquared = 160 * 160;
+constexpr int kWeakColorMergePercent = 75;
 
 struct ColorStats
 {
@@ -56,6 +58,23 @@ QColor averageColor(const ColorStats &stats, QRgb fallback)
                   qBound(0, static_cast<int>(stats.blue / stats.weight), 255));
 }
 
+void mergeClosePaletteEntry(PaletteEntry &target, const PaletteEntry &entry)
+{
+    const qint64 totalWeight = target.weight + entry.weight;
+    target.sourceColor = QColor(
+        qBound(0, static_cast<int>((target.sourceColor.red() * target.weight + entry.sourceColor.red() * entry.weight) / totalWeight), 255),
+        qBound(0, static_cast<int>((target.sourceColor.green() * target.weight + entry.sourceColor.green() * entry.weight) / totalWeight), 255),
+        qBound(0, static_cast<int>((target.sourceColor.blue() * target.weight + entry.sourceColor.blue() * entry.weight) / totalWeight), 255));
+    target.firstIndex = qMin(target.firstIndex, entry.firstIndex);
+    target.weight = totalWeight;
+}
+
+void absorbWeakPaletteEntry(PaletteEntry &target, const PaletteEntry &entry)
+{
+    target.firstIndex = qMin(target.firstIndex, entry.firstIndex);
+    target.weight += entry.weight;
+}
+
 int colorDistanceSquared(const QColor &a, const QColor &b)
 {
     const int dr = a.red() - b.red();
@@ -82,6 +101,51 @@ QList<PaletteEntry> paletteFromStoredLayers(const QList<ImageColorLayer> &stored
     }
 
     return palette;
+}
+
+QList<PaletteEntry> mergeWeakAntialiasColors(const QList<PaletteEntry> &entries)
+{
+    if (entries.size() < 2)
+        return entries;
+
+    // SVG/raster antialiasing often creates dark edge colors between real fills.
+    // Keep strong source colors separate, but fold weaker nearby colors into them.
+    QList<PaletteEntry> weighted = entries;
+    std::sort(weighted.begin(), weighted.end(), [](const PaletteEntry &a, const PaletteEntry &b) {
+        if (a.weight != b.weight)
+            return a.weight > b.weight;
+        return a.firstIndex < b.firstIndex;
+    });
+
+    QList<PaletteEntry> dominant;
+    dominant.reserve(weighted.size());
+    for (const PaletteEntry &entry : weighted) {
+        int nearestIndex = -1;
+        int nearestDistance = 195075;
+        for (int i = 0; i < dominant.size(); ++i) {
+            const int distance = colorDistanceSquared(entry.sourceColor, dominant[i].sourceColor);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestIndex = i;
+            }
+        }
+
+        if (nearestIndex >= 0 && nearestDistance <= kWeakColorMergeDistanceSquared) {
+            PaletteEntry &nearest = dominant[nearestIndex];
+            if (entry.weight * 100 <= nearest.weight * kWeakColorMergePercent) {
+                absorbWeakPaletteEntry(nearest, entry);
+                continue;
+            }
+        }
+
+        dominant.append(entry);
+    }
+
+    std::sort(dominant.begin(), dominant.end(), [](const PaletteEntry &a, const PaletteEntry &b) {
+        return a.firstIndex < b.firstIndex;
+    });
+
+    return dominant;
 }
 
 QHash<QRgb, ColorStats> collectColorStats(const QImage &image)
@@ -142,24 +206,18 @@ QList<PaletteEntry> paletteFromBuckets(const QHash<QRgb, ColorStats> &statsByBuc
         }
 
         if (nearestIndex >= 0 && nearestDistance <= kColorMergeDistanceSquared) {
-            PaletteEntry &target = clustered[nearestIndex];
-            const qint64 totalWeight = target.weight + entry.weight;
-            target.sourceColor = QColor(
-                qBound(0, static_cast<int>((target.sourceColor.red() * target.weight + entry.sourceColor.red() * entry.weight) / totalWeight), 255),
-                qBound(0, static_cast<int>((target.sourceColor.green() * target.weight + entry.sourceColor.green() * entry.weight) / totalWeight), 255),
-                qBound(0, static_cast<int>((target.sourceColor.blue() * target.weight + entry.sourceColor.blue() * entry.weight) / totalWeight), 255));
-            target.firstIndex = qMin(target.firstIndex, entry.firstIndex);
-            target.weight = totalWeight;
+            mergeClosePaletteEntry(clustered[nearestIndex], entry);
         } else {
             clustered.append(entry);
         }
     }
 
-    std::sort(clustered.begin(), clustered.end(), [](const PaletteEntry &a, const PaletteEntry &b) {
+    entries = mergeWeakAntialiasColors(clustered);
+
+    std::sort(entries.begin(), entries.end(), [](const PaletteEntry &a, const PaletteEntry &b) {
         return a.firstIndex < b.firstIndex;
     });
 
-    entries = clustered;
     if (entries.size() <= kMaxMaskLayers)
         return entries;
 
