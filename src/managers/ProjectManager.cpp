@@ -128,6 +128,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->pixelSize = text->pixelSize;
         clone->fontIndex = text->fontIndex;
         clone->restrictedAtlasEditing = text->restrictedAtlasEditing;
+        clone->exportAlphabetGroups = text->exportAlphabetGroups;
         if (text->hasFontAtlas())
             clone->setFontAtlas(text->fontAtlas(), text->restrictedAtlasEditing);
         clone->extraCharacters = text->extraCharacters;
@@ -373,7 +374,12 @@ QString completeAlphabetForTextObjects(const QList<TextObject*> &texts)
             continue;
 
         const QString characters = text->exportCharacters();
-        groups.unite(detectAlphabetCategories(characters));
+        if (text->exportAlphabetGroups.isEmpty()) {
+            groups.unite(detectAlphabetCategories(characters));
+        } else {
+            for (const QString &group : text->exportAlphabetGroups)
+                groups.insert(group);
+        }
         for (const QChar ch : characters) {
             if (ch.isSpace()) {
                 appendUniqueCharacter(ch);

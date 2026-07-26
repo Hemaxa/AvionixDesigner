@@ -113,6 +113,24 @@ QMenu::separator {
     margin: 6px 8px;
 }
 
+QDialog {
+    background-color: #0f141a;
+    color: #edf7fb;
+    font-size: 14px;
+}
+
+#DialogTitleLabel {
+    color: #edf7fb;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+#DialogDescriptionLabel {
+    color: #9fb3c1;
+    font-size: 14px;
+    line-height: 150%;
+}
+
 QListWidget {
     background-color: #121922;
     border: 1px solid #22303c;
@@ -385,7 +403,17 @@ QPushButton#ColorSwatchButton {
 }
 
 QDialog#SettingsWindow QListWidget {
-    min-width: 168px;
+    min-width: 220px;
+}
+
+QDialog#SettingsWindow QListWidget::item {
+    min-height: 34px;
+    padding: 7px 10px;
+}
+
+QDialog#SettingsWindow QGroupBox {
+    margin-top: 18px;
+    padding: 18px 16px 16px 16px;
 }
 
 QDialog#SettingsWindow QFormLayout QLabel,
@@ -393,8 +421,38 @@ QDialog QLabel {
     color: #edf7fb;
 }
 
+QDialog QLineEdit,
+QDialog QTextEdit,
+QDialog QSpinBox,
+QDialog QComboBox {
+    min-height: 34px;
+    padding: 7px 10px;
+    font-size: 14px;
+}
+
+QDialog QPushButton,
+QDialog QToolButton {
+    min-height: 34px;
+    padding: 8px 14px;
+    font-size: 14px;
+}
+
 QDialogButtonBox QPushButton {
     min-width: 84px;
+}
+
+QDialog#FontExportDialog QTableWidget {
+    background-color: #121922;
+    border: 1px solid #22303c;
+    border-radius: 8px;
+}
+
+QDialog#FontExportDialog QTableWidget::item {
+    padding: 8px 10px;
+}
+
+QDialog#FontExportDialog QHeaderView::section {
+    min-height: 34px;
 }
 
 QScrollArea {

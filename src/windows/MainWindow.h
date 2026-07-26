@@ -10,6 +10,7 @@
 class QAction;
 class QDockWidget;
 class EditorWorkspacePanel;
+class TextObject;
 class NewProjectDialog;
 class ObjectLibraryPanel;
 class ObjectListPanel;
@@ -91,6 +92,8 @@ private:
     void setSelectionState(bool active);
     //обновляет доступность команд истории и вставки
     void updateCommandState();
+    //показывает диалог выбора алфавитов для новых текстовых font-ресурсов перед XML-экспортом
+    bool configureFontExportAlphabets();
 
     EditorWorkspacePanel *m_workspacePanel = nullptr;
     ViewportPanel *m_viewport = nullptr;

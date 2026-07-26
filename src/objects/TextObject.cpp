@@ -449,6 +449,7 @@ void TextObject::setFontAtlas(const FpgaFont &font, bool restricted)
     fontIndex = font.index;
     fontFamily = font.name;
     pixelSize = font.size;
+    exportAlphabetGroups.clear();
     extraCharacters.clear();
     for (const QChar ch : defaultSpecialCharacters()) {
         if (font.glyphs.contains(ch))

@@ -24,7 +24,8 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
     setWindowTitle("Настройки");
     setObjectName("SettingsWindow");
     setModal(true);
-    setMinimumSize(550, 450);
+    setMinimumSize(760, 560);
+    resize(820, 600);
 
     createWidgets();
     loadSettings();
@@ -33,10 +34,13 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
 void SettingsWindow::createWidgets()
 {
     auto *mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(24, 22, 24, 20);
+    mainLayout->setSpacing(18);
     auto *contentLayout = new QHBoxLayout();
+    contentLayout->setSpacing(18);
 
     m_listWidget = new QListWidget(this);
-    m_listWidget->setFixedWidth(180);
+    m_listWidget->setFixedWidth(220);
     m_listWidget->addItem("Настройки");
     m_listWidget->addItem("Горячие клавиши");
 
@@ -45,11 +49,14 @@ void SettingsWindow::createWidgets()
     // Вкладка "Настройки"
     auto *settingsWidget = new QWidget(this);
     auto *settingsLayout = new QVBoxLayout(settingsWidget);
-    settingsLayout->setContentsMargins(4, 4, 12, 4);
-    settingsLayout->setSpacing(12);
+    settingsLayout->setContentsMargins(0, 0, 0, 0);
+    settingsLayout->setSpacing(18);
 
     auto *generalGroup = new QGroupBox(QStringLiteral("Общие"), this);
     auto *generalLayout = new QFormLayout(generalGroup);
+    generalLayout->setContentsMargins(18, 20, 18, 18);
+    generalLayout->setHorizontalSpacing(18);
+    generalLayout->setVerticalSpacing(14);
     generalLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     generalLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
@@ -59,18 +66,21 @@ void SettingsWindow::createWidgets()
 
     auto *snapGroup = new QGroupBox(QStringLiteral("Сетка и привязки"), this);
     auto *formLayout = new QFormLayout(snapGroup);
+    formLayout->setContentsMargins(18, 20, 18, 18);
+    formLayout->setHorizontalSpacing(18);
+    formLayout->setVerticalSpacing(14);
     formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     formLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     formLayout->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
 
     m_gridStepSpin = new QSpinBox(this);
     m_gridStepSpin->setRange(1, 100);
-    m_gridStepSpin->setMinimumWidth(120);
+    m_gridStepSpin->setMinimumWidth(160);
     formLayout->addRow("Шаг сетки:", m_gridStepSpin);
 
     m_gridColorButton = new QPushButton(this);
     m_gridColorButton->setObjectName("ColorSwatchButton");
-    m_gridColorButton->setFixedSize(34, 28);
+    m_gridColorButton->setFixedSize(44, 34);
     connect(m_gridColorButton, &QPushButton::clicked, this, [this]() {
         chooseColor(&m_currentGridColor, m_gridColorButton, QStringLiteral("Цвет сетки"));
     });
@@ -78,7 +88,7 @@ void SettingsWindow::createWidgets()
 
     m_snapCanvasColorButton = new QPushButton(this);
     m_snapCanvasColorButton->setObjectName("ColorSwatchButton");
-    m_snapCanvasColorButton->setFixedSize(34, 28);
+    m_snapCanvasColorButton->setFixedSize(44, 34);
     connect(m_snapCanvasColorButton, &QPushButton::clicked, this, [this]() {
         chooseColor(&m_currentSnapCanvasColor, m_snapCanvasColorButton, QStringLiteral("Цвет привязки к границам"));
     });
@@ -86,7 +96,7 @@ void SettingsWindow::createWidgets()
 
     m_snapGridColorButton = new QPushButton(this);
     m_snapGridColorButton->setObjectName("ColorSwatchButton");
-    m_snapGridColorButton->setFixedSize(34, 28);
+    m_snapGridColorButton->setFixedSize(44, 34);
     connect(m_snapGridColorButton, &QPushButton::clicked, this, [this]() {
         chooseColor(&m_currentSnapGridColor, m_snapGridColorButton, QStringLiteral("Цвет привязки к сетке"));
     });
@@ -94,7 +104,7 @@ void SettingsWindow::createWidgets()
 
     m_snapObjectColorButton = new QPushButton(this);
     m_snapObjectColorButton->setObjectName("ColorSwatchButton");
-    m_snapObjectColorButton->setFixedSize(34, 28);
+    m_snapObjectColorButton->setFixedSize(44, 34);
     connect(m_snapObjectColorButton, &QPushButton::clicked, this, [this]() {
         chooseColor(&m_currentSnapObjectColor, m_snapObjectColorButton, QStringLiteral("Цвет привязки к объектам"));
     });
@@ -107,6 +117,9 @@ void SettingsWindow::createWidgets()
     // Вкладка "Горячие клавиши"
     auto *hotkeysWidget = new QWidget(this);
     auto *hotkeysLayout = new QFormLayout(hotkeysWidget);
+    hotkeysLayout->setContentsMargins(0, 0, 0, 0);
+    hotkeysLayout->setHorizontalSpacing(22);
+    hotkeysLayout->setVerticalSpacing(12);
     hotkeysLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
     hotkeysLayout->addRow(new QLabel("<b>Файл:</b>", this));
@@ -137,6 +150,7 @@ void SettingsWindow::createWidgets()
     mainLayout->addLayout(contentLayout);
 
     auto *bottomLayout = new QHBoxLayout();
+    bottomLayout->setSpacing(12);
     QPushButton *resetButton = new QPushButton("Сбросить все настройки", this);
     resetButton->setObjectName("ResetButton");
     bottomLayout->addWidget(resetButton);
@@ -168,13 +182,13 @@ void SettingsWindow::updateColorButtonIcon(QPushButton *button, const QColor &co
     if (!button)
         return;
 
-    QPixmap pixmap(22, 16);
+    QPixmap pixmap(30, 22);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setBrush(color);
     painter.setPen(QPen(QColor(230, 245, 255, 170), 1));
-    painter.drawRoundedRect(QRectF(1, 1, 20, 14), 3, 3);
+    painter.drawRoundedRect(QRectF(1, 1, 28, 20), 4, 4);
     painter.end();
     button->setIcon(QIcon(pixmap));
 }

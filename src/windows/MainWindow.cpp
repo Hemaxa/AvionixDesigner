@@ -3,6 +3,7 @@
 #include "AppearanceManager.h"
 #include "EditorWorkspacePanel.h"
 #include "FpgaSchemaRegistry.h"
+#include "FontExportDialog.h"
 #include "NewProjectDialog.h"
 #include "ObjectLibraryPanel.h"
 #include "ObjectListPanel.h"
@@ -10,6 +11,7 @@
 #include "ProjectManager.h"
 #include "SelectionToolStrip.h"
 #include "SettingsWindow.h"
+#include "TextObject.h"
 #include "ViewportPanel.h"
 #include "ViewportSettingsPanel.h"
 
@@ -23,6 +25,7 @@
 #include <QMessageBox>
 #include <QPointF>
 #include <QSettings>
+#include <QSet>
 #include <QTimer>
 
 #include <algorithm>
@@ -30,6 +33,47 @@
 
 namespace {
 constexpr int kLayoutStateVersion = 2;
+
+QString fontExportKey(const QString &family, int pixelSize)
+{
+    return family + QLatin1Char('\n') + QString::number(pixelSize);
+}
+
+QStringList detectedAlphabetGroups(const QString &characters)
+{
+    QSet<QString> groups;
+    for (const QChar ch : characters) {
+        const ushort code = ch.unicode();
+        if (ch.isDigit()) {
+            groups.insert(QStringLiteral("digits"));
+        } else if (code >= 'A' && code <= 'Z') {
+            groups.insert(QStringLiteral("latin_upper"));
+        } else if (code >= 'a' && code <= 'z') {
+            groups.insert(QStringLiteral("latin_lower"));
+        } else if ((code >= 0x0410 && code <= 0x042F) || code == 0x0401) {
+            groups.insert(QStringLiteral("cyrillic_upper"));
+        } else if ((code >= 0x0430 && code <= 0x044F) || code == 0x0451) {
+            groups.insert(QStringLiteral("cyrillic_lower"));
+        } else if (QStringLiteral("α°+-/").contains(ch)) {
+            groups.insert(QStringLiteral("symbols"));
+        }
+    }
+
+    QStringList ordered;
+    const QStringList groupOrder = {
+        QStringLiteral("digits"),
+        QStringLiteral("latin_upper"),
+        QStringLiteral("latin_lower"),
+        QStringLiteral("cyrillic_upper"),
+        QStringLiteral("cyrillic_lower"),
+        QStringLiteral("symbols")
+    };
+    for (const QString &group : groupOrder) {
+        if (groups.contains(group))
+            ordered.append(group);
+    }
+    return ordered;
+}
 }
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
@@ -123,6 +167,9 @@ void MainWindow::onSaveFile()
         return;
     }
 
+    if (!configureFontExportAlphabets())
+        return;
+
     project->saveToFile();
 }
 
@@ -138,6 +185,9 @@ void MainWindow::onSaveFileAs()
     );
 
     if (!fileName.isEmpty()) {
+        if (!configureFontExportAlphabets())
+            return;
+
         project->saveToFile(fileName);
         QSettings settings("Avionix", "Designer");
         settings.setValue("lastProject", fileName);
@@ -536,6 +586,61 @@ void MainWindow::pasteObjects()
     handleSelectionChanged(pastedIndexes);
     m_viewport->update();
     updateCommandState();
+}
+
+bool MainWindow::configureFontExportAlphabets()
+{
+    auto *project = ProjectManager::instance();
+    QMap<QString, FontExportDialogEntry> entriesByKey;
+    QMap<QString, QList<TextObject*>> textsByKey;
+
+    for (const auto &object : project->getObjects()) {
+        auto *text = dynamic_cast<TextObject*>(object.data());
+        if (!text || !text->isExportEnabled() || text->hasFontAtlas())
+            continue;
+
+        const QString key = fontExportKey(text->fontFamily, text->pixelSize);
+        FontExportDialogEntry entry = entriesByKey.value(key);
+        if (entry.fontFamily.isEmpty()) {
+            entry.fontFamily = text->fontFamily;
+            entry.pixelSize = text->pixelSize;
+        }
+
+        entry.textCount += 1;
+        if (!entry.sampleText.contains(text->text)) {
+            if (!entry.sampleText.isEmpty())
+                entry.sampleText.append(QStringLiteral("; "));
+            entry.sampleText.append(text->text);
+        }
+
+        const QStringList detectedGroups = detectedAlphabetGroups(text->exportCharacters());
+        for (const QString &group : detectedGroups) {
+            if (!entry.alphabetGroups.contains(group))
+                entry.alphabetGroups.append(group);
+        }
+
+        entriesByKey.insert(key, entry);
+        textsByKey[key].append(text);
+    }
+
+    if (entriesByKey.isEmpty())
+        return true;
+
+    QList<FontExportDialogEntry> entries;
+    for (auto it = entriesByKey.constBegin(); it != entriesByKey.constEnd(); ++it)
+        entries.append(it.value());
+
+    FontExportDialog dialog(entries, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    for (const FontExportDialogEntry &entry : dialog.entries()) {
+        const QString key = fontExportKey(entry.fontFamily, entry.pixelSize);
+        for (TextObject *text : textsByKey.value(key))
+            text->exportAlphabetGroups = entry.alphabetGroups;
+    }
+
+    return true;
 }
 
 void MainWindow::groupSelectedObjects()

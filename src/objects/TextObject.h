@@ -43,6 +43,7 @@ public:
     int pixelSize = 14;
     int fontIndex = 0;
     QString extraCharacters = QStringLiteral("α°+-/");
+    QStringList exportAlphabetGroups;
     bool restrictedAtlasEditing = false;
 
     explicit TextObject(QObject *parent = nullptr);

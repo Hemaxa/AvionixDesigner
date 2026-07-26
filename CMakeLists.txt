@@ -74,6 +74,8 @@ qt_add_executable(AvionixDesigner
     src/windows/NewProjectDialog.cpp
     src/windows/SettingsWindow.h
     src/windows/SettingsWindow.cpp
+    src/windows/FontExportDialog.h
+    src/windows/FontExportDialog.cpp
     
     # Утилиты (header-only)
     src/utils/BitParser.h
