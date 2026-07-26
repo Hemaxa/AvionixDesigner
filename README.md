@@ -4,7 +4,7 @@ AvionixDesigner - редактор кадров для графического 
 
 ## Скриншот
 
-
+<img width="1840" height="1191" alt="Снимок экрана 2026-07-27 в 02 46 15" src="https://github.com/user-attachments/assets/55a007be-ea3c-49ce-90be-c08732e55da8" />
 
 ## Сборка
 
