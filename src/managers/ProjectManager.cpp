@@ -57,6 +57,7 @@ void copyBaseFlags(const BaseObject *source, BaseObject *target)
     target->setExportEnabled(source->isExportEnabled());
     target->setImportedHardwareObject(source->isImportedHardwareObject());
     target->setResizeLocked(!source->canResize());
+    target->setCustomName(source->customName());
 }
 
 QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
@@ -1168,6 +1169,8 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     m_filePath = fileName;
     m_objects.clear();
     m_objectTags.clear();
+    m_groups.clear();
+    m_nextGroupId = 1;
     m_fonts.clear();
     clearHistory();
     
@@ -1399,6 +1402,8 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 
     m_objects.clear();
     m_objectTags.clear();
+    m_groups.clear();
+    m_nextGroupId = 1;
     clearHistory();
     m_schemaAliases = registry->defaultSchemaAliases();
     m_fonts.clear();
@@ -1417,13 +1422,15 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 
 ProjectManager::ProjectSnapshot ProjectManager::captureSnapshot() const
 {
-    return {cloneObjectList(m_objects), m_objectTags};
+    return {cloneObjectList(m_objects), m_objectTags, m_groups, m_nextGroupId};
 }
 
 void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
 {
     m_objects = cloneObjectList(snapshot.objects);
     m_objectTags = snapshot.objectTags;
+    m_groups = snapshot.groups;
+    m_nextGroupId = snapshot.nextGroupId;
 }
 
 void ProjectManager::recordHistory()
@@ -1679,6 +1686,24 @@ bool ProjectManager::removeObjects(const QList<int> &indexes)
             m_objectTags.removeAt(index);
     }
 
+    for (ObjectGroup &group : m_groups) {
+        QList<int> updatedMembers;
+        for (int member : group.members) {
+            if (seen.contains(member))
+                continue;
+            int shift = 0;
+            for (int removed : normalized) {
+                if (removed < member)
+                    ++shift;
+            }
+            updatedMembers.append(member - shift);
+        }
+        group.members = updatedMembers;
+    }
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [](const ObjectGroup &group) {
+        return group.members.size() < 2;
+    }), m_groups.end());
+
     emit projectChanged();
     emit logMessage(tr("Удалено объектов: %1").arg(normalized.size()));
     return true;
@@ -1705,11 +1730,13 @@ bool ProjectManager::reorderObjects(const QList<int> &order)
     reorderedTags.reserve(m_objectTags.size());
 
     QSet<int> seen;
+    QMap<int, int> oldToNew;
     for (int index : order) {
         if (index < 0 || index >= m_objects.size() || seen.contains(index))
             return false;
 
         seen.insert(index);
+        oldToNew.insert(index, reorderedObjects.size());
         reorderedObjects.append(m_objects[index]);
         reorderedTags.append(index < m_objectTags.size() ? m_objectTags[index] : QString());
     }
@@ -1717,6 +1744,15 @@ bool ProjectManager::reorderObjects(const QList<int> &order)
     recordHistory();
     m_objects = reorderedObjects;
     m_objectTags = reorderedTags;
+    for (ObjectGroup &group : m_groups) {
+        QList<int> updatedMembers;
+        for (int member : group.members) {
+            if (oldToNew.contains(member))
+                updatedMembers.append(oldToNew.value(member));
+        }
+        std::sort(updatedMembers.begin(), updatedMembers.end());
+        group.members = updatedMembers;
+    }
     emit projectChanged();
     emit logMessage(tr("Изменён порядок слоёв объектов"));
     return true;
@@ -1764,6 +1800,153 @@ bool ProjectManager::sendObjectsToBack(const QList<int> &indexes)
             order.append(i);
     }
     return reorderObjects(order);
+}
+
+int ProjectManager::groupObjects(const QList<int> &indexes)
+{
+    QList<int> normalized;
+    QSet<int> seen;
+    for (int index : indexes) {
+        if (index < 0 || index >= m_objects.size() || seen.contains(index))
+            continue;
+        seen.insert(index);
+        normalized.append(index);
+    }
+    std::sort(normalized.begin(), normalized.end());
+    if (normalized.size() < 2)
+        return -1;
+
+    recordHistory();
+    for (ObjectGroup &group : m_groups) {
+        QList<int> kept;
+        for (int member : group.members) {
+            if (!seen.contains(member))
+                kept.append(member);
+        }
+        group.members = kept;
+    }
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [](const ObjectGroup &group) {
+        return group.members.size() < 2;
+    }), m_groups.end());
+
+    ObjectGroup group;
+    group.id = m_nextGroupId++;
+    group.name = tr("Группа %1").arg(group.id);
+    group.members = normalized;
+    m_groups.append(group);
+
+    emit projectChanged();
+    emit logMessage(tr("Создана группа: %1 объектов").arg(group.members.size()));
+    return group.id;
+}
+
+bool ProjectManager::ungroupObjects(const QList<int> &indexes)
+{
+    QSet<int> selected;
+    for (int index : indexes) {
+        if (index >= 0 && index < m_objects.size())
+            selected.insert(index);
+    }
+    if (selected.isEmpty())
+        return false;
+
+    QList<int> removeGroupIds;
+    for (const ObjectGroup &group : m_groups) {
+        for (int member : group.members) {
+            if (selected.contains(member)) {
+                removeGroupIds.append(group.id);
+                break;
+            }
+        }
+    }
+    if (removeGroupIds.isEmpty())
+        return false;
+
+    recordHistory();
+    const QSet<int> removeSet(removeGroupIds.begin(), removeGroupIds.end());
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [&removeSet](const ObjectGroup &group) {
+        return removeSet.contains(group.id);
+    }), m_groups.end());
+
+    emit projectChanged();
+    emit logMessage(tr("Группа разгруппирована"));
+    return true;
+}
+
+bool ProjectManager::selectionContainsGroup(const QList<int> &indexes) const
+{
+    QSet<int> selected;
+    for (int index : indexes)
+        selected.insert(index);
+
+    for (const ObjectGroup &group : m_groups) {
+        for (int member : group.members) {
+            if (selected.contains(member))
+                return true;
+        }
+    }
+    return false;
+}
+
+QList<int> ProjectManager::groupMembersForObject(int index) const
+{
+    for (const ObjectGroup &group : m_groups) {
+        if (group.members.contains(index))
+            return group.members;
+    }
+    return {};
+}
+
+QList<int> ProjectManager::groupMembers(int groupId) const
+{
+    for (const ObjectGroup &group : m_groups) {
+        if (group.id == groupId)
+            return group.members;
+    }
+    return {};
+}
+
+QString ProjectManager::groupName(int groupId) const
+{
+    for (const ObjectGroup &group : m_groups) {
+        if (group.id == groupId)
+            return group.name;
+    }
+    return {};
+}
+
+bool ProjectManager::renameGroup(int groupId, const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty())
+        return false;
+
+    for (ObjectGroup &group : m_groups) {
+        if (group.id != groupId)
+            continue;
+        if (group.name == trimmed)
+            return true;
+        recordHistory();
+        group.name = trimmed;
+        emit projectChanged();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectManager::renameObject(int index, const QString &name)
+{
+    if (index < 0 || index >= m_objects.size())
+        return false;
+
+    const QString trimmed = name.trimmed();
+    if (m_objects[index]->customName() == trimmed)
+        return true;
+
+    recordHistory();
+    m_objects[index]->setCustomName(trimmed);
+    emit projectChanged();
+    return true;
 }
 
 bool ProjectManager::copyObjects(const QList<int> &indexes)
@@ -2051,6 +2234,7 @@ int ProjectManager::getCanvasHeight() const { return m_document->canvasHeight();
 QColor ProjectManager::getBackgroundColor() const { return m_document->backgroundColor(); }
 QString ProjectManager::getFilePath() const { return m_filePath; }
 const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }
+QList<ProjectManager::ObjectGroup> ProjectManager::objectGroups() const { return m_groups; }
 bool ProjectManager::showGrid() const { return m_showGrid; }
 bool ProjectManager::snapToCanvas() const { return m_snapToCanvas; }
 bool ProjectManager::snapToGrid() const { return m_snapToGrid; }

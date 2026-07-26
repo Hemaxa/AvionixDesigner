@@ -29,6 +29,8 @@
         <file>icons/selection/paste.svg</file>
         <file>icons/selection/send-front.svg</file>
         <file>icons/selection/send-back.svg</file>
+        <file>icons/selection/group.svg</file>
+        <file>icons/selection/ungroup.svg</file>
         <file>icons/selection/delete.svg</file>
     </qresource>
 </RCC>

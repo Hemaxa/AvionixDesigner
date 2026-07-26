@@ -21,6 +21,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPointF>
 #include <QSettings>
 #include <QTimer>
 
@@ -283,6 +284,9 @@ void MainWindow::createMenus()
     editMenu->addAction(createAction("Копировать", QKeySequence::Copy, this, SLOT(copySelectedObjects())));
     editMenu->addAction(createAction("Вставить", QKeySequence::Paste, this, SLOT(pasteObjects())));
     editMenu->addSeparator();
+    editMenu->addAction(createAction("Сгруппировать", QKeySequence("Ctrl+G"), this, SLOT(groupSelectedObjects())));
+    editMenu->addAction(createAction("Разгруппировать", QKeySequence("Ctrl+Shift+G"), this, SLOT(ungroupSelectedObjects())));
+    editMenu->addSeparator();
     QAction *frontAction = editMenu->addAction("На передний план");
     frontAction->setShortcut(QKeySequence("Ctrl+]"));
     connect(frontAction, &QAction::triggered, this, [this]() {
@@ -389,6 +393,8 @@ void MainWindow::connectSignals()
     connect(m_selectionToolStrip, &SelectionToolStrip::copyRequested, this, &MainWindow::copySelectedObjects);
     connect(m_selectionToolStrip, &SelectionToolStrip::pasteRequested, this, &MainWindow::pasteObjects);
     connect(m_selectionToolStrip, &SelectionToolStrip::deleteRequested, this, &MainWindow::deleteSelectedObject);
+    connect(m_selectionToolStrip, &SelectionToolStrip::groupRequested, this, &MainWindow::groupSelectedObjects);
+    connect(m_selectionToolStrip, &SelectionToolStrip::ungroupRequested, this, &MainWindow::ungroupSelectedObjects);
     connect(m_viewport, &ViewportPanel::imageDropped, this, [this](const QString &fileName) {
         const int index = ProjectManager::instance()->importImageAsStaticGroup(fileName);
         if (index < 0)
@@ -532,6 +538,41 @@ void MainWindow::pasteObjects()
     updateCommandState();
 }
 
+void MainWindow::groupSelectedObjects()
+{
+    const QList<int> indexes = m_viewport->getSelectedIndexes();
+    if (indexes.size() < 2)
+        return;
+
+    auto *project = ProjectManager::instance();
+    const int groupId = project->groupObjects(indexes);
+    if (groupId < 0)
+        return;
+
+    const QList<int> groupMembers = project->groupMembers(groupId);
+    m_objectList->refreshList();
+    m_objectList->selectRows(groupMembers);
+    m_viewport->setSelectedIndexes(groupMembers);
+    handleSelectionChanged(groupMembers);
+    m_viewport->update();
+}
+
+void MainWindow::ungroupSelectedObjects()
+{
+    const QList<int> indexes = m_viewport->getSelectedIndexes();
+    if (indexes.isEmpty())
+        return;
+
+    if (!ProjectManager::instance()->ungroupObjects(indexes))
+        return;
+
+    m_objectList->refreshList();
+    m_objectList->selectRows(indexes);
+    m_viewport->setSelectedIndexes(indexes);
+    handleSelectionChanged(indexes);
+    m_viewport->update();
+}
+
 void MainWindow::alignSelectedObject(int actionId)
 {
     const QList<int> indexes = m_viewport->getSelectedIndexes();
@@ -609,37 +650,53 @@ void MainWindow::alignSelectedObject(int actionId)
     if (!hasBounds || bounds.isEmpty())
         return;
 
-    double dx = 0.0;
-    double dy = 0.0;
-    switch (alignment) {
-    case ObjectAlignment::Left:
-        dx = -bounds.left();
-        break;
-    case ObjectAlignment::HCenter:
-        dx = project->getCanvasWidth() / 2.0 - bounds.center().x();
-        break;
-    case ObjectAlignment::Right:
-        dx = project->getCanvasWidth() - bounds.right();
-        break;
-    case ObjectAlignment::Top:
-        dy = -bounds.top();
-        break;
-    case ObjectAlignment::VCenter:
-        dy = project->getCanvasHeight() / 2.0 - bounds.center().y();
-        break;
-    case ObjectAlignment::Bottom:
-        dy = project->getCanvasHeight() - bounds.bottom();
-        break;
+    struct MoveDelta
+    {
+        int index = -1;
+        QPointF delta;
+    };
+
+    QList<MoveDelta> deltas;
+    for (int index : indexes) {
+        const auto object = project->getObjectAt(index);
+        if (!object)
+            continue;
+
+        const QRectF objectBounds = object->getBoundingRect();
+        QPointF delta;
+        switch (alignment) {
+        case ObjectAlignment::Left:
+            delta.setX(bounds.left() - objectBounds.left());
+            break;
+        case ObjectAlignment::HCenter:
+            delta.setX(bounds.center().x() - objectBounds.center().x());
+            break;
+        case ObjectAlignment::Right:
+            delta.setX(bounds.right() - objectBounds.right());
+            break;
+        case ObjectAlignment::Top:
+            delta.setY(bounds.top() - objectBounds.top());
+            break;
+        case ObjectAlignment::VCenter:
+            delta.setY(bounds.center().y() - objectBounds.center().y());
+            break;
+        case ObjectAlignment::Bottom:
+            delta.setY(bounds.bottom() - objectBounds.bottom());
+            break;
+        }
+
+        if (!qFuzzyIsNull(delta.x()) || !qFuzzyIsNull(delta.y()))
+            deltas.append({index, delta});
     }
 
-    if (qFuzzyIsNull(dx) && qFuzzyIsNull(dy))
+    if (deltas.isEmpty())
         return;
 
     project->recordObjectEdit();
-    for (int index : indexes) {
-        const auto object = project->getObjectAt(index);
+    for (const MoveDelta &move : deltas) {
+        const auto object = project->getObjectAt(move.index);
         if (object)
-            object->moveBy(dx, dy);
+            object->moveBy(move.delta.x(), move.delta.y());
     }
     project->finishObjectEdit(tr("Выполнено выравнивание объектов"));
     m_objectProperties->clearProperties();

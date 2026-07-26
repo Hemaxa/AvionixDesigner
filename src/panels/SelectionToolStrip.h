@@ -39,6 +39,8 @@ signals:
     void copyRequested();
     void pasteRequested();
     void deleteRequested();
+    void groupRequested();
+    void ungroupRequested();
 
 private:
     QToolButton* createActionButton(const QString &iconPath, const QString &toolTip);

@@ -45,6 +45,14 @@ public:
     bool reorderObjects(const QList<int> &order);
     bool sendObjectsToFront(const QList<int> &indexes);
     bool sendObjectsToBack(const QList<int> &indexes);
+    int groupObjects(const QList<int> &indexes);
+    bool ungroupObjects(const QList<int> &indexes);
+    bool selectionContainsGroup(const QList<int> &indexes) const;
+    QList<int> groupMembersForObject(int index) const;
+    QList<int> groupMembers(int groupId) const;
+    QString groupName(int groupId) const;
+    bool renameGroup(int groupId, const QString &name);
+    bool renameObject(int index, const QString &name);
     bool copyObjects(const QList<int> &indexes);
     QList<int> pasteObjects();
     bool canPasteObjects() const;
@@ -62,6 +70,13 @@ public:
     const QList<QSharedPointer<BaseObject>>& getObjects() const;
     QSharedPointer<BaseObject> getObjectAt(int index) const;
     int getObjectCount() const;
+    struct ObjectGroup
+    {
+        int id = -1;
+        QString name;
+        QList<int> members;
+    };
+    QList<ObjectGroup> objectGroups() const;
 
     QString getProjectName() const;
     int getCanvasWidth() const;
@@ -97,6 +112,8 @@ private:
     {
         QList<QSharedPointer<BaseObject>> objects;
         QStringList objectTags;
+        QList<ObjectGroup> groups;
+        int nextGroupId = 1;
     };
 
     ProjectManager();
@@ -113,6 +130,8 @@ private:
     QString m_filePath;
     QList<QSharedPointer<BaseObject>> m_objects;
     QStringList m_objectTags;
+    QList<ObjectGroup> m_groups;
+    int m_nextGroupId = 1;
     QMap<QString, ParamSchema> m_schemas;
     QMap<QString, QString> m_schemaAliases;
     QMap<int, FpgaFont> m_fonts;

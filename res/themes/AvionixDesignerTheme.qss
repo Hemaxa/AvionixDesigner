@@ -101,9 +101,9 @@ QListWidget {
 QListWidget::item {
     background-color: transparent;
     border: 1px solid transparent;
-    margin: 2px 4px;
-    padding: 4px 6px;
-    border-radius: 6px;
+    margin: 1px 3px;
+    padding: 0;
+    border-radius: 4px;
 }
 
 QListWidget::item:hover {
@@ -117,9 +117,16 @@ QListWidget::item:selected {
 }
 
 #ObjectListRowWidget,
+#ObjectListGroupRowWidget {
+    background-color: transparent;
+    border: none;
+}
+
 #ObjectListIconButton {
     background-color: transparent;
     border: none;
+    padding: 0;
+    border-radius: 4px;
 }
 
 #ObjectListRowLabel {
@@ -128,18 +135,25 @@ QListWidget::item:selected {
     padding: 0;
 }
 
+#ObjectListTypeLabel {
+    background-color: transparent;
+    color: #7fc7d9;
+    padding: 0;
+    font-size: 11px;
+}
+
 QCheckBox {
     background-color: transparent;
     color: #e9f6ff;
-    spacing: 8px;
-    min-height: 24px;
+    spacing: 4px;
+    min-height: 20px;
 }
 
 QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     border: 1px solid #3a4b56;
-    border-radius: 4px;
+    border-radius: 3px;
     background-color: #11181e;
 }
 

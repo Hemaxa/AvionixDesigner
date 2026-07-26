@@ -45,6 +45,8 @@ private slots:
     void copySelectedObjects();
     void pasteObjects();
     void alignSelectedObject(int actionId);
+    void groupSelectedObjects();
+    void ungroupSelectedObjects();
     void handleSelectionChanged(const QList<int> &indexes);
 
 protected:

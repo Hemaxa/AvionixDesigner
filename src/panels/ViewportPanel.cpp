@@ -2,6 +2,7 @@
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
 #include "DashedLineObject.h"
+#include <algorithm>
 #include <QPainter>
 #include <QWheelEvent>
 #include <QMouseEvent>
@@ -581,6 +582,11 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         QPointF canvasPos = mapToCanvas(event->pos());
         m_lastMousePos = canvasPos;
         auto pm = ProjectManager::instance();
+
+        if (m_selectedIndexes.size() > 1 && selectedObjectContains(canvasPos)) {
+            beginMoveDrag(canvasPos, selectedObjectsRect());
+            return;
+        }
         
         // 1. Проверяем клик по манипуляторам выделенного объекта
         if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
@@ -618,11 +624,6 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 return;
             }
         }
-
-        if (m_selectedIndexes.size() > 1 && selectedObjectContains(canvasPos)) {
-            beginMoveDrag(canvasPos, selectedObjectsRect());
-            return;
-        }
         
         // 2. Ищем объект под курсором (верхние строки списка считаются верхними слоями)
         m_dragMode = None;
@@ -634,14 +635,25 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 break;
             }
         }
+
+        QList<int> newSelectionIndexes;
+        if (newSelection >= 0) {
+            const QList<int> groupMembers = pm->groupMembersForObject(newSelection);
+            newSelectionIndexes = groupMembers.isEmpty() ? QList<int>{newSelection} : groupMembers;
+        }
         
-        if (m_selectedIndex != newSelection) {
-            setSelectedIndex(newSelection);
-            emit objectSelected(newSelection);
+        if (m_selectedIndexes != newSelectionIndexes) {
+            setSelectedIndexes(newSelectionIndexes);
+            emit objectSelected(m_selectedIndex);
             emit selectionChanged(m_selectedIndexes);
         }
 
         if (newSelection >= 0) {
+            if (m_selectedIndexes.size() > 1) {
+                beginMoveDrag(canvasPos, selectedObjectsRect());
+                return;
+            }
+
             auto selected = pm->getObjectAt(newSelection);
             if (selected) {
                 if (auto dashedLine = dynamic_cast<DashedLineObject*>(selected.data())) {
@@ -776,12 +788,21 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
         QRectF marqueeRect = QRectF(m_marqueeStartPos, m_marqueeCurrentPos).normalized();
         
         QList<int> newSelection;
+        QSet<int> selectedSet;
         for (int i = pm->getObjectCount() - 1; i >= 0; --i) {
             auto candidate = pm->getObjectAt(i);
             if (candidate->isViewVisible() && marqueeRect.intersects(candidate->getBoundingRect())) {
-                newSelection.prepend(i);
+                const QList<int> groupMembers = pm->groupMembersForObject(i);
+                const QList<int> indexes = groupMembers.isEmpty() ? QList<int>{i} : groupMembers;
+                for (int index : indexes) {
+                    if (selectedSet.contains(index))
+                        continue;
+                    selectedSet.insert(index);
+                    newSelection.append(index);
+                }
             }
         }
+        std::sort(newSelection.begin(), newSelection.end());
         
         if (m_selectedIndexes != newSelection) {
             setSelectedIndexes(newSelection);

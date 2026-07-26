@@ -7,6 +7,7 @@
 #include <QModelIndex>
 
 class QListWidget;
+class QListWidgetItem;
 class QVBoxLayout;
 
 class ObjectListPanel : public BasePanel
@@ -33,8 +34,10 @@ private slots:
     void onRowChanged(int row);
     void onSelectionChanged();
     void onRowsMoved(const QModelIndex &parent, int start, int end, const QModelIndex &destination, int row);
+    void onItemDoubleClicked(QListWidgetItem *item);
 
 private:
+    QList<int> selectedObjectIndexes() const;
     QListWidget *m_listWidget; //виджет списка
     bool m_refreshing = false;
 };

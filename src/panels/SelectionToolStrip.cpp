@@ -36,6 +36,16 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
     m_selectionButtons.append(backButton);
     layout->addWidget(backButton);
 
+    auto *groupButton = createActionButton(QStringLiteral(":/icons/icons/selection/group.svg"), QStringLiteral("Сгруппировать"));
+    connect(groupButton, &QToolButton::clicked, this, &SelectionToolStrip::groupRequested);
+    m_selectionButtons.append(groupButton);
+    layout->addWidget(groupButton);
+
+    auto *ungroupButton = createActionButton(QStringLiteral(":/icons/icons/selection/ungroup.svg"), QStringLiteral("Разгруппировать"));
+    connect(ungroupButton, &QToolButton::clicked, this, &SelectionToolStrip::ungroupRequested);
+    m_selectionButtons.append(ungroupButton);
+    layout->addWidget(ungroupButton);
+
     struct ActionDef
     {
         QString iconPath;
