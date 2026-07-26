@@ -10,6 +10,7 @@
 #include <QFileInfo>
 #include <QLineF>
 #include <QMimeData>
+#include <QPalette>
 #include <QSet>
 #include <QUrl>
 #include <QVector>
@@ -477,8 +478,8 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     auto pm = ProjectManager::instance();
     
-    //заливаем фон виджета цветом из текущей темы
-    painter.fillRect(rect(), AppearanceManager::instance()->getColor("viewport"));
+    //заливаем фон виджета цветом, заданным для #ViewportPanel в QSS
+    painter.fillRect(rect(), palette().color(QPalette::Window));
     
     int canvasW = pm->getCanvasWidth();
     int canvasH = pm->getCanvasHeight();
@@ -540,10 +541,10 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     // Рисуем рамку выделения
     if (m_dragMode == MarqueeSelect) {
         painter.save();
-        QColor marqueeColor = AppearanceManager::instance()->getColor("accent");
+        QColor marqueeColor = palette().color(QPalette::Highlight);
         marqueeColor.setAlpha(50);
         painter.setBrush(marqueeColor);
-        painter.setPen(QPen(AppearanceManager::instance()->getColor("accent"), 1, Qt::DashLine));
+        painter.setPen(QPen(palette().color(QPalette::Highlight), 1, Qt::DashLine));
         QRectF marqueeRect(m_marqueeStartPos, m_marqueeCurrentPos);
         painter.drawRect(marqueeRect.normalized());
         painter.restore();
@@ -552,7 +553,9 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     painter.restore();
     
     //рисуем рамку вокруг холста
-    painter.setPen(QPen(QColor(0x5a, 0x5a, 0x5a), 1));
+    QColor canvasFrameColor = palette().color(QPalette::WindowText);
+    canvasFrameColor.setAlpha(90);
+    painter.setPen(QPen(canvasFrameColor, 1));
     painter.drawRect(QRectF(offsetX, offsetY, canvasW * totalScale, canvasH * totalScale));
 }
 
