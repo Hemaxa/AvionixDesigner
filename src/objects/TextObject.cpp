@@ -68,6 +68,67 @@ QString normalizedSpecialCharacters(const QString &value)
 
     return result;
 }
+
+QString glyphMaskRowsFromImage(const QImage &image)
+{
+    QStringList rows;
+    rows.reserve(image.height());
+    for (int y = 0; y < image.height(); ++y) {
+        QString row;
+        row.reserve(image.width());
+        for (int x = 0; x < image.width(); ++x) {
+            const int alpha = image.pixelColor(x, y).alpha();
+            row.append(QString::number(qBound(0, qRound(alpha * 7.0 / 255.0), 7)));
+        }
+        rows.append(row);
+    }
+    return rows.join('\n');
+}
+
+FpgaGlyph renderPreviewGlyph(const QFont &font, const QChar ch)
+{
+    QFontMetrics metrics(font);
+    QRect tight = metrics.tightBoundingRect(QString(ch));
+    if (tight.isEmpty())
+        tight = QRect(0, -metrics.ascent(), qMax(1, metrics.horizontalAdvance(ch)), metrics.height());
+
+    const int padding = qMax(2, (qMax(1, font.pixelSize()) + 7) / 8);
+    QImage image(qMax(1, tight.width() + padding * 2), qMax(1, tight.height() + padding * 2), QImage::Format_ARGB32);
+    image.fill(Qt::transparent);
+
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+    painter.setFont(font);
+    painter.setPen(Qt::white);
+    painter.drawText(QPoint(padding - tight.left(), padding - tight.top()), QString(ch));
+    painter.end();
+
+    FpgaGlyph glyph;
+    glyph.literal = ch;
+    glyph.code = ch.unicode();
+    glyph.width = image.width();
+    glyph.height = image.height();
+    glyph.advance = metrics.horizontalAdvance(ch);
+    glyph.bearingX = tight.left();
+    glyph.bearingY = tight.top();
+    glyph.ascent = metrics.ascent();
+    glyph.descent = metrics.descent();
+    glyph.floater = tight.top();
+    glyph.size = font.pixelSize();
+    glyph.maskRows = glyphMaskRowsFromImage(image);
+    glyph.maskImage = image;
+    return glyph;
+}
+
+int previewKerningDelta(const QFontMetrics &metrics, const QChar left, const QChar right)
+{
+    if (left.isNull() || right.isNull())
+        return 0;
+
+    const QString pair = QString(left) + QString(right);
+    return metrics.horizontalAdvance(pair) - metrics.horizontalAdvance(left) - metrics.horizontalAdvance(right);
+}
 }
 
 TextObject::TextObject(QObject *parent) : StaticGroupObject(parent)
@@ -275,21 +336,67 @@ void TextObject::rebuildMaskFromQtFont()
     font.setPixelSize(pixelSize);
 
     QFontMetrics metrics(font);
-    const QRect textRect = metrics.boundingRect(drawText);
-    const int paddingX = qMax(2, pixelSize / 6);
-    const int paddingY = qMax(2, pixelSize / 7);
-    const int imageWidth = qMax(1, textRect.width() + paddingX * 2);
-    const int imageHeight = qMax(1, metrics.height() + paddingY * 2);
+    QMap<QChar, FpgaGlyph> glyphs;
 
-    QImage image(imageWidth, imageHeight, QImage::Format_ARGB32);
+    int totalWidth = 0;
+    int top = 0;
+    int bottom = 0;
+    bool firstGlyph = true;
+    QChar previous;
+
+    for (const QChar ch : drawText) {
+        if (ch.isSpace()) {
+            totalWidth += qMax(4, pixelSize / 2);
+            previous = ch;
+            continue;
+        }
+
+        if (!glyphs.contains(ch))
+            glyphs.insert(ch, renderPreviewGlyph(font, ch));
+
+        const FpgaGlyph glyph = glyphs.value(ch);
+        if (!previous.isNull())
+            totalWidth += previewKerningDelta(metrics, previous, ch);
+        totalWidth += glyph.advance;
+
+        const int glyphTop = glyph.floater;
+        const int glyphBottom = glyph.floater + glyph.height;
+        if (firstGlyph) {
+            top = glyphTop;
+            bottom = glyphBottom;
+            firstGlyph = false;
+        } else {
+            top = qMin(top, glyphTop);
+            bottom = qMax(bottom, glyphBottom);
+        }
+        previous = ch;
+    }
+
+    totalWidth = qMax(1, totalWidth);
+    const int imageHeight = qMax(1, bottom - top);
+    QImage image(totalWidth, imageHeight, QImage::Format_ARGB32);
     image.fill(Qt::transparent);
 
     QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setRenderHint(QPainter::TextAntialiasing);
-    painter.setFont(font);
-    painter.setPen(state.color);
-    painter.drawText(QPoint(paddingX - textRect.left(), paddingY + metrics.ascent()), drawText);
+    int currentX = 0;
+    previous = QChar();
+    for (const QChar ch : drawText) {
+        if (ch.isSpace()) {
+            currentX += qMax(4, pixelSize / 2);
+            previous = ch;
+            continue;
+        }
+
+        const FpgaGlyph glyph = glyphs.value(ch);
+        if (glyph.width <= 0 || glyph.height <= 0)
+            continue;
+
+        if (!previous.isNull())
+            currentX += previewKerningDelta(metrics, previous, ch);
+        painter.drawImage(QPoint(currentX, glyph.floater - top), glyphMaskToImage(glyph, state.color));
+        currentX += glyph.advance;
+        previous = ch;
+    }
     painter.end();
 
     state.w = image.width();
