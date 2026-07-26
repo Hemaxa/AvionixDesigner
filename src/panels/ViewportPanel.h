@@ -5,6 +5,7 @@
 #include "BasePanel.h"
 
 #include <QList>
+#include <QMap>
 
 class ViewportPanel : public BasePanel
 {
@@ -86,6 +87,8 @@ private:
     QPointF m_dragStartCanvasPos;
     QRectF m_dragStartBounds;
     QPointF m_dragLastAppliedDelta;
+    // Стартовые границы объектов для перемещения без накопления ошибок округления
+    QMap<int, QRectF> m_dragStartObjectBounds;
     bool m_dragHistoryRecorded = false;
     bool m_dragEditedObjects = false;
     QList<SnapGuide> m_activeSnapGuides;
@@ -109,5 +112,7 @@ private:
     QRectF selectedObjectsRect() const;
     bool selectedObjectContains(const QPointF &canvasPos) const;
     void beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds);
+    // Перемещает объект к позиции, рассчитанной от начала перетаскивания
+    void moveObjectToDragDelta(int index, const QPointF &delta);
     void ensureDragHistoryRecorded();
 };

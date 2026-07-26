@@ -414,7 +414,33 @@ void ViewportPanel::beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds
     m_dragStartCanvasPos = canvasPos;
     m_dragStartBounds = bounds;
     m_dragLastAppliedDelta = QPointF(0.0, 0.0);
+    m_dragStartObjectBounds.clear();
     m_activeSnapGuides.clear();
+
+    auto *project = ProjectManager::instance();
+    const QList<int> dragIndexes = m_selectedIndexes.isEmpty() && m_selectedIndex >= 0
+        ? QList<int>{m_selectedIndex}
+        : m_selectedIndexes;
+
+    for (int index : dragIndexes) {
+        const auto object = project->getObjectAt(index);
+        if (object)
+            m_dragStartObjectBounds.insert(index, object->getBoundingRect());
+    }
+}
+
+void ViewportPanel::moveObjectToDragDelta(int index, const QPointF &delta)
+{
+    const auto object = ProjectManager::instance()->getObjectAt(index);
+    if (!object || !m_dragStartObjectBounds.contains(index))
+        return;
+
+    const QRectF startRect = m_dragStartObjectBounds.value(index);
+    const QPointF targetTopLeft = startRect.topLeft() + delta;
+    const QPointF correction = targetTopLeft - object->getBoundingRect().topLeft();
+
+    if (!qFuzzyIsNull(correction.x()) || !qFuzzyIsNull(correction.y()))
+        object->moveBy(correction.x(), correction.y());
 }
 
 void ViewportPanel::ensureDragHistoryRecorded()
@@ -721,11 +747,8 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             return;
         }
         ensureDragHistoryRecorded();
-        for (int index : m_selectedIndexes) {
-            auto object = ProjectManager::instance()->getObjectAt(index);
-            if (object)
-                object->moveBy(applyDelta.x(), applyDelta.y());
-        }
+        for (int index : m_selectedIndexes)
+            moveObjectToDragDelta(index, snap.delta);
         m_dragLastAppliedDelta = snap.delta;
         m_activeSnapGuides = snap.guides;
         emit objectChanged();
@@ -742,7 +765,7 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
                 return;
             }
             ensureDragHistoryRecorded();
-            obj->moveBy(applyDelta.x(), applyDelta.y());
+            moveObjectToDragDelta(m_selectedIndex, snap.delta);
             m_dragLastAppliedDelta = snap.delta;
             m_activeSnapGuides = snap.guides;
             emit objectChanged();
@@ -822,6 +845,7 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
     m_lineEndpointIndex = -1;
     m_activeSnapGuides.clear();
     m_dragLastAppliedDelta = QPointF(0.0, 0.0);
+    m_dragStartObjectBounds.clear();
     m_dragHistoryRecorded = false;
     m_dragEditedObjects = false;
     update();
