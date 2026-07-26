@@ -27,6 +27,8 @@ void AviaHorizonObject::parse(const QString &hexInit, const ParamSchema &schema)
         sinVal = BitParser::extractSigned(hexInit, schema["sn"].offset, schema["sn"].size);
     if (schema.contains("cs"))
         cosVal = BitParser::extractSigned(hexInit, schema["cs"].offset, schema["cs"].size);
+
+    updateCanvasArea();
 }
 
 void AviaHorizonObject::draw(QPainter &painter)
@@ -34,14 +36,16 @@ void AviaHorizonObject::draw(QPainter &painter)
     if (!enabled)
         return;
 
-    const QRectF localRect = getLocalAreaRect();
+    updateCanvasArea();
+
+    const QRectF canvasRect = getCanvasRect();
     const double span = qSqrt(areaWidth * areaWidth + areaHeight * areaHeight) * 1.5;
     const double band = qMax(1.0, lineWidth);
 
     painter.save();
+    painter.setClipRect(canvasRect);
     painter.translate(xCenter, yCenter);
     painter.rotate(getAngleDegrees());
-    painter.setClipRect(localRect);
     painter.setPen(Qt::NoPen);
 
     painter.setBrush(skyColor);
@@ -71,8 +75,6 @@ QList<QPair<QString, QString>> AviaHorizonObject::getProperties() const
         {"Включен", enabled ? "да" : "нет"},
         {"Центр X", QString::number(xCenter, 'f', 1)},
         {"Центр Y", QString::number(yCenter, 'f', 1)},
-        {"Ширина области", QString::number(areaWidth, 'f', 1)},
-        {"Высота области", QString::number(areaHeight, 'f', 1)},
         {"Угол (°)", QString::number(getAngleDegrees(), 'f', 2)},
         {"Ширина линии", QString::number(lineWidth, 'f', 1)},
         {"Цвет неба", skyColor.name()},
@@ -83,47 +85,20 @@ QList<QPair<QString, QString>> AviaHorizonObject::getProperties() const
 
 QRectF AviaHorizonObject::getBoundingRect() const
 {
-    QTransform transform;
-    transform.translate(xCenter, yCenter);
-    transform.rotate(getAngleDegrees());
-    return transform.mapRect(getLocalAreaRect());
+    return getCanvasRect();
 }
 
 void AviaHorizonObject::moveBy(double dx, double dy)
 {
-    xCenter += dx;
-    yCenter += dy;
-    emit changed();
+    Q_UNUSED(dx);
+    Q_UNUSED(dy);
 }
 
 void AviaHorizonObject::resizeBy(int edgeFlags, double dx, double dy)
 {
-    const double angleRad = qDegreesToRadians(-getAngleDegrees());
-    const double localDx = dx * qCos(angleRad) - dy * qSin(angleRad);
-    const double localDy = dx * qSin(angleRad) + dy * qCos(angleRad);
-
-    if (edgeFlags & 1) {
-        areaWidth = qMax(48.0, areaWidth - localDx);
-        xCenter += (localDx * qCos(qDegreesToRadians(getAngleDegrees()))) / 2.0;
-        yCenter += (localDx * qSin(qDegreesToRadians(getAngleDegrees()))) / 2.0;
-    }
-    if (edgeFlags & 2) {
-        areaWidth = qMax(48.0, areaWidth + localDx);
-        xCenter += (localDx * qCos(qDegreesToRadians(getAngleDegrees()))) / 2.0;
-        yCenter += (localDx * qSin(qDegreesToRadians(getAngleDegrees()))) / 2.0;
-    }
-    if (edgeFlags & 4) {
-        areaHeight = qMax(48.0, areaHeight - localDy);
-        xCenter += (-localDy * qSin(qDegreesToRadians(getAngleDegrees()))) / 2.0;
-        yCenter += (localDy * qCos(qDegreesToRadians(getAngleDegrees()))) / 2.0;
-    }
-    if (edgeFlags & 8) {
-        areaHeight = qMax(48.0, areaHeight + localDy);
-        xCenter += (-localDy * qSin(qDegreesToRadians(getAngleDegrees()))) / 2.0;
-        yCenter += (localDy * qCos(qDegreesToRadians(getAngleDegrees()))) / 2.0;
-    }
-
-    emit changed();
+    Q_UNUSED(edgeFlags);
+    Q_UNUSED(dx);
+    Q_UNUSED(dy);
 }
 
 void AviaHorizonObject::setRotation(double angle)
@@ -154,16 +129,6 @@ bool AviaHorizonObject::setObjectProperty(const QString &name, const QString &va
     else if (name == "Центр Y") {
         yCenter = value.toDouble(&ok);
     }
-    else if (name == "Ширина области") {
-        areaWidth = value.toDouble(&ok);
-        if (ok)
-            areaWidth = qMax(48.0, areaWidth);
-    }
-    else if (name == "Высота области") {
-        areaHeight = value.toDouble(&ok);
-        if (ok)
-            areaHeight = qMax(48.0, areaHeight);
-    }
     else if (name == "Угол (°)") {
         const double angleDeg = value.toDouble(&ok);
         if (ok) {
@@ -174,7 +139,7 @@ bool AviaHorizonObject::setObjectProperty(const QString &name, const QString &va
     else if (name == "Ширина линии") {
         lineWidth = value.toDouble(&ok);
         if (ok)
-            lineWidth = qMax(1.0, lineWidth);
+            lineWidth = qBound(0.0, lineWidth, 15.0);
     }
     else if (name == "Цвет неба") {
         skyColor = QColor(value);
@@ -202,8 +167,8 @@ QMap<QString, quint32> AviaHorizonObject::serializeParams() const
         {"sky", BitParser::colorToBgr(skyColor)},
         {"hline", BitParser::colorToBgr(horizonLineColor)},
         {"width", static_cast<quint32>(qBound(0, qRound(lineWidth), 15))},
-        {"xo", static_cast<quint32>(qMax(0, qRound(xCenter)))},
-        {"yo", static_cast<quint32>(qMax(0, qRound(yCenter)))},
+        {"xo", static_cast<quint32>(qBound(0, qRound(xCenter), 4095))},
+        {"yo", static_cast<quint32>(qBound(0, qRound(yCenter), 4095))},
         {"sn", static_cast<quint32>(static_cast<qint32>(sinVal))},
         {"cs", static_cast<quint32>(static_cast<qint32>(cosVal))}
     };
@@ -218,14 +183,19 @@ double AviaHorizonObject::getAngleDegrees() const
 
 bool AviaHorizonObject::contains(const QPointF &point) const
 {
-    QTransform transform;
-    transform.translate(xCenter, yCenter);
-    transform.rotate(getAngleDegrees());
-    const QPointF localPoint = transform.inverted().map(point);
-    return getLocalAreaRect().contains(localPoint);
+    Q_UNUSED(point);
+    return false;
 }
 
-QRectF AviaHorizonObject::getLocalAreaRect() const
+QRectF AviaHorizonObject::getCanvasRect() const
 {
-    return QRectF(-areaWidth / 2.0, -areaHeight / 2.0, areaWidth, areaHeight);
+    auto *project = ProjectManager::instance();
+    return QRectF(0.0, 0.0, project->getCanvasWidth(), project->getCanvasHeight());
+}
+
+void AviaHorizonObject::updateCanvasArea()
+{
+    const QRectF canvasRect = getCanvasRect();
+    areaWidth = canvasRect.width();
+    areaHeight = canvasRect.height();
 }

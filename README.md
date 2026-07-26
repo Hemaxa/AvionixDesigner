@@ -1,100 +1,102 @@
 # AvionixDesigner
 
-Визуальный редактор кадров для графического контроллера на базе ПЛИС. Работа идёт в XML: пользователь собирает редактируемый проект, добавляет фигуры, текст и изображения, а затем экспортирует кадр в аппаратный XML с растровыми масками и атласами шрифтов.
+AvionixDesigner - редактор кадров для графического контроллера на базе ПЛИС.
 
 ## Скриншот
 
-> Здесь можно вставить скриншот программы.
->
-> `![AvionixDesigner](docs/screenshot.png)`
+<img width="1840" height="1191" alt="Снимок экрана 2026-07-27 в 02 46 15" src="https://github.com/user-attachments/assets/55a007be-ea3c-49ce-90be-c08732e55da8" />
 
-## Рабочий процесс
+## Сборка
 
-1. `Файл -> Создать...` создаёт редактируемый XML-проект: имя, размер холста, фон и параметры сцены.
-2. Пользователь добавляет объекты из библиотеки, текст и изображения PNG/JPEG/BMP/SVG. Изображения хранятся как исходники и масштабируются без повторного пересчёта маски.
-3. В панели холста можно включить сетку и отдельные привязки к границам экрана, к сетке и к другим объектам.
-4. Кнопка-треугольник на боковой панели или `Файл -> Экспорт кадра в XML...` открывает форму экспорта. В ней показывается предупреждение о растеризации картинок и автоматически отмечаются алфавиты, реально использованные текстом.
-5. После подтверждения создаётся compiled XML: аппаратные объекты пишутся через `init`, изображения становятся `staticgroup`, а текст разбивается на ресурсы `font` и строки `text`.
-6. При повторном открытии compiled XML включается ограниченный режим: размеры растров и шрифтов заблокированы, но текст можно менять символами из уже зашитого атласа.
+Требования:
 
-## XML Режимы
+- CMake 3.19 или новее.
+- Компилятор C++17.
+- Qt 6.5 или новее с модулями `Core`, `Widgets`, `Xml`, `Svg`.
+- NSIS нужен только для сборки Windows-инсталлятора через CPack.
 
-### Редактируемый XML
-
-Корень проекта имеет `mode="editable"`. В этом режиме можно масштабировать изображения, менять шрифты и размеры текста, редактировать геометрию и порядок объектов. Картинки сохраняются в тегах `<image>` с исходником base64, поэтому SVG и растры не теряют качество до экспорта.
-
-У изображений есть автоцвет маски: при экспорте в `staticgroup` редактор берёт основной видимый цвет из SVG/растра и записывает его в поле `color`. Если нужен фиксированный цвет, его можно указать вручную в свойствах объекта.
-
-### Compiled XML
-
-Этот файл предназначен для ПЛИС. В корневой тег не пишутся редакторские атрибуты `mode`, `grid`, `snap_screen`, `snap_grid` и `snap_objects`. В нём нет редактируемых исходников изображений: всё, что требует растра, уже превращено в маски прозрачности `0..7`.
-
-В `<parameters>` compiled XML попадают только схемы реально экспортируемых объектов. Например, если в кадре есть только авиагоризонт и текст, будут записаны схемы `aviagorizont`, `font` и `text`.
-
-## Текст И Шрифты
-
-В редактируемом режиме доступны базовые шрифты: Arial, Times New Roman, Helvetica, Courier New, Verdana, Tahoma, Georgia. Размер задаётся в пикселях.
-
-При экспорте для каждой пары `шрифт + размер` создаётся тег `<font>`. У каждого символа есть собственный `<init>` с параметрами:
-
-- код символа;
-- ширина и высота маски;
-- advance, bearing X/Y, ascent, descent;
-- offset и mask_size в общем data-пуле;
-- font_index.
-
-Маски всех букв лежат в общем `<data>` тега `<font>` и кодируются цифрами `0..7`. Кернинговые пары, где QtFontMetrics даёт ненулевое отличие от суммы advance двух символов, пишутся отдельными тегами `<kerning>`.
-
-Каждый текстовый объект записывается в отдельный тег `<text>`. Внутри него один `<init>` с параметрами строки и локальный `<data>` с кодами символов именно этой строки. Атрибут `index` у `<init>` дублирует номер используемого шрифта для читаемости, а реальное поле `font_index` также записано внутри HEX `init`. В новом формате `char_offset` обычно равен `0`, а `char_count` равен количеству символов строки. В `init` строки хранятся цвет, позиция, `font_index`, `char_offset` и `char_count`. Кернинг не задаётся вручную у строки: он берётся из пар, записанных внутри соответствующего `<font>`.
-
-При импорте compiled XML программа восстанавливает текст из `<data>` по `char_offset`/`char_count`; атрибут `text` у `<init>` остаётся удобной читаемой подсказкой. Старый формат, где несколько `<init>` лежали внутри одного `<text>` и ссылались на общий `<data>`, тоже читается.
-
-## Список Объектов
-
-Порядок объектов в списке определяет порядок экспорта. В строке объекта есть:
-
-- глазик: скрывает или показывает объект на холсте;
-- чекбокс экспорта: исключает объект из compiled XML без удаления из проекта.
-
-## Сборка И Запуск
+Локальная сборка:
 
 ```bash
-cd /path/to/AvionixDesigner
-cmake -S . -B build
-cmake --build build
-./build/AvionixDesigner.app/Contents/MacOS/AvionixDesigner
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel
 ```
 
-## Основные Классы
-
-- `ProjectManager` управляет XML-проектом, режимом editable/compiled, импортом изображений, сохранением и экспортом.
-- `EditorProjectDocument` хранит имя, размер холста и фон.
-- `FpgaSchemaRegistry` описывает битовые схемы `rectangle`, `staticgroup`, `rotationobject`, `font`, `text` и других модулей.
-- `ImageObject` хранит исходный PNG/JPEG/BMP/SVG до экспорта и рендерит маску только при создании compiled XML.
-- `TextObject` хранит строку, шрифт, размер и умеет работать с импортированным FPGA-атласом в ограниченном режиме.
-- `StaticGroupObject` и `RotationObject` работают с аппаратными растровыми масками.
-- `ViewportPanel` отображает холст, манипуляторы, drag-and-drop изображений и блокировку resize.
-- `ObjectListPanel` управляет порядком, видимостью и участием объектов в экспорте.
-- `SelectionToolStrip` содержит инструменты выравнивания, удаления и кнопку экспорта кадра.
-
-## Структура
+## Файловая Структура
 
 ```text
-AvionixDesigner/
-├── CMakeLists.txt
-├── README.md
-├── docs/                  # Документация модулей ПЛИС и примеры XML
-├── res/
-│   ├── icons/             # Иконки интерфейса
-│   ├── themes/
-│   │   └── AvionixDesignerTheme.qss
-│   └── resources.qrc
-└── src/
-    ├── editor/
-    ├── managers/
-    ├── objects/
-    ├── panels/
-    ├── schema/
-    ├── utils/
-    └── windows/
+.
+|-- .github/
+|-- .gitignore
+|-- CMakeLists.txt
+|-- README.md
+|-- docs/
+|-- res/
+|-- src/
+|   |-- BaseObject.h
+|   |-- BasePanel.h
+|   |-- editor/
+|   |   |-- EditorProjectDocument.cpp
+|   |   `-- EditorProjectDocument.h
+|   |-- main.cpp
+|   |-- managers/
+|   |   |-- AppearanceManager.cpp
+|   |   |-- AppearanceManager.h
+|   |   |-- ObjectsManager.cpp
+|   |   |-- ObjectsManager.h
+|   |   |-- PanelsManager.cpp
+|   |   |-- PanelsManager.h
+|   |   |-- ProjectManager.cpp
+|   |   `-- ProjectManager.h
+|   |-- objects/
+|   |   |-- AviaHorizonObject.cpp
+|   |   |-- AviaHorizonObject.h
+|   |   |-- DashedLineObject.cpp
+|   |   |-- DashedLineObject.h
+|   |   |-- ImageObject.cpp
+|   |   |-- ImageObject.h
+|   |   |-- RectangleObject.cpp
+|   |   |-- RectangleObject.h
+|   |   |-- RibbonScaleObject.cpp
+|   |   |-- RibbonScaleObject.h
+|   |   |-- RotationObject.cpp
+|   |   |-- RotationObject.h
+|   |   |-- StaticGroupObject.cpp
+|   |   |-- StaticGroupObject.h
+|   |   |-- TextObject.cpp
+|   |   `-- TextObject.h
+|   |-- panels/
+|   |   |-- EditorWorkspacePanel.cpp
+|   |   |-- EditorWorkspacePanel.h
+|   |   |-- ObjectLibraryPanel.cpp
+|   |   |-- ObjectLibraryPanel.h
+|   |   |-- ObjectListPanel.cpp
+|   |   |-- ObjectListPanel.h
+|   |   |-- ObjectPropertiesPanel.cpp
+|   |   |-- ObjectPropertiesPanel.h
+|   |   |-- SelectionToolStrip.cpp
+|   |   |-- SelectionToolStrip.h
+|   |   |-- ViewportPanel.cpp
+|   |   |-- ViewportPanel.h
+|   |   |-- ViewportSettingsPanel.cpp
+|   |   `-- ViewportSettingsPanel.h
+|   |-- schema/
+|   |   |-- FpgaSchemaRegistry.cpp
+|   |   `-- FpgaSchemaRegistry.h
+|   |-- utils/
+|   |   |-- BitParser.h
+|   |   |-- ProportionalResize.h
+|   |   `-- XmlReader.h
+|   `-- windows/
+|       |-- FontExportDialog.cpp
+|       |-- FontExportDialog.h
+|       |-- MainWindow.cpp
+|       |-- MainWindow.h
+|       |-- NewProjectDialog.cpp
+|       |-- NewProjectDialog.h
+|       |-- SettingsWindow.cpp
+|       `-- SettingsWindow.h
+`-- tests/
+    |-- image.xml
+    `-- test.xml
 ```

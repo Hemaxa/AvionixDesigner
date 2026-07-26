@@ -23,11 +23,14 @@
 #include "AviaHorizonObject.h"
 #include "TextObject.h"
 #include "BitParser.h"
-#include "DebugDumper.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace {
+constexpr int kFallbackStaticGroupMaxDimension = 4095;
+constexpr int kFallbackStaticGroupAddressablePixels = 65536;
+
 int schemaBitLength(const ParamSchema &schema)
 {
     int maxBit = 0;
@@ -50,6 +53,252 @@ QString buildInitHex(const ParamSchema &schema, const QMap<QString, quint32> &pa
     }
 
     return hexStr;
+}
+
+int maxUnsignedFieldValue(const ParamSchema &schema, const QString &fieldName, int fallback)
+{
+    if (!schema.contains(fieldName))
+        return fallback;
+
+    const int size = schema[fieldName].size;
+    if (size <= 0)
+        return fallback;
+
+    const qint64 value = size >= 31
+        ? static_cast<qint64>(std::numeric_limits<int>::max())
+        : ((static_cast<qint64>(1) << size) - 1);
+    return static_cast<int>(qMin<qint64>(value, std::numeric_limits<int>::max()));
+}
+
+int staticGroupAddressablePixels(const ParamSchema &schema)
+{
+    const int maxAddr = maxUnsignedFieldValue(schema, QStringLiteral("addr"), kFallbackStaticGroupAddressablePixels - 1);
+    return qMax(1, maxAddr + 1);
+}
+
+QRect alphaBoundsInRect(const QImage &image, const QRect &rect)
+{
+    QRect bounds;
+    bool hasPixels = false;
+
+    const QRect clipped = rect.intersected(image.rect());
+    for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
+        for (int x = clipped.left(); x <= clipped.right(); ++x) {
+            if (image.pixelColor(x, y).alpha() <= 0)
+                continue;
+
+            const QRect pixelRect(x, y, 1, 1);
+            bounds = hasPixels ? bounds.united(pixelRect) : pixelRect;
+            hasPixels = true;
+        }
+    }
+
+    return hasPixels ? bounds : QRect();
+}
+
+QList<ImageMaskComponent> splitComponentForStaticGroup(const ImageMaskComponent &component,
+                                                       int maxWidth,
+                                                       int maxHeight,
+                                                       int maxPixels)
+{
+    QList<ImageMaskComponent> tiles;
+    if (component.mask.isNull() || component.bounds.isEmpty())
+        return tiles;
+
+    const int sourceWidth = component.mask.width();
+    const int sourceHeight = component.mask.height();
+    const int safeMaxWidth = qMax(1, qMin(maxWidth, maxPixels));
+    const int safeMaxHeight = qMax(1, maxHeight);
+
+    for (int left = 0; left < sourceWidth; left += safeMaxWidth) {
+        const int tileWidth = qMin(safeMaxWidth, sourceWidth - left);
+        const int maxRowsByAddress = qMax(1, maxPixels / qMax(1, tileWidth));
+        const int tileHeightLimit = qMax(1, qMin(safeMaxHeight, maxRowsByAddress));
+
+        for (int top = 0; top < sourceHeight; top += tileHeightLimit) {
+            const QRect candidate(left, top, tileWidth, qMin(tileHeightLimit, sourceHeight - top));
+            const QRect visibleBounds = alphaBoundsInRect(component.mask, candidate);
+            if (visibleBounds.isEmpty())
+                continue;
+
+            ImageMaskComponent tile;
+            tile.layerIndex = component.layerIndex;
+            tile.bounds = QRect(component.bounds.left() + visibleBounds.left(),
+                                component.bounds.top() + visibleBounds.top(),
+                                visibleBounds.width(),
+                                visibleBounds.height());
+            tile.color = component.color;
+            tile.mask = component.mask.copy(visibleBounds);
+            tiles.append(tile);
+        }
+    }
+
+    return tiles;
+}
+
+QList<QList<ImageMaskComponent>> packStaticGroupComponents(const ParamSchema &schema,
+                                                           const QList<ImageMaskComponent> &components)
+{
+    const int maxWidth = maxUnsignedFieldValue(schema, QStringLiteral("w"), kFallbackStaticGroupMaxDimension);
+    const int maxHeight = maxUnsignedFieldValue(schema, QStringLiteral("h"), kFallbackStaticGroupMaxDimension);
+    const int maxPixels = staticGroupAddressablePixels(schema);
+
+    QList<QList<ImageMaskComponent>> packedGroups;
+    QList<ImageMaskComponent> currentGroup;
+    int currentPixels = 0;
+
+    for (const ImageMaskComponent &component : components) {
+        const QList<ImageMaskComponent> tiles = splitComponentForStaticGroup(component, maxWidth, maxHeight, maxPixels);
+        for (const ImageMaskComponent &tile : tiles) {
+            const int tilePixels = qMax(1, tile.bounds.width() * tile.bounds.height());
+            if (!currentGroup.isEmpty() && currentPixels + tilePixels > maxPixels) {
+                packedGroups.append(currentGroup);
+                currentGroup.clear();
+                currentPixels = 0;
+            }
+
+            currentGroup.append(tile);
+            currentPixels += tilePixels;
+        }
+    }
+
+    if (!currentGroup.isEmpty())
+        packedGroups.append(currentGroup);
+
+    return packedGroups;
+}
+
+void copyBaseFlags(const BaseObject *source, BaseObject *target)
+{
+    target->setViewVisible(source->isViewVisible());
+    target->setExportEnabled(source->isExportEnabled());
+    target->setImportedHardwareObject(source->isImportedHardwareObject());
+    target->setResizeLocked(!source->canResize());
+    target->setCustomName(source->customName());
+}
+
+QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
+{
+    if (!source)
+        return {};
+
+    BaseObject *rawClone = nullptr;
+
+    if (auto rect = dynamic_cast<RectangleObject*>(source.data())) {
+        auto *clone = new RectangleObject();
+        clone->x = rect->x;
+        clone->y = rect->y;
+        clone->width = rect->width;
+        clone->height = rect->height;
+        clone->fillColor = rect->fillColor;
+        clone->strokeColor = rect->strokeColor;
+        clone->strokeWidth = rect->strokeWidth;
+        clone->alpha = rect->alpha;
+        clone->explicitAlpha = rect->explicitAlpha;
+        rawClone = clone;
+    } else if (auto dashed = dynamic_cast<DashedLineObject*>(source.data())) {
+        auto *clone = new DashedLineObject();
+        clone->enabled = dashed->enabled;
+        clone->color = dashed->color;
+        clone->x0 = dashed->x0;
+        clone->y0 = dashed->y0;
+        clone->x1 = dashed->x1;
+        clone->y1 = dashed->y1;
+        clone->dashPeriod = dashed->dashPeriod;
+        clone->dashLength = dashed->dashLength;
+        clone->dashPhase = dashed->dashPhase;
+        clone->lineWidth = dashed->lineWidth;
+        rawClone = clone;
+    } else if (auto ribbon = dynamic_cast<RibbonScaleObject*>(source.data())) {
+        auto *clone = new RibbonScaleObject();
+        clone->enabled = ribbon->enabled;
+        clone->color = ribbon->color;
+        clone->left = ribbon->left;
+        clone->right = ribbon->right;
+        clone->top = ribbon->top;
+        clone->bottom = ribbon->bottom;
+        clone->lineWidth = ribbon->lineWidth;
+        clone->period = ribbon->period;
+        clone->yStart = ribbon->yStart;
+        rawClone = clone;
+    } else if (auto horizon = dynamic_cast<AviaHorizonObject*>(source.data())) {
+        auto *clone = new AviaHorizonObject();
+        clone->enabled = horizon->enabled;
+        clone->earthColor = horizon->earthColor;
+        clone->skyColor = horizon->skyColor;
+        clone->horizonLineColor = horizon->horizonLineColor;
+        clone->lineWidth = horizon->lineWidth;
+        clone->xCenter = horizon->xCenter;
+        clone->yCenter = horizon->yCenter;
+        clone->areaWidth = horizon->areaWidth;
+        clone->areaHeight = horizon->areaHeight;
+        clone->sinVal = horizon->sinVal;
+        clone->cosVal = horizon->cosVal;
+        rawClone = clone;
+    } else if (auto text = dynamic_cast<TextObject*>(source.data())) {
+        auto *clone = new TextObject();
+        clone->states = text->states;
+        clone->groupNumber = text->groupNumber;
+        clone->maskImages = text->maskImages;
+        clone->text = text->text;
+        clone->fontFamily = text->fontFamily;
+        clone->pixelSize = text->pixelSize;
+        clone->fontIndex = text->fontIndex;
+        clone->restrictedAtlasEditing = text->restrictedAtlasEditing;
+        clone->exportAlphabetGroups = text->exportAlphabetGroups;
+        if (text->hasFontAtlas())
+            clone->setFontAtlas(text->fontAtlas(), text->restrictedAtlasEditing);
+        clone->extraCharacters = text->extraCharacters;
+        rawClone = clone;
+    } else if (auto group = dynamic_cast<StaticGroupObject*>(source.data())) {
+        auto *clone = new StaticGroupObject();
+        clone->states = group->states;
+        clone->groupNumber = group->groupNumber;
+        clone->maskImages = group->maskImages;
+        rawClone = clone;
+    } else if (auto rotation = dynamic_cast<RotationObject*>(source.data())) {
+        auto *clone = new RotationObject();
+        clone->left = rotation->left;
+        clone->top = rotation->top;
+        clone->right = rotation->right;
+        clone->bottom = rotation->bottom;
+        clone->xRot = rotation->xRot;
+        clone->yRot = rotation->yRot;
+        clone->sinVal = rotation->sinVal;
+        clone->cosVal = rotation->cosVal;
+        clone->color = rotation->color;
+        clone->maskImage = rotation->maskImage;
+        rawClone = clone;
+    } else if (auto image = dynamic_cast<ImageObject*>(source.data())) {
+        auto *clone = new ImageObject();
+        clone->x = image->x;
+        clone->y = image->y;
+        clone->width = image->width;
+        clone->height = image->height;
+        clone->maskColor = image->maskColor;
+        clone->autoMaskColor = image->autoMaskColor;
+        clone->rotationDegrees = image->rotationDegrees;
+        clone->sourceName = image->sourceName;
+        clone->format = image->format;
+        clone->setSourcePayload(image->sourcePayload());
+        clone->setColorLayers(image->colorLayers());
+        rawClone = clone;
+    }
+
+    if (!rawClone)
+        return {};
+
+    copyBaseFlags(source.data(), rawClone);
+    return QSharedPointer<BaseObject>(rawClone);
+}
+
+QList<QSharedPointer<BaseObject>> cloneObjectList(const QList<QSharedPointer<BaseObject>> &objects)
+{
+    QList<QSharedPointer<BaseObject>> clones;
+    clones.reserve(objects.size());
+    for (const auto &object : objects)
+        clones.append(cloneObject(object));
+    return clones;
 }
 
 QString serializeMaskData(const QImage &image)
@@ -100,15 +349,16 @@ QString serializeStaticGroupData(const StaticGroupObject *group)
 
         const int width = qMin(image.width(), qMax(1, state.w));
         const int height = qMin(image.height(), qMax(1, state.h));
-        int idx = qMax(0, state.addr);
+        const int startAddr = qMax(0, state.addr);
 
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
+                const int idx = startAddr + y * qMax(1, state.w) + x;
                 if (idx >= values.size())
                     break;
 
                 const int alpha = image.pixelColor(x, y).alpha();
-                values[idx++] = qBound(0, qRound(alpha * 7.0 / 255.0), 7);
+                values[idx] = qBound(0, qRound(alpha * 7.0 / 255.0), 7);
             }
         }
     }
@@ -198,7 +448,70 @@ QString alphabetCharacters(const QSet<QString> &groups)
         appendUnique(QStringLiteral("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"));
     if (groups.contains(QStringLiteral("cyrillic_lower")))
         appendUnique(QStringLiteral("абвгдеёжзийклмнопрстуфхцчшщъыьэюя"));
+    if (groups.contains(QStringLiteral("symbols")))
+        appendUnique(QStringLiteral("α°+-/"));
 
+    return characters;
+}
+
+QSet<QString> detectAlphabetCategories(const QString &characters)
+{
+    QSet<QString> groups;
+    for (const QChar ch : characters) {
+        const ushort u = ch.unicode();
+        if (ch.isDigit()) {
+            groups.insert(QStringLiteral("digits"));
+        } else if (u >= 'A' && u <= 'Z') {
+            groups.insert(QStringLiteral("latin_upper"));
+        } else if (u >= 'a' && u <= 'z') {
+            groups.insert(QStringLiteral("latin_lower"));
+        } else if ((u >= 0x0410 && u <= 0x042F) || u == 0x0401) {
+            groups.insert(QStringLiteral("cyrillic_upper"));
+        } else if ((u >= 0x0430 && u <= 0x044F) || u == 0x0451) {
+            groups.insert(QStringLiteral("cyrillic_lower"));
+        } else if (QStringLiteral("α°+-/").contains(ch)) {
+            groups.insert(QStringLiteral("symbols"));
+        }
+    }
+    return groups;
+}
+
+QString completeAlphabetForTextObjects(const QList<TextObject*> &texts)
+{
+    QSet<QString> groups;
+    QString explicitCharacters;
+
+    auto appendUniqueCharacter = [&explicitCharacters](const QChar ch) {
+        if (!explicitCharacters.contains(ch))
+            explicitCharacters.append(ch);
+    };
+
+    for (const TextObject *text : texts) {
+        if (!text)
+            continue;
+
+        const QString characters = text->exportCharacters();
+        if (text->exportAlphabetGroups.isEmpty()) {
+            groups.unite(detectAlphabetCategories(characters));
+        } else {
+            for (const QString &group : text->exportAlphabetGroups)
+                groups.insert(group);
+        }
+        for (const QChar ch : characters) {
+            if (ch.isSpace()) {
+                appendUniqueCharacter(ch);
+                continue;
+            }
+            if (detectAlphabetCategories(QString(ch)).isEmpty())
+                appendUniqueCharacter(ch);
+        }
+    }
+
+    QString characters = alphabetCharacters(groups);
+    for (const QChar ch : explicitCharacters) {
+        if (!characters.contains(ch))
+            characters.append(ch);
+    }
     return characters;
 }
 
@@ -252,6 +565,88 @@ QStringList maskRowsToValues(const QString &rows)
         }
     }
     return values;
+}
+
+QStringList normalizedGlyphValues(const FpgaGlyph &glyph)
+{
+    QStringList values = maskRowsToValues(glyph.maskRows);
+    const int expectedSize = qMax(1, glyph.width) * qMax(1, glyph.height);
+    while (values.size() < expectedSize)
+        values.append(QStringLiteral("0"));
+    while (values.size() > expectedSize)
+        values.removeLast();
+    return values;
+}
+
+void insertGlyph(FpgaFont *font, const FpgaGlyph &glyph)
+{
+    if (!font)
+        return;
+
+    font->glyphs.insert(glyph.literal, glyph);
+    if (!font->glyphOrder.contains(glyph.literal))
+        font->glyphOrder.append(glyph.literal);
+}
+
+QString orderedFontCharacters(const FpgaFont &font)
+{
+    QString characters;
+    for (const QChar ch : font.glyphOrder) {
+        if (font.glyphs.contains(ch) && !characters.contains(ch))
+            characters.append(ch);
+    }
+    for (auto it = font.glyphs.constBegin(); it != font.glyphs.constEnd(); ++it) {
+        if (!characters.contains(it.key()))
+            characters.append(it.key());
+    }
+    return characters;
+}
+
+FpgaGlyph normalizedGlyph(FpgaGlyph glyph, const QChar literal, int fontSize)
+{
+    glyph.literal = literal;
+    if (glyph.code == 0)
+        glyph.code = literal.unicode();
+
+    const QStringList rows = glyph.maskRows.split('\n', Qt::SkipEmptyParts);
+    if (glyph.height <= 0)
+        glyph.height = qMax(1, rows.size());
+    if (glyph.width <= 0) {
+        int maxWidth = 0;
+        for (const QString &row : rows)
+            maxWidth = qMax(maxWidth, row.trimmed().size());
+        glyph.width = qMax(1, maxWidth);
+    }
+
+    if (glyph.advance <= 0)
+        glyph.advance = glyph.width;
+    if (glyph.ascent <= 0 && glyph.descent <= 0)
+        glyph.ascent = glyph.height;
+    if (glyph.size <= 0)
+        glyph.size = fontSize;
+
+    if (glyph.maskRows.trimmed().isEmpty()) {
+        QStringList zeroRows;
+        for (int y = 0; y < glyph.height; ++y)
+            zeroRows.append(QString(glyph.width, QLatin1Char('0')));
+        glyph.maskRows = zeroRows.join('\n');
+    }
+
+    return glyph;
+}
+
+FpgaGlyph transparentSpaceGlyph(int fontSize)
+{
+    const int advance = qMax(4, fontSize / 2);
+    FpgaGlyph glyph;
+    glyph.literal = QLatin1Char(' ');
+    glyph.code = QLatin1Char(' ').unicode();
+    glyph.width = advance;
+    glyph.height = 1;
+    glyph.advance = advance;
+    glyph.size = fontSize;
+    glyph.maskRows = QString(advance, QLatin1Char('0'));
+    return glyph;
 }
 
 QStringList parseCharacterCodes(const QString &dataText)
@@ -316,28 +711,6 @@ void appendParameterSchemas(QDomDocument &doc, QDomElement &root, const QSet<QSt
     }
 }
 
-QSet<QString> collectEditableSchemaNames(const QList<QSharedPointer<BaseObject>> &objects,
-                                         const QStringList &objectTags,
-                                         const QMap<QString, QString> &schemaAliases)
-{
-    QSet<QString> schemaNames;
-    auto *registry = FpgaSchemaRegistry::instance();
-
-    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
-        const auto &obj = objects[objIdx];
-        if (dynamic_cast<ImageObject*>(obj.data()) || dynamic_cast<TextObject*>(obj.data()))
-            continue;
-
-        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
-        if (tagName.isEmpty())
-            continue;
-
-        schemaNames.insert(schemaAliases.value(tagName, registry->canonicalSchemaName(tagName)));
-    }
-
-    return schemaNames;
-}
-
 QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>> &objects,
                                          const QStringList &objectTags,
                                          const QMap<QString, QString> &schemaAliases)
@@ -371,62 +744,12 @@ QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>>
     return schemaNames;
 }
 
-QDomElement createImageObjectElement(QDomDocument &doc, const ImageObject *image)
-{
-    QDomElement imageEl = doc.createElement("image");
-    imageEl.setAttribute("x", qRound(image->x));
-    imageEl.setAttribute("y", qRound(image->y));
-    imageEl.setAttribute("width", qRound(image->width));
-    imageEl.setAttribute("height", qRound(image->height));
-    imageEl.setAttribute("rotation", image->rotationDegrees);
-    imageEl.setAttribute("format", image->format);
-    imageEl.setAttribute("source_name", image->sourceName);
-    imageEl.setAttribute("mask_color", image->maskColor.name());
-    imageEl.setAttribute("mask_color_auto", image->autoMaskColor ? 1 : 0);
-    imageEl.setAttribute("visible", image->isViewVisible() ? 1 : 0);
-    imageEl.setAttribute("export", image->isExportEnabled() ? 1 : 0);
-
-    QDomElement sourceEl = doc.createElement("source");
-    sourceEl.setAttribute("encoding", "base64");
-    sourceEl.appendChild(doc.createTextNode(QString::fromLatin1(image->sourcePayload().toBase64())));
-    imageEl.appendChild(sourceEl);
-
-    const QList<ImageColorLayer> layers = image->colorLayers();
-    if (!layers.isEmpty()) {
-        QDomElement layersEl = doc.createElement("color_layers");
-        for (int i = 0; i < layers.size(); ++i) {
-            QDomElement layerEl = doc.createElement("layer");
-            layerEl.setAttribute("index", i);
-            layerEl.setAttribute("source", layers[i].sourceColor.name());
-            layerEl.setAttribute("color", layers[i].maskColor.name());
-            layerEl.setAttribute("auto", layers[i].autoMaskColor ? 1 : 0);
-            layersEl.appendChild(layerEl);
-        }
-        imageEl.appendChild(layersEl);
-    }
-    return imageEl;
-}
-
-QDomElement createEditableTextElement(QDomDocument &doc, const TextObject *text)
-{
-    const GroupState state = text->states.isEmpty() ? GroupState{} : text->states.first();
-    QDomElement textEl = doc.createElement("textobject");
-    textEl.setAttribute("text", text->text);
-    textEl.setAttribute("x", state.x);
-    textEl.setAttribute("y", state.y);
-    textEl.setAttribute("font_family", text->fontFamily);
-    textEl.setAttribute("font_size", text->pixelSize);
-    textEl.setAttribute("font_index", text->fontIndex);
-    textEl.setAttribute("color", state.color.name());
-    textEl.setAttribute("visible", text->isViewVisible() ? 1 : 0);
-    textEl.setAttribute("export", text->isExportEnabled() ? 1 : 0);
-    return textEl;
-}
-
-QDomElement createStaticGroupElementFromImage(QDomDocument &doc, const ParamSchema &schema, const ImageObject *image)
+QDomElement createStaticGroupElementFromImageLayers(QDomDocument &doc,
+                                                   const ParamSchema &schema,
+                                                   const ImageObject *image,
+                                                   const QList<ImageMaskComponent> &components)
 {
     StaticGroupObject group;
-    const QList<ImageMaskComponent> components = image->maskComponents();
     int nextAddr = 0;
 
     if (components.isEmpty()) {
@@ -460,6 +783,32 @@ QDomElement createStaticGroupElementFromImage(QDomDocument &doc, const ParamSche
     return createObjectElement(doc, QStringLiteral("staticgroup"), schema, QSharedPointer<BaseObject>(&group, [](BaseObject*){}));
 }
 
+void appendStaticGroupElementsFromImageLayers(QDomDocument &doc,
+                                              QDomElement &objectsEl,
+                                              const ParamSchema &schema,
+                                              const ImageObject *image)
+{
+    QList<QList<ImageMaskComponent>> componentGroups = image->maskComponentGroups();
+    if (componentGroups.isEmpty()) {
+        ImageMaskComponent component;
+        component.bounds = QRect(0, 0, qMax(1, qRound(image->width)), qMax(1, qRound(image->height)));
+        component.color = image->effectiveMaskColor();
+        component.mask = image->renderedImage();
+        componentGroups.append({component});
+    }
+
+    for (const QList<ImageMaskComponent> &componentGroup : componentGroups) {
+        const QList<QList<ImageMaskComponent>> packedGroups = packStaticGroupComponents(schema, componentGroup);
+        if (packedGroups.isEmpty()) {
+            objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, {}));
+            continue;
+        }
+
+        for (const QList<ImageMaskComponent> &groupComponents : packedGroups)
+            objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, groupComponents));
+    }
+}
+
 QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
                                                          const ParamSchema &schema,
                                                          const ImageObject *image,
@@ -488,10 +837,10 @@ void appendCompiledImageElements(QDomDocument &doc,
                                  QDomElement &objectsEl,
                                  const ParamSchema &staticSchema,
                                  const ParamSchema &rotationSchema,
-                                 const ImageObject *image)
+    const ImageObject *image)
 {
     if (!image->hasRotation()) {
-        objectsEl.appendChild(createStaticGroupElementFromImage(doc, staticSchema, image));
+        appendStaticGroupElementsFromImageLayers(doc, objectsEl, staticSchema, image);
         return;
     }
 
@@ -513,14 +862,37 @@ struct ExportFontKey
 {
     QString family;
     int size = 14;
+    bool existingAtlas = false;
+    int sourceFontIndex = -1;
 
     bool operator<(const ExportFontKey &other) const
     {
+        if (existingAtlas != other.existingAtlas)
+            return existingAtlas < other.existingAtlas;
+        if (sourceFontIndex != other.sourceFontIndex)
+            return sourceFontIndex < other.sourceFontIndex;
         if (family != other.family)
             return family < other.family;
         return size < other.size;
     }
 };
+
+ExportFontKey exportFontKeyForText(const TextObject *text)
+{
+    if (!text)
+        return {};
+
+    if (text->hasFontAtlas()) {
+        return {
+            text->fontFamily,
+            text->pixelSize,
+            true,
+            text->fontAtlas().index
+        };
+    }
+
+    return {text->fontFamily, text->pixelSize, false, -1};
+}
 
 QDomElement createFontResourceElement(QDomDocument &doc,
                                       const ExportFontKey &key,
@@ -538,7 +910,6 @@ QDomElement createFontResourceElement(QDomDocument &doc,
     fontEl.setAttribute("index", fontIndex);
     fontEl.setAttribute("name", key.family);
     fontEl.setAttribute("size", key.size);
-    fontEl.setAttribute("count", characters.size());
 
     QFont qfont(key.family);
     qfont.setPixelSize(key.size);
@@ -553,10 +924,10 @@ QDomElement createFontResourceElement(QDomDocument &doc,
         glyph.size = key.size;
         glyphIndex++;
 
-        const QStringList glyphValues = maskRowsToValues(glyph.maskRows);
+        const QStringList glyphValues = normalizedGlyphValues(glyph);
         offset += glyphValues.size();
         dataValues.append(glyphValues);
-        font.glyphs.insert(ch, glyph);
+        insertGlyph(&font, glyph);
 
         QDomElement initEl = doc.createElement("init");
         initEl.setAttribute("index", glyphIndex);
@@ -581,6 +952,7 @@ QDomElement createFontResourceElement(QDomDocument &doc,
 
     font.volume = dataValues.size() * 3;
     fontEl.setAttribute("volume", font.volume);
+    fontEl.setAttribute("count", glyphIndex);
 
     QFontMetrics metrics(qfont);
     for (const QChar left : characters) {
@@ -599,6 +971,95 @@ QDomElement createFontResourceElement(QDomDocument &doc,
             kerningEl.setAttribute("delta", delta);
             fontEl.appendChild(kerningEl);
         }
+    }
+
+    QDomElement dataEl = doc.createElement("data");
+    dataEl.appendChild(doc.createTextNode(dataValues.join(", ")));
+    fontEl.appendChild(dataEl);
+
+    if (fontOut)
+        *fontOut = font;
+
+    return fontEl;
+}
+
+QDomElement createFontResourceElementFromAtlas(QDomDocument &doc,
+                                               const FpgaFont &sourceFont,
+                                               int fontIndex,
+                                               const QString &characters,
+                                               const ParamSchema &fontSchema,
+                                               FpgaFont *fontOut)
+{
+    FpgaFont font;
+    font.index = fontIndex;
+    font.name = sourceFont.name;
+    font.size = sourceFont.size;
+
+    QDomElement fontEl = doc.createElement("font");
+    fontEl.setAttribute("index", fontIndex);
+    fontEl.setAttribute("name", sourceFont.name);
+    fontEl.setAttribute("size", sourceFont.size);
+
+    QStringList dataValues;
+    int offset = 0;
+    int glyphIndex = 0;
+    for (const QChar ch : characters) {
+        if (!sourceFont.glyphs.contains(ch) && !ch.isSpace())
+            continue;
+
+        FpgaGlyph glyph = ch.isSpace() && !sourceFont.glyphs.contains(ch)
+            ? transparentSpaceGlyph(sourceFont.size)
+            : sourceFont.glyphs.value(ch);
+        glyph = normalizedGlyph(glyph, ch, sourceFont.size);
+        glyph.offset = offset;
+        glyph.size = sourceFont.size;
+        glyphIndex++;
+
+        const QStringList glyphValues = normalizedGlyphValues(glyph);
+        offset += glyphValues.size();
+        dataValues.append(glyphValues);
+        insertGlyph(&font, glyph);
+
+        QDomElement initEl = doc.createElement("init");
+        initEl.setAttribute("index", glyphIndex);
+        initEl.setAttribute("literal", QString(ch));
+        initEl.setAttribute("code", glyph.code);
+        initEl.appendChild(doc.createTextNode(buildInitHex(fontSchema, {
+            {"enb", 1},
+            {"code", static_cast<quint32>(glyph.code)},
+            {"w", static_cast<quint32>(glyph.width)},
+            {"h", static_cast<quint32>(glyph.height)},
+            {"advance", static_cast<quint32>(glyph.advance)},
+            {"bearing_x", static_cast<quint32>(static_cast<qint32>(glyph.bearingX))},
+            {"bearing_y", static_cast<quint32>(static_cast<qint32>(glyph.bearingY))},
+            {"ascent", static_cast<quint32>(glyph.ascent)},
+            {"descent", static_cast<quint32>(glyph.descent)},
+            {"offset", static_cast<quint32>(glyph.offset)},
+            {"mask_size", static_cast<quint32>(glyphValues.size())},
+            {"font_index", static_cast<quint32>(fontIndex)}
+        })));
+        fontEl.appendChild(initEl);
+    }
+
+    font.volume = dataValues.size() * 3;
+    fontEl.setAttribute("volume", font.volume);
+    fontEl.setAttribute("count", glyphIndex);
+
+    for (auto it = sourceFont.kerningPairs.constBegin(); it != sourceFont.kerningPairs.constEnd(); ++it) {
+        if (it.key().size() < 2)
+            continue;
+
+        const QChar left = it.key().at(0);
+        const QChar right = it.key().at(1);
+        if (!characters.contains(left) || !characters.contains(right))
+            continue;
+
+        font.kerningPairs.insert(it.key(), it.value());
+        QDomElement kerningEl = doc.createElement("kerning");
+        kerningEl.setAttribute("left", QString(left));
+        kerningEl.setAttribute("right", QString(right));
+        kerningEl.setAttribute("delta", it.value());
+        fontEl.appendChild(kerningEl);
     }
 
     QDomElement dataEl = doc.createElement("data");
@@ -657,7 +1118,8 @@ FpgaFont parseFontElement(const QDomElement &fontEl)
                     rows.append(row);
                 }
                 glyph.maskRows = rows.join('\n');
-                font.glyphs.insert(glyph.literal, glyph);
+                glyph = normalizedGlyph(glyph, glyph.literal, font.size);
+                insertGlyph(&font, glyph);
             }
         } else if (glyphEl.tagName() == QStringLiteral("kerning")) {
             const QString left = glyphEl.attribute("left");
@@ -675,6 +1137,9 @@ FpgaFont parseFontElement(const QDomElement &fontEl)
                 glyph.floater = glyphEl.attribute("floater", "0").toInt();
                 glyph.offset = glyphEl.attribute("offset", "0").toInt();
                 glyph.size = font.size;
+                glyph.advance = glyph.width;
+                glyph.bearingY = glyph.floater;
+                glyph.ascent = qMax(1, glyph.height + qMin(0, glyph.floater));
                 const QStringList rows = glyphEl.text().split('\n', Qt::SkipEmptyParts);
                 QStringList trimmedRows;
                 for (const QString &row : rows) {
@@ -683,72 +1148,14 @@ FpgaFont parseFontElement(const QDomElement &fontEl)
                         trimmedRows.append(trimmed);
                 }
                 glyph.maskRows = trimmedRows.join('\n');
-                font.glyphs.insert(glyph.literal, glyph);
+                glyph = normalizedGlyph(glyph, glyph.literal, font.size);
+                insertGlyph(&font, glyph);
             }
         }
         glyphEl = glyphEl.nextSiblingElement();
     }
 
     return font;
-}
-
-QDomDocument buildEditableXmlDocument(const QString &projectName,
-                                      int canvasWidth,
-                                      int canvasHeight,
-                                      const QColor &backgroundColor,
-                                      bool showGrid,
-                                      bool snapToCanvas,
-                                      bool snapToGrid,
-                                      bool snapToObjects,
-                                      const QMap<QString, ParamSchema> &schemas,
-                                      const QMap<QString, QString> &schemaAliases,
-                                      const QList<QSharedPointer<BaseObject>> &objects,
-                                      const QStringList &objectTags)
-{
-    QDomDocument doc;
-    doc.appendChild(doc.createProcessingInstruction("xml", "version='1.0' encoding='windows-1251'"));
-
-    QDomElement root = doc.createElement("project");
-    root.setAttribute("name", projectName.isEmpty() ? QStringLiteral("Untitled") : projectName);
-    root.setAttribute("width", canvasWidth);
-    root.setAttribute("height", canvasHeight);
-    root.setAttribute("bgcolor", formatProjectColor(backgroundColor));
-    root.setAttribute("mode", "editable");
-    root.setAttribute("grid", showGrid ? 1 : 0);
-    root.setAttribute("snap_screen", snapToCanvas ? 1 : 0);
-    root.setAttribute("snap_grid", snapToGrid ? 1 : 0);
-    root.setAttribute("snap_objects", snapToObjects ? 1 : 0);
-    doc.appendChild(root);
-
-    appendParameterSchemas(doc, root, collectEditableSchemaNames(objects, objectTags, schemaAliases));
-
-    QDomElement objectsEl = doc.createElement("objects");
-    root.appendChild(objectsEl);
-    auto *registry = FpgaSchemaRegistry::instance();
-
-    for (int objIdx = 0; objIdx < objects.size(); ++objIdx) {
-        const auto &obj = objects[objIdx];
-        if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
-            objectsEl.appendChild(createImageObjectElement(doc, image));
-            continue;
-        }
-        if (auto text = dynamic_cast<TextObject*>(obj.data())) {
-            objectsEl.appendChild(createEditableTextElement(doc, text));
-            continue;
-        }
-
-        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
-        const QString schemaName = schemaAliases.value(tagName, registry->canonicalSchemaName(tagName));
-        if (tagName.isEmpty() || !schemas.contains(schemaName))
-            continue;
-
-        QDomElement element = createObjectElement(doc, tagName, schemas[schemaName], obj);
-        element.setAttribute("visible", obj->isViewVisible() ? 1 : 0);
-        element.setAttribute("export", obj->isExportEnabled() ? 1 : 0);
-        objectsEl.appendChild(element);
-    }
-
-    return doc;
 }
 
 QDomDocument buildCompiledXmlDocument(const QString &projectName,
@@ -759,7 +1166,6 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                                       const QMap<QString, QString> &schemaAliases,
                                       const QList<QSharedPointer<BaseObject>> &objects,
                                       const QStringList &objectTags,
-                                      const QSet<QString> &alphabetGroups,
                                       QMap<int, FpgaFont> *fontsOut)
 {
     QDomDocument doc;
@@ -787,33 +1193,50 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     for (const auto &obj : objects) {
         if (auto text = dynamic_cast<TextObject*>(obj.data())) {
             if (text->isExportEnabled())
-                textByFont[{text->fontFamily, text->pixelSize}].append(text);
+                textByFont[exportFontKeyForText(text)].append(text);
         }
     }
 
-    const QString baseCharacters = alphabetCharacters(alphabetGroups);
     QMap<ExportFontKey, int> fontIndexByKey;
     QMap<int, FpgaFont> generatedFonts;
     int nextFontIndex = 0;
     for (auto it = textByFont.constBegin(); it != textByFont.constEnd(); ++it) {
-        QString characters = baseCharacters;
-        for (TextObject *text : it.value()) {
-            if (text->hasFontAtlas()) {
-                for (auto glyphIt = text->fontAtlas().glyphs.constBegin(); glyphIt != text->fontAtlas().glyphs.constEnd(); ++glyphIt) {
-                    if (!characters.contains(glyphIt.key()))
-                        characters.append(glyphIt.key());
+        FpgaFont font;
+        if (it.key().existingAtlas) {
+            const FpgaFont *sourceFont = nullptr;
+            for (TextObject *text : it.value()) {
+                if (text && text->hasFontAtlas()) {
+                    sourceFont = &text->fontAtlas();
+                    break;
                 }
             }
-            for (const QChar ch : text->text) {
-                if (!characters.contains(ch))
-                    characters.append(ch);
-            }
-        }
-        if (characters.isEmpty())
-            continue;
+            if (!sourceFont)
+                continue;
 
-        FpgaFont font;
-        objectsEl.appendChild(createFontResourceElement(doc, it.key(), nextFontIndex, characters, fontSchema, &font));
+            QString characters = orderedFontCharacters(*sourceFont);
+            for (TextObject *text : it.value()) {
+                for (const QChar ch : text->text) {
+                    if (ch.isSpace() && !characters.contains(ch))
+                        characters.append(ch);
+                }
+            }
+            if (characters.isEmpty())
+                continue;
+
+            objectsEl.appendChild(createFontResourceElementFromAtlas(doc, *sourceFont, nextFontIndex, characters, fontSchema, &font));
+        } else {
+            QString characters = completeAlphabetForTextObjects(it.value());
+            for (TextObject *text : it.value()) {
+                for (const QChar ch : text->exportCharacters()) {
+                    if (!characters.contains(ch))
+                        characters.append(ch);
+                }
+            }
+            if (characters.isEmpty())
+                continue;
+
+            objectsEl.appendChild(createFontResourceElement(doc, it.key(), nextFontIndex, characters, fontSchema, &font));
+        }
         fontIndexByKey.insert(it.key(), nextFontIndex);
         generatedFonts.insert(nextFontIndex, font);
         ++nextFontIndex;
@@ -830,7 +1253,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
         }
 
         if (auto text = dynamic_cast<TextObject*>(obj.data())) {
-            const ExportFontKey key{text->fontFamily, text->pixelSize};
+            const ExportFontKey key = exportFontKeyForText(text);
             const int fontIndex = fontIndexByKey.value(key, 0);
             const GroupState state = text->states.isEmpty() ? GroupState{} : text->states.first();
             QStringList textDataCodes;
@@ -897,7 +1320,10 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     m_filePath = fileName;
     m_objects.clear();
     m_objectTags.clear();
+    m_groups.clear();
+    m_nextGroupId = 1;
     m_fonts.clear();
+    clearHistory();
     
     emit logMessage(tr("Загрузка: %1").arg(fileName));
     
@@ -920,10 +1346,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     
     //получаем корневой элемент
     QDomElement root = doc.documentElement();
-    m_editMode = root.attribute("mode") == QStringLiteral("editable")
-        ? ProjectEditMode::EditableXml
-        : ProjectEditMode::RestrictedFpgaXml;
-    
     //читаем метаданные проекта
     m_document->setProjectName(root.attribute("name", "Untitled"));
     m_document->setCanvasSize(root.attribute("width", "640").toInt(), root.attribute("height", "480").toInt());
@@ -988,10 +1410,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     //парсим объекты
     QDomNode objNode = objectsEl.isNull() ? root.firstChild() : objectsEl.firstChild();
     
-    //списки для отладочного дампа
-    QList<QDomElement> debugElements;
-    QStringList debugTypes;
-
     while (!objNode.isNull()) {
         QDomElement objEl = objNode.toElement();
         QString tagName = objEl.tagName();
@@ -1030,25 +1448,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 image->setColorLayers(layers);
             m_objects.append(QSharedPointer<BaseObject>(image));
             m_objectTags.append(QStringLiteral("image"));
-        }
-        else if (tagName == QStringLiteral("textobject")) {
-            auto *textObject = new TextObject();
-            textObject->text = objEl.attribute("text");
-            textObject->fontFamily = objEl.attribute("font_family", "Arial");
-            textObject->pixelSize = objEl.attribute("font_size", "14").toInt();
-            textObject->fontIndex = objEl.attribute("font_index", "0").toInt();
-            if (!textObject->states.isEmpty()) {
-                GroupState &state = textObject->states[0];
-                state.x = objEl.attribute("x", "0").toInt();
-                state.y = objEl.attribute("y", "0").toInt();
-                state.color = QColor(objEl.attribute("color", "#FFFFFF"));
-                state.enabled = true;
-            }
-            textObject->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
-            textObject->setExportEnabled(objEl.attribute("export", "1").toInt() != 0);
-            textObject->setObjectProperty(QStringLiteral("Текст"), textObject->text);
-            m_objects.append(QSharedPointer<BaseObject>(textObject));
-            m_objectTags.append(QStringLiteral("text"));
         }
         else if (tagName == QStringLiteral("text")) {
             const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
@@ -1123,31 +1522,17 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 m_objects.append(QSharedPointer<BaseObject>(obj));
                 m_objectTags.append(tagName);
                 
-                //сохраняем данные для дампа
-                debugElements.append(objEl);
-                debugTypes.append(tagName);
             }
         }
         
         objNode = objNode.nextSibling();
     }
 
-    if (m_editMode == ProjectEditMode::RestrictedFpgaXml) {
-        std::reverse(m_objects.begin(), m_objects.end());
-        std::reverse(m_objectTags.begin(), m_objectTags.end());
-        if (debugElements.size() == m_objects.size()) {
-            std::reverse(debugElements.begin(), debugElements.end());
-            std::reverse(debugTypes.begin(), debugTypes.end());
-        }
-    }
+    std::reverse(m_objects.begin(), m_objects.end());
+    std::reverse(m_objectTags.begin(), m_objectTags.end());
     
     emit logMessage(tr("Загружено объектов: %1").arg(m_objects.size()));
-    if (m_editMode == ProjectEditMode::RestrictedFpgaXml)
-        applyRestrictedMode();
-    
-    //формируем отладочный дамп парсинга
-    DebugDumper::dumpToFile(fileName, m_objects, m_schemas, debugElements, debugTypes);
-    emit logMessage(tr("Отладочный дамп сформирован"));
+    applyRestrictedMode();
     
     emit projectLoaded();
     
@@ -1161,7 +1546,6 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_document->setCanvasSize(width, height);
     m_document->setBackgroundColor(backgroundColor);
     m_filePath = filePath;
-    m_editMode = ProjectEditMode::EditableXml;
     m_showGrid = false;
     m_snapToCanvas = true;
     m_snapToGrid = false;
@@ -1169,8 +1553,11 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 
     m_objects.clear();
     m_objectTags.clear();
+    m_groups.clear();
+    m_nextGroupId = 1;
+    clearHistory();
     m_schemaAliases = registry->defaultSchemaAliases();
-    resetFontsToDefault();
+    m_fonts.clear();
 
     m_schemas.clear();
     const QStringList defaultSchemas = registry->defaultSchemaNames();
@@ -1182,6 +1569,78 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     emit projectLoaded();
     emit projectChanged();
     return true;
+}
+
+ProjectManager::ProjectSnapshot ProjectManager::captureSnapshot() const
+{
+    return {cloneObjectList(m_objects), m_objectTags, m_groups, m_nextGroupId};
+}
+
+void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
+{
+    m_objects = cloneObjectList(snapshot.objects);
+    m_objectTags = snapshot.objectTags;
+    m_groups = snapshot.groups;
+    m_nextGroupId = snapshot.nextGroupId;
+}
+
+void ProjectManager::recordHistory()
+{
+    m_undoStack.append(captureSnapshot());
+    m_redoStack.clear();
+    constexpr int maxHistoryDepth = 80;
+    while (m_undoStack.size() > maxHistoryDepth)
+        m_undoStack.removeFirst();
+}
+
+void ProjectManager::clearHistory()
+{
+    m_undoStack.clear();
+    m_redoStack.clear();
+    m_clipboardObjects.clear();
+    m_clipboardTags.clear();
+}
+
+void ProjectManager::insertObjectAtFront(BaseObject *object, const QString &tagName)
+{
+    m_objects.prepend(QSharedPointer<BaseObject>(object));
+    m_objectTags.prepend(tagName);
+}
+
+bool ProjectManager::undo()
+{
+    if (m_undoStack.isEmpty())
+        return false;
+
+    m_redoStack.append(captureSnapshot());
+    const ProjectSnapshot snapshot = m_undoStack.takeLast();
+    restoreSnapshot(snapshot);
+    emit projectChanged();
+    emit logMessage(tr("Отмена действия"));
+    return true;
+}
+
+bool ProjectManager::redo()
+{
+    if (m_redoStack.isEmpty())
+        return false;
+
+    m_undoStack.append(captureSnapshot());
+    const ProjectSnapshot snapshot = m_redoStack.takeLast();
+    restoreSnapshot(snapshot);
+    emit projectChanged();
+    emit logMessage(tr("Повтор действия"));
+    return true;
+}
+
+bool ProjectManager::canUndo() const
+{
+    return !m_undoStack.isEmpty();
+}
+
+bool ProjectManager::canRedo() const
+{
+    return !m_redoStack.isEmpty();
 }
 
 //метод регистрации стандартых типов объектов (получение словаря поддерживаемых объектов)
@@ -1220,8 +1679,7 @@ int ProjectManager::addObject(const QString &typeName)
         return -1;
     }
 
-    const int index = m_objects.size();
-    const int offset = 24 * (index % 6);
+    const int offset = 24 * (m_objects.size() % 6);
     const double centerX = qBound(40.0, m_document->canvasWidth() * 0.35 + offset, m_document->canvasWidth() - 40.0);
     const double centerY = qBound(40.0, m_document->canvasHeight() * 0.35 + offset, m_document->canvasHeight() - 40.0);
 
@@ -1257,10 +1715,10 @@ int ProjectManager::addObject(const QString &typeName)
     }
     else if (auto horizon = dynamic_cast<AviaHorizonObject*>(rawObject)) {
         horizon->enabled = true;
-        horizon->xCenter = centerX;
-        horizon->yCenter = centerY;
-        horizon->areaWidth = 220.0;
-        horizon->areaHeight = 220.0;
+        horizon->xCenter = m_document->canvasWidth() / 2.0;
+        horizon->yCenter = m_document->canvasHeight() / 2.0;
+        horizon->areaWidth = m_document->canvasWidth();
+        horizon->areaHeight = m_document->canvasHeight();
         horizon->lineWidth = 4.0;
         horizon->earthColor = QColor("#C27D1B");
         horizon->skyColor = QColor("#4FCAF7");
@@ -1283,8 +1741,15 @@ int ProjectManager::addObject(const QString &typeName)
         rotation->maskImage.fill(QColor(255, 255, 255, 255));
     }
     else if (auto textObject = dynamic_cast<TextObject*>(rawObject)) {
-        textObject->pixelSize = 14;
-        textObject->fontFamily = QStringLiteral("Arial");
+        if (!m_fonts.isEmpty()) {
+            const FpgaFont font = m_fonts.constBegin().value();
+            const QString characters = orderedFontCharacters(font);
+            textObject->text = characters.isEmpty() ? QStringLiteral(" ") : QString(characters.front());
+            textObject->setFontAtlas(font, true);
+        } else {
+            textObject->pixelSize = 14;
+            textObject->fontFamily = QStringLiteral("Arial");
+        }
         if (!textObject->states.isEmpty()) {
             textObject->states[0].x = qMax(12, qRound(centerX - textObject->states[0].w / 2.0));
             textObject->states[0].y = qMax(12, qRound(centerY - textObject->states[0].h / 2.0));
@@ -1315,12 +1780,12 @@ int ProjectManager::addObject(const QString &typeName)
         }
     }
 
-    m_objects.append(QSharedPointer<BaseObject>(rawObject));
-    m_objectTags.append(registry->canonicalObjectTag(typeName));
+    recordHistory();
+    insertObjectAtFront(rawObject, registry->canonicalObjectTag(typeName));
 
     emit projectChanged();
     emit logMessage(tr("Добавлен объект: %1").arg(typeName));
-    return m_objects.size() - 1;
+    return 0;
 }
 
 int ProjectManager::addObject(const QString &typeName, double x, double y)
@@ -1330,6 +1795,11 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
         return index;
 
     auto obj = m_objects[index];
+    if (dynamic_cast<AviaHorizonObject*>(obj.data())) {
+        emit projectChanged();
+        return index;
+    }
+
     // Перемещаем объект так, чтобы его центр оказался в точке (x, y)
     const QRectF bounds = obj->getBoundingRect();
     const double dx = x - bounds.center().x();
@@ -1342,16 +1812,51 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
 
 bool ProjectManager::removeObject(int index)
 {
-    if (index < 0 || index >= m_objects.size())
-        return false;
+    return removeObjects(QList<int>{index});
+}
 
-    m_objects.removeAt(index);
-    if (index < m_objectTags.size()) {
-        m_objectTags.removeAt(index);
+bool ProjectManager::removeObjects(const QList<int> &indexes)
+{
+    QList<int> normalized;
+    QSet<int> seen;
+    for (int index : indexes) {
+        if (index < 0 || index >= m_objects.size() || seen.contains(index))
+            continue;
+        seen.insert(index);
+        normalized.append(index);
     }
 
+    if (normalized.isEmpty())
+        return false;
+
+    recordHistory();
+    std::sort(normalized.begin(), normalized.end(), std::greater<int>());
+    for (int index : normalized) {
+        m_objects.removeAt(index);
+        if (index < m_objectTags.size())
+            m_objectTags.removeAt(index);
+    }
+
+    for (ObjectGroup &group : m_groups) {
+        QList<int> updatedMembers;
+        for (int member : group.members) {
+            if (seen.contains(member))
+                continue;
+            int shift = 0;
+            for (int removed : normalized) {
+                if (removed < member)
+                    ++shift;
+            }
+            updatedMembers.append(member - shift);
+        }
+        group.members = updatedMembers;
+    }
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [](const ObjectGroup &group) {
+        return group.members.size() < 2;
+    }), m_groups.end());
+
     emit projectChanged();
-    emit logMessage(tr("Удалён объект #%1").arg(index + 1));
+    emit logMessage(tr("Удалено объектов: %1").arg(normalized.size()));
     return true;
 }
 
@@ -1360,26 +1865,336 @@ bool ProjectManager::reorderObjects(const QList<int> &order)
     if (order.size() != m_objects.size())
         return false;
 
+    bool changed = false;
+    for (int i = 0; i < order.size(); ++i) {
+        if (order[i] != i) {
+            changed = true;
+            break;
+        }
+    }
+    if (!changed)
+        return true;
+
     QList<QSharedPointer<BaseObject>> reorderedObjects;
     QStringList reorderedTags;
     reorderedObjects.reserve(m_objects.size());
     reorderedTags.reserve(m_objectTags.size());
 
     QSet<int> seen;
+    QMap<int, int> oldToNew;
     for (int index : order) {
         if (index < 0 || index >= m_objects.size() || seen.contains(index))
             return false;
 
         seen.insert(index);
+        oldToNew.insert(index, reorderedObjects.size());
         reorderedObjects.append(m_objects[index]);
         reorderedTags.append(index < m_objectTags.size() ? m_objectTags[index] : QString());
     }
 
+    recordHistory();
     m_objects = reorderedObjects;
     m_objectTags = reorderedTags;
+    for (ObjectGroup &group : m_groups) {
+        QList<int> updatedMembers;
+        for (int member : group.members) {
+            if (oldToNew.contains(member))
+                updatedMembers.append(oldToNew.value(member));
+        }
+        std::sort(updatedMembers.begin(), updatedMembers.end());
+        group.members = updatedMembers;
+    }
     emit projectChanged();
     emit logMessage(tr("Изменён порядок слоёв объектов"));
     return true;
+}
+
+bool ProjectManager::sendObjectsToFront(const QList<int> &indexes)
+{
+    QSet<int> selected;
+    for (int index : indexes) {
+        if (index >= 0 && index < m_objects.size())
+            selected.insert(index);
+    }
+    if (selected.isEmpty())
+        return false;
+
+    QList<int> order;
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (selected.contains(i))
+            order.append(i);
+    }
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (!selected.contains(i))
+            order.append(i);
+    }
+    return reorderObjects(order);
+}
+
+bool ProjectManager::sendObjectsToBack(const QList<int> &indexes)
+{
+    QSet<int> selected;
+    for (int index : indexes) {
+        if (index >= 0 && index < m_objects.size())
+            selected.insert(index);
+    }
+    if (selected.isEmpty())
+        return false;
+
+    QList<int> order;
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (!selected.contains(i))
+            order.append(i);
+    }
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (selected.contains(i))
+            order.append(i);
+    }
+    return reorderObjects(order);
+}
+
+int ProjectManager::groupObjects(const QList<int> &indexes)
+{
+    QList<int> normalized;
+    QSet<int> seen;
+    for (int index : indexes) {
+        if (index < 0 || index >= m_objects.size() || seen.contains(index))
+            continue;
+        seen.insert(index);
+        normalized.append(index);
+    }
+    std::sort(normalized.begin(), normalized.end());
+    if (normalized.size() < 2)
+        return -1;
+
+    recordHistory();
+    for (ObjectGroup &group : m_groups) {
+        QList<int> kept;
+        for (int member : group.members) {
+            if (!seen.contains(member))
+                kept.append(member);
+        }
+        group.members = kept;
+    }
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [](const ObjectGroup &group) {
+        return group.members.size() < 2;
+    }), m_groups.end());
+
+    ObjectGroup group;
+    group.id = m_nextGroupId++;
+    group.name = tr("Группа %1").arg(group.id);
+    group.members = normalized;
+    m_groups.append(group);
+
+    emit projectChanged();
+    emit logMessage(tr("Создана группа: %1 объектов").arg(group.members.size()));
+    return group.id;
+}
+
+bool ProjectManager::ungroupObjects(const QList<int> &indexes)
+{
+    QSet<int> selected;
+    for (int index : indexes) {
+        if (index >= 0 && index < m_objects.size())
+            selected.insert(index);
+    }
+    if (selected.isEmpty())
+        return false;
+
+    QList<int> removeGroupIds;
+    for (const ObjectGroup &group : m_groups) {
+        for (int member : group.members) {
+            if (selected.contains(member)) {
+                removeGroupIds.append(group.id);
+                break;
+            }
+        }
+    }
+    if (removeGroupIds.isEmpty())
+        return false;
+
+    recordHistory();
+    const QSet<int> removeSet(removeGroupIds.begin(), removeGroupIds.end());
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [&removeSet](const ObjectGroup &group) {
+        return removeSet.contains(group.id);
+    }), m_groups.end());
+
+    emit projectChanged();
+    emit logMessage(tr("Группа разгруппирована"));
+    return true;
+}
+
+QList<int> ProjectManager::groupMembersForObject(int index) const
+{
+    for (const ObjectGroup &group : m_groups) {
+        if (group.members.contains(index))
+            return group.members;
+    }
+    return {};
+}
+
+QList<int> ProjectManager::groupMembers(int groupId) const
+{
+    for (const ObjectGroup &group : m_groups) {
+        if (group.id == groupId)
+            return group.members;
+    }
+    return {};
+}
+
+QString ProjectManager::groupName(int groupId) const
+{
+    for (const ObjectGroup &group : m_groups) {
+        if (group.id == groupId)
+            return group.name;
+    }
+    return {};
+}
+
+bool ProjectManager::renameGroup(int groupId, const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty())
+        return false;
+
+    for (ObjectGroup &group : m_groups) {
+        if (group.id != groupId)
+            continue;
+        if (group.name == trimmed)
+            return true;
+        recordHistory();
+        group.name = trimmed;
+        emit projectChanged();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectManager::setGroupViewVisible(int groupId, bool visible)
+{
+    QList<int> members;
+    for (const ObjectGroup &group : m_groups) {
+        if (group.id == groupId) {
+            members = group.members;
+            break;
+        }
+    }
+    if (members.isEmpty())
+        return false;
+
+    bool hasChanges = false;
+    for (int index : members) {
+        if (index >= 0 && index < m_objects.size() && m_objects[index]->isViewVisible() != visible) {
+            hasChanges = true;
+            break;
+        }
+    }
+    if (!hasChanges)
+        return true;
+
+    recordHistory();
+    for (int index : members) {
+        if (index >= 0 && index < m_objects.size())
+            m_objects[index]->setViewVisible(visible);
+    }
+    emit projectChanged();
+    return true;
+}
+
+bool ProjectManager::setGroupExportEnabled(int groupId, bool enabled)
+{
+    QList<int> members;
+    for (const ObjectGroup &group : m_groups) {
+        if (group.id == groupId) {
+            members = group.members;
+            break;
+        }
+    }
+    if (members.isEmpty())
+        return false;
+
+    bool hasChanges = false;
+    for (int index : members) {
+        if (index >= 0 && index < m_objects.size() && m_objects[index]->isExportEnabled() != enabled) {
+            hasChanges = true;
+            break;
+        }
+    }
+    if (!hasChanges)
+        return true;
+
+    recordHistory();
+    for (int index : members) {
+        if (index >= 0 && index < m_objects.size())
+            m_objects[index]->setExportEnabled(enabled);
+    }
+    emit projectChanged();
+    return true;
+}
+
+bool ProjectManager::renameObject(int index, const QString &name)
+{
+    if (index < 0 || index >= m_objects.size())
+        return false;
+
+    const QString trimmed = name.trimmed();
+    if (m_objects[index]->customName() == trimmed)
+        return true;
+
+    recordHistory();
+    m_objects[index]->setCustomName(trimmed);
+    emit projectChanged();
+    return true;
+}
+
+bool ProjectManager::copyObjects(const QList<int> &indexes)
+{
+    m_clipboardObjects.clear();
+    m_clipboardTags.clear();
+
+    QSet<int> seen;
+    for (int index : indexes) {
+        if (index < 0 || index >= m_objects.size() || seen.contains(index))
+            continue;
+        seen.insert(index);
+        m_clipboardObjects.append(cloneObject(m_objects[index]));
+        m_clipboardTags.append(index < m_objectTags.size() ? m_objectTags[index] : QString());
+    }
+
+    if (m_clipboardObjects.isEmpty())
+        return false;
+
+    emit logMessage(tr("Скопировано объектов: %1").arg(m_clipboardObjects.size()));
+    return true;
+}
+
+QList<int> ProjectManager::pasteObjects()
+{
+    QList<int> pastedIndexes;
+    if (m_clipboardObjects.isEmpty())
+        return pastedIndexes;
+
+    recordHistory();
+    for (int i = m_clipboardObjects.size() - 1; i >= 0; --i) {
+        const auto clone = cloneObject(m_clipboardObjects[i]);
+        if (!clone)
+            continue;
+        clone->moveBy(24.0, 24.0);
+        m_objects.prepend(clone);
+        m_objectTags.prepend(i < m_clipboardTags.size() ? m_clipboardTags[i] : QString());
+    }
+
+    for (int i = 0; i < m_clipboardObjects.size(); ++i)
+        pastedIndexes.append(i);
+
+    emit projectChanged();
+    emit logMessage(tr("Вставлено объектов: %1").arg(pastedIndexes.size()));
+    return pastedIndexes;
+}
+
+bool ProjectManager::canPasteObjects() const
+{
+    return !m_clipboardObjects.isEmpty();
 }
 
 bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
@@ -1415,6 +2230,7 @@ bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
         break;
     }
 
+    recordHistory();
     object->moveBy(dx, dy);
     emit projectChanged();
     emit logMessage(tr("Выполнено выравнивание объекта"));
@@ -1426,6 +2242,10 @@ bool ProjectManager::setObjectViewVisible(int index, bool visible)
     if (index < 0 || index >= m_objects.size())
         return false;
 
+    if (m_objects[index]->isViewVisible() == visible)
+        return true;
+
+    recordHistory();
     m_objects[index]->setViewVisible(visible);
     emit projectChanged();
     return true;
@@ -1436,24 +2256,70 @@ bool ProjectManager::setObjectExportEnabled(int index, bool enabled)
     if (index < 0 || index >= m_objects.size())
         return false;
 
+    if (m_objects[index]->isExportEnabled() == enabled)
+        return true;
+
+    recordHistory();
     m_objects[index]->setExportEnabled(enabled);
+    emit projectChanged();
+    return true;
+}
+
+void ProjectManager::recordObjectEdit()
+{
+    recordHistory();
+}
+
+void ProjectManager::finishObjectEdit(const QString &message)
+{
+    emit projectChanged();
+    if (!message.isEmpty())
+        emit logMessage(message);
+}
+
+bool ProjectManager::setObjectProperty(BaseObject *object, const QString &propertyName, const QString &value)
+{
+    if (!object)
+        return false;
+
+    bool objectBelongsToProject = false;
+    for (const auto &projectObject : m_objects) {
+        if (projectObject.data() == object) {
+            objectBelongsToProject = true;
+            break;
+        }
+    }
+    if (!objectBelongsToProject)
+        return false;
+
+    for (const auto &property : object->getProperties()) {
+        if (property.first == propertyName) {
+            if (property.second == value)
+                return true;
+            break;
+        }
+    }
+
+    const ProjectSnapshot before = captureSnapshot();
+    if (!object->setObjectProperty(propertyName, value))
+        return false;
+
+    m_undoStack.append(before);
+    m_redoStack.clear();
+    constexpr int maxHistoryDepth = 80;
+    while (m_undoStack.size() > maxHistoryDepth)
+        m_undoStack.removeFirst();
+
     emit projectChanged();
     return true;
 }
 
 bool ProjectManager::saveToFile(const QString &targetFile)
 {
-    const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
-    if (outPath.isEmpty())
-        return false;
-
-    if (m_editMode == ProjectEditMode::RestrictedFpgaXml)
-        return exportToFpgaXml(outPath);
-
-    return saveEditableXml(outPath);
+    return exportToFpgaXml(targetFile);
 }
 
-bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QString> &alphabetGroups)
+bool ProjectManager::exportToFpgaXml(const QString &targetFile)
 {
     const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
     if (outPath.isEmpty())
@@ -1469,7 +2335,6 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QStri
         m_schemaAliases,
         m_objects,
         m_objectTags,
-        alphabetGroups,
         &generatedFonts
     );
     
@@ -1477,7 +2342,8 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QStri
     QFile outFile(outPath);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
     
-    const QString xmlText = doc.toString(4);
+    QString xmlText = doc.toString(4);
+    xmlText.replace(QStringLiteral("α"), QStringLiteral("&#945;"));
     QStringEncoder encoder("windows-1251");
     QByteArray encodedXml = encoder(xmlText);
     if (encodedXml.isEmpty() && !xmlText.isEmpty()) {
@@ -1486,50 +2352,8 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile, const QSet<QStri
     outFile.write(encodedXml);
     outFile.close();
 
-    m_fonts = generatedFonts;
-    m_filePath = outPath;
-    m_editMode = ProjectEditMode::RestrictedFpgaXml;
-    applyRestrictedMode();
-    emit projectLoaded();
-    emit projectChanged();
     emit logMessage(tr("Кадр для ПЛИС сохранён: %1").arg(outPath));
-    return true;
-}
-
-bool ProjectManager::saveEditableXml(const QString &targetFile)
-{
-    const QDomDocument doc = buildEditableXmlDocument(
-        m_document->projectName(),
-        m_document->canvasWidth(),
-        m_document->canvasHeight(),
-        m_document->backgroundColor(),
-        m_showGrid,
-        m_snapToCanvas,
-        m_snapToGrid,
-        m_snapToObjects,
-        m_schemas,
-        m_schemaAliases,
-        m_objects,
-        m_objectTags
-    );
-
-    QFile outFile(targetFile);
-    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return false;
-
-    const QString xmlText = doc.toString(4);
-    QStringEncoder encoder("windows-1251");
-    QByteArray encodedXml = encoder(xmlText);
-    if (encodedXml.isEmpty() && !xmlText.isEmpty())
-        encodedXml = xmlText.toUtf8();
-    outFile.write(encodedXml);
-    outFile.close();
-
-    m_filePath = targetFile;
-    m_editMode = ProjectEditMode::EditableXml;
-    emit projectLoaded();
-    emit logMessage(tr("Проект сохранён: %1").arg(targetFile));
-    return true;
+    return loadXmlProject(outPath);
 }
 
 int ProjectManager::importImageAsStaticGroup(const QString &fileName)
@@ -1574,11 +2398,11 @@ int ProjectManager::importImageAsStaticGroup(const QString &fileName)
     imageObject->x = qMax(0.0, (m_document->canvasWidth() - imageObject->width) / 2.0);
     imageObject->y = qMax(0.0, (m_document->canvasHeight() - imageObject->height) / 2.0);
 
-    m_objects.append(QSharedPointer<BaseObject>(imageObject));
-    m_objectTags.append(QStringLiteral("image"));
+    recordHistory();
+    insertObjectAtFront(imageObject, QStringLiteral("image"));
     emit projectChanged();
     emit logMessage(tr("Изображение добавлено: %1").arg(fileName));
-    return m_objects.size() - 1;
+    return 0;
 }
 
 void ProjectManager::applyRestrictedMode()
@@ -1590,16 +2414,6 @@ void ProjectManager::applyRestrictedMode()
             object->setResizeLocked(true);
         }
     }
-}
-
-void ProjectManager::resetFontsToDefault()
-{
-    m_fonts.clear();
-    FpgaFont font;
-    font.index = 0;
-    font.name = QStringLiteral("Arial");
-    font.size = 14;
-    m_fonts.insert(font.index, font);
 }
 
 QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const
@@ -1618,17 +2432,11 @@ int ProjectManager::getCanvasHeight() const { return m_document->canvasHeight();
 QColor ProjectManager::getBackgroundColor() const { return m_document->backgroundColor(); }
 QString ProjectManager::getFilePath() const { return m_filePath; }
 const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }
-ProjectEditMode ProjectManager::editMode() const { return m_editMode; }
+QList<ProjectManager::ObjectGroup> ProjectManager::objectGroups() const { return m_groups; }
 bool ProjectManager::showGrid() const { return m_showGrid; }
 bool ProjectManager::snapToCanvas() const { return m_snapToCanvas; }
 bool ProjectManager::snapToGrid() const { return m_snapToGrid; }
 bool ProjectManager::snapToObjects() const { return m_snapToObjects; }
-QString ProjectManager::editModeName() const
-{
-    return m_editMode == ProjectEditMode::RestrictedFpgaXml
-        ? tr("Ограниченное редактирование XML")
-        : tr("Редактируемый XML");
-}
 
 int ProjectManager::gridStep() const { return m_gridStep; }
 QColor ProjectManager::gridColor() const { return m_gridColor; }

@@ -3,6 +3,7 @@
 #include "AppearanceManager.h"
 #include "EditorWorkspacePanel.h"
 #include "FpgaSchemaRegistry.h"
+#include "FontExportDialog.h"
 #include "NewProjectDialog.h"
 #include "ObjectLibraryPanel.h"
 #include "ObjectListPanel.h"
@@ -15,24 +16,17 @@
 #include "ViewportSettingsPanel.h"
 
 #include <QAction>
-#include <QCheckBox>
-#include <QDialog>
-#include <QDialogButtonBox>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
-#include <QGroupBox>
 #include <QIcon>
-#include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QPainter>
-#include <QPixmap>
+#include <QPointF>
 #include <QSettings>
 #include <QSet>
 #include <QTimer>
-#include <QVBoxLayout>
 
 #include <algorithm>
 #include <functional>
@@ -40,117 +34,45 @@
 namespace {
 constexpr int kLayoutStateVersion = 2;
 
-QSet<QString> detectAlphabetGroups()
+QString fontExportKey(const QString &family, int pixelSize)
+{
+    return family + QLatin1Char('\n') + QString::number(pixelSize);
+}
+
+QStringList detectedAlphabetGroups(const QString &characters)
 {
     QSet<QString> groups;
-    for (const auto &object : ProjectManager::instance()->getObjects()) {
-        auto *text = dynamic_cast<TextObject*>(object.data());
-        if (!text || !text->isExportEnabled())
-            continue;
-
-        for (const QChar ch : text->text) {
-            const ushort u = ch.unicode();
-            if (ch.isDigit()) {
-                groups.insert(QStringLiteral("digits"));
-            } else if (u >= 'A' && u <= 'Z') {
-                groups.insert(QStringLiteral("latin_upper"));
-            } else if (u >= 'a' && u <= 'z') {
-                groups.insert(QStringLiteral("latin_lower"));
-            } else if ((u >= 0x0410 && u <= 0x042F) || u == 0x0401) {
-                groups.insert(QStringLiteral("cyrillic_upper"));
-            } else if ((u >= 0x0430 && u <= 0x044F) || u == 0x0451) {
-                groups.insert(QStringLiteral("cyrillic_lower"));
-            }
+    for (const QChar ch : characters) {
+        const ushort code = ch.unicode();
+        if (ch.isDigit()) {
+            groups.insert(QStringLiteral("digits"));
+        } else if (code >= 'A' && code <= 'Z') {
+            groups.insert(QStringLiteral("latin_upper"));
+        } else if (code >= 'a' && code <= 'z') {
+            groups.insert(QStringLiteral("latin_lower"));
+        } else if ((code >= 0x0410 && code <= 0x042F) || code == 0x0401) {
+            groups.insert(QStringLiteral("cyrillic_upper"));
+        } else if ((code >= 0x0430 && code <= 0x044F) || code == 0x0451) {
+            groups.insert(QStringLiteral("cyrillic_lower"));
+        } else if (QStringLiteral("α°+-/").contains(ch)) {
+            groups.insert(QStringLiteral("symbols"));
         }
     }
-    return groups;
-}
 
-QIcon makeAlphabetIcon(const QString &text, const QColor &accent)
-{
-    QPixmap pixmap(34, 26);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setBrush(QColor(16, 24, 30));
-    painter.setPen(QPen(accent, 1));
-    painter.drawRoundedRect(QRectF(1, 1, 32, 24), 6, 6);
-    QFont font = painter.font();
-    font.setBold(true);
-    font.setPixelSize(text.size() > 2 ? 10 : 14);
-    painter.setFont(font);
-    painter.setPen(QColor(238, 247, 255));
-    painter.drawText(pixmap.rect(), Qt::AlignCenter, text);
-    painter.end();
-    return QIcon(pixmap);
-}
-
-QCheckBox* addAlphabetCheck(QVBoxLayout *layout,
-                            const QString &title,
-                            const QString &key,
-                            const QString &iconText,
-                            const QColor &iconColor,
-                            const QSet<QString> &autoGroups)
-{
-    auto *check = new QCheckBox(title);
-    check->setProperty("alphabetKey", key);
-    check->setIcon(makeAlphabetIcon(iconText, iconColor));
-    check->setIconSize(QSize(34, 26));
-    check->setChecked(autoGroups.contains(key));
-    layout->addWidget(check);
-    return check;
-}
-
-bool collectExportOptions(QWidget *parent, QSet<QString> *alphabetGroups)
-{
-    QDialog dialog(parent);
-    dialog.setWindowTitle(QStringLiteral("Экспорт кадра в XML"));
-    dialog.setMinimumSize(560, 360);
-
-    auto *layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(16, 16, 16, 16);
-    layout->setSpacing(12);
-
-    auto *warning = new QLabel(QStringLiteral(
-        "После экспорта изображения и SVG будут растеризованы в маски 0..7. "
-        "При повторном открытии экспортированного XML размеры растровых объектов будут заблокированы."
-    ), &dialog);
-    warning->setWordWrap(true);
-    layout->addWidget(warning);
-
-    auto *groupBox = new QGroupBox(QStringLiteral("Алфавиты для добавления в XML"), &dialog);
-    auto *groupLayout = new QVBoxLayout(groupBox);
-    groupLayout->setSpacing(8);
-    const QSet<QString> autoGroups = detectAlphabetGroups();
-    QList<QCheckBox*> checks = {
-        addAlphabetCheck(groupLayout, QStringLiteral("Цифры 0-9"), QStringLiteral("digits"), QStringLiteral("0-9"), QColor("#56d3ff"), autoGroups),
-        addAlphabetCheck(groupLayout, QStringLiteral("Английские заглавные A-Z"), QStringLiteral("latin_upper"), QStringLiteral("A"), QColor("#ffca58"), autoGroups),
-        addAlphabetCheck(groupLayout, QStringLiteral("Английские строчные a-z"), QStringLiteral("latin_lower"), QStringLiteral("a"), QColor("#8de1a3"), autoGroups),
-        addAlphabetCheck(groupLayout, QStringLiteral("Русские заглавные А-Я, Ё"), QStringLiteral("cyrillic_upper"), QStringLiteral("А"), QColor("#ff7aa2"), autoGroups),
-        addAlphabetCheck(groupLayout, QStringLiteral("Русские строчные а-я, ё"), QStringLiteral("cyrillic_lower"), QStringLiteral("я"), QColor("#b89cff"), autoGroups)
+    QStringList ordered;
+    const QStringList groupOrder = {
+        QStringLiteral("digits"),
+        QStringLiteral("latin_upper"),
+        QStringLiteral("latin_lower"),
+        QStringLiteral("cyrillic_upper"),
+        QStringLiteral("cyrillic_lower"),
+        QStringLiteral("symbols")
     };
-    layout->addWidget(groupBox);
-
-    auto *fontNote = new QLabel(QStringLiteral(
-        "Для каждого используемого шрифта и размера будет создан отдельный тег font с метриками QFontMetrics и общим data-пулом масок."
-    ), &dialog);
-    fontNote->setWordWrap(true);
-    layout->addWidget(fontNote);
-
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    if (dialog.exec() != QDialog::Accepted)
-        return false;
-
-    alphabetGroups->clear();
-    for (QCheckBox *check : checks) {
-        if (check->isChecked())
-            alphabetGroups->insert(check->property("alphabetKey").toString());
+    for (const QString &group : groupOrder) {
+        if (groups.contains(group))
+            ordered.append(group);
     }
-    return true;
+    return ordered;
 }
 }
 
@@ -245,6 +167,9 @@ void MainWindow::onSaveFile()
         return;
     }
 
+    if (!configureFontExportAlphabets())
+        return;
+
     project->saveToFile();
 }
 
@@ -260,31 +185,12 @@ void MainWindow::onSaveFileAs()
     );
 
     if (!fileName.isEmpty()) {
+        if (!configureFontExportAlphabets())
+            return;
+
         project->saveToFile(fileName);
         QSettings settings("Avionix", "Designer");
         settings.setValue("lastProject", fileName);
-        updateWindowTitle();
-    }
-}
-
-void MainWindow::onExportFpgaXml()
-{
-    QSet<QString> alphabetGroups;
-    if (!collectExportOptions(this, &alphabetGroups))
-        return;
-
-    auto *project = ProjectManager::instance();
-    const QString fileName = QFileDialog::getSaveFileName(
-        this,
-        "Экспорт кадра в XML",
-        project->getProjectName() + ".xml",
-        "FPGA XML (*.xml)"
-    );
-
-    if (!fileName.isEmpty()) {
-        project->exportToFpgaXml(fileName, alphabetGroups);
-        m_objectList->refreshList();
-        m_viewport->update();
         updateWindowTitle();
     }
 }
@@ -316,7 +222,7 @@ void MainWindow::onImportImage()
 void MainWindow::updateWindowTitle()
 {
     auto *project = ProjectManager::instance();
-    setWindowTitle(QString("Avionix Designer - %1 [%2]").arg(project->getProjectName(), project->editModeName()));
+    setWindowTitle(QString("Avionix Designer - %1").arg(project->getProjectName()));
 }
 
 void MainWindow::openSettings()
@@ -417,10 +323,33 @@ void MainWindow::createMenus()
     fileMenu->addAction(createAction("Открыть...", QKeySequence::Open, this, SLOT(onOpenFile())));
     fileMenu->addAction(createAction("Сохранить", QKeySequence::Save, this, SLOT(onSaveFile())));
     fileMenu->addAction(createAction("Сохранить как...", QKeySequence::SaveAs, this, SLOT(onSaveFileAs())));
-    fileMenu->addAction(createAction("Экспорт кадра в XML...", QKeySequence("Ctrl+E"), this, SLOT(onExportFpgaXml())));
     fileMenu->addAction(createAction("Добавить изображение...", QKeySequence("Ctrl+I"), this, SLOT(onImportImage())));
     fileMenu->addSeparator();
     fileMenu->addAction(createAction("Выход", QKeySequence::Quit, this, SLOT(close())));
+
+    QMenu *editMenu = menuBar()->addMenu("Правка");
+    editMenu->addAction(createAction("Отменить", QKeySequence::Undo, this, SLOT(undo())));
+    editMenu->addAction(createAction("Повторить", QKeySequence::Redo, this, SLOT(redo())));
+    editMenu->addSeparator();
+    editMenu->addAction(createAction("Копировать", QKeySequence::Copy, this, SLOT(copySelectedObjects())));
+    editMenu->addAction(createAction("Вставить", QKeySequence::Paste, this, SLOT(pasteObjects())));
+    editMenu->addSeparator();
+    editMenu->addAction(createAction("Сгруппировать", QKeySequence("Ctrl+G"), this, SLOT(groupSelectedObjects())));
+    editMenu->addAction(createAction("Разгруппировать", QKeySequence("Ctrl+Shift+G"), this, SLOT(ungroupSelectedObjects())));
+    editMenu->addSeparator();
+    QAction *frontAction = editMenu->addAction("На передний план");
+    frontAction->setShortcut(QKeySequence("Ctrl+]"));
+    connect(frontAction, &QAction::triggered, this, [this]() {
+        alignSelectedObject(SelectionToolStrip::SendToFront);
+    });
+    addAction(frontAction);
+
+    QAction *backAction = editMenu->addAction("На задний план");
+    backAction->setShortcut(QKeySequence("Ctrl+["));
+    connect(backAction, &QAction::triggered, this, [this]() {
+        alignSelectedObject(SelectionToolStrip::SendToBack);
+    });
+    addAction(backAction);
 
     QMenu *objectsMenu = menuBar()->addMenu("Объекты");
     auto addObjectAction = [this, objectsMenu](const QString &title, const QKeySequence &shortcut, const QString &typeName) {
@@ -491,9 +420,11 @@ void MainWindow::connectSignals()
         m_viewport->setSelectedIndexes({});
         m_objectList->selectRows({});
         setSelectionState(false);
+        updateCommandState();
     });
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, m_objectList, &ObjectListPanel::refreshList);
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, m_viewport, QOverload<>::of(&QWidget::update));
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &MainWindow::updateCommandState);
 
     connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged, m_viewport, QOverload<>::of(&QWidget::update));
     connect(m_viewport, &ViewportPanel::objectChanged, this, [this]() {
@@ -507,8 +438,13 @@ void MainWindow::connectSignals()
     connect(m_objectLibrary, &ObjectLibraryPanel::objectRequested, this, &MainWindow::createObjectOfType);
     connect(m_objectLibrary, &ObjectLibraryPanel::imageImportRequested, this, &MainWindow::onImportImage);
     connect(m_selectionToolStrip, &SelectionToolStrip::alignRequested, this, &MainWindow::alignSelectedObject);
+    connect(m_selectionToolStrip, &SelectionToolStrip::undoRequested, this, &MainWindow::undo);
+    connect(m_selectionToolStrip, &SelectionToolStrip::redoRequested, this, &MainWindow::redo);
+    connect(m_selectionToolStrip, &SelectionToolStrip::copyRequested, this, &MainWindow::copySelectedObjects);
+    connect(m_selectionToolStrip, &SelectionToolStrip::pasteRequested, this, &MainWindow::pasteObjects);
     connect(m_selectionToolStrip, &SelectionToolStrip::deleteRequested, this, &MainWindow::deleteSelectedObject);
-    connect(m_selectionToolStrip, &SelectionToolStrip::exportRequested, this, &MainWindow::onExportFpgaXml);
+    connect(m_selectionToolStrip, &SelectionToolStrip::groupRequested, this, &MainWindow::groupSelectedObjects);
+    connect(m_selectionToolStrip, &SelectionToolStrip::ungroupRequested, this, &MainWindow::ungroupSelectedObjects);
     connect(m_viewport, &ViewportPanel::imageDropped, this, [this](const QString &fileName) {
         const int index = ProjectManager::instance()->importImageAsStaticGroup(fileName);
         if (index < 0)
@@ -593,9 +529,8 @@ void MainWindow::deleteSelectedObject()
     if (indexes.isEmpty())
         return;
 
-    std::sort(indexes.begin(), indexes.end(), std::greater<int>());
-    for (int index : indexes)
-        ProjectManager::instance()->removeObject(index);
+    if (!ProjectManager::instance()->removeObjects(indexes))
+        return;
 
     m_objectList->refreshList();
     m_objectList->selectRows({});
@@ -605,11 +540,173 @@ void MainWindow::deleteSelectedObject()
     m_viewport->update();
 }
 
+void MainWindow::undo()
+{
+    if (!ProjectManager::instance()->undo())
+        return;
+
+    m_objectList->selectRows({});
+    m_viewport->setSelectedIndexes({});
+    m_objectProperties->clearProperties();
+    setSelectionState(false);
+    updateCommandState();
+}
+
+void MainWindow::redo()
+{
+    if (!ProjectManager::instance()->redo())
+        return;
+
+    m_objectList->selectRows({});
+    m_viewport->setSelectedIndexes({});
+    m_objectProperties->clearProperties();
+    setSelectionState(false);
+    updateCommandState();
+}
+
+void MainWindow::copySelectedObjects()
+{
+    const QList<int> indexes = m_viewport->getSelectedIndexes();
+    if (indexes.isEmpty())
+        return;
+
+    ProjectManager::instance()->copyObjects(indexes);
+    updateCommandState();
+}
+
+void MainWindow::pasteObjects()
+{
+    const QList<int> pastedIndexes = ProjectManager::instance()->pasteObjects();
+    if (pastedIndexes.isEmpty())
+        return;
+
+    m_objectList->refreshList();
+    m_objectList->selectRows(pastedIndexes);
+    m_viewport->setSelectedIndexes(pastedIndexes);
+    handleSelectionChanged(pastedIndexes);
+    m_viewport->update();
+    updateCommandState();
+}
+
+bool MainWindow::configureFontExportAlphabets()
+{
+    auto *project = ProjectManager::instance();
+    QMap<QString, FontExportDialogEntry> entriesByKey;
+    QMap<QString, QList<TextObject*>> textsByKey;
+
+    for (const auto &object : project->getObjects()) {
+        auto *text = dynamic_cast<TextObject*>(object.data());
+        if (!text || !text->isExportEnabled() || text->hasFontAtlas())
+            continue;
+
+        const QString key = fontExportKey(text->fontFamily, text->pixelSize);
+        FontExportDialogEntry entry = entriesByKey.value(key);
+        if (entry.fontFamily.isEmpty()) {
+            entry.fontFamily = text->fontFamily;
+            entry.pixelSize = text->pixelSize;
+        }
+
+        entry.textCount += 1;
+        if (!entry.sampleText.contains(text->text)) {
+            if (!entry.sampleText.isEmpty())
+                entry.sampleText.append(QStringLiteral("; "));
+            entry.sampleText.append(text->text);
+        }
+
+        const QStringList detectedGroups = detectedAlphabetGroups(text->exportCharacters());
+        for (const QString &group : detectedGroups) {
+            if (!entry.alphabetGroups.contains(group))
+                entry.alphabetGroups.append(group);
+        }
+
+        entriesByKey.insert(key, entry);
+        textsByKey[key].append(text);
+    }
+
+    if (entriesByKey.isEmpty())
+        return true;
+
+    QList<FontExportDialogEntry> entries;
+    for (auto it = entriesByKey.constBegin(); it != entriesByKey.constEnd(); ++it)
+        entries.append(it.value());
+
+    FontExportDialog dialog(entries, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    for (const FontExportDialogEntry &entry : dialog.entries()) {
+        const QString key = fontExportKey(entry.fontFamily, entry.pixelSize);
+        for (TextObject *text : textsByKey.value(key))
+            text->exportAlphabetGroups = entry.alphabetGroups;
+    }
+
+    return true;
+}
+
+void MainWindow::groupSelectedObjects()
+{
+    const QList<int> indexes = m_viewport->getSelectedIndexes();
+    if (indexes.size() < 2)
+        return;
+
+    auto *project = ProjectManager::instance();
+    const int groupId = project->groupObjects(indexes);
+    if (groupId < 0)
+        return;
+
+    const QList<int> groupMembers = project->groupMembers(groupId);
+    m_objectList->refreshList();
+    m_objectList->selectRows(groupMembers);
+    m_viewport->setSelectedIndexes(groupMembers);
+    handleSelectionChanged(groupMembers);
+    m_viewport->update();
+}
+
+void MainWindow::ungroupSelectedObjects()
+{
+    const QList<int> indexes = m_viewport->getSelectedIndexes();
+    if (indexes.isEmpty())
+        return;
+
+    if (!ProjectManager::instance()->ungroupObjects(indexes))
+        return;
+
+    m_objectList->refreshList();
+    m_objectList->selectRows(indexes);
+    m_viewport->setSelectedIndexes(indexes);
+    handleSelectionChanged(indexes);
+    m_viewport->update();
+}
+
 void MainWindow::alignSelectedObject(int actionId)
 {
     const QList<int> indexes = m_viewport->getSelectedIndexes();
     if (indexes.isEmpty())
         return;
+
+    if (actionId == SelectionToolStrip::SendToFront || actionId == SelectionToolStrip::SendToBack) {
+        auto *project = ProjectManager::instance();
+        const bool ok = actionId == SelectionToolStrip::SendToFront
+            ? project->sendObjectsToFront(indexes)
+            : project->sendObjectsToBack(indexes);
+        if (!ok)
+            return;
+
+        QList<int> newIndexes;
+        if (actionId == SelectionToolStrip::SendToFront) {
+            for (int i = 0; i < indexes.size(); ++i)
+                newIndexes.append(i);
+        } else {
+            const int first = project->getObjectCount() - indexes.size();
+            for (int i = 0; i < indexes.size(); ++i)
+                newIndexes.append(first + i);
+        }
+        m_objectList->refreshList();
+        m_objectList->selectRows(newIndexes);
+        m_viewport->setSelectedIndexes(newIndexes);
+        handleSelectionChanged(newIndexes);
+        return;
+    }
 
     ObjectAlignment alignment = ObjectAlignment::Left;
     switch (actionId) {
@@ -658,34 +755,55 @@ void MainWindow::alignSelectedObject(int actionId)
     if (!hasBounds || bounds.isEmpty())
         return;
 
-    double dx = 0.0;
-    double dy = 0.0;
-    switch (alignment) {
-    case ObjectAlignment::Left:
-        dx = -bounds.left();
-        break;
-    case ObjectAlignment::HCenter:
-        dx = project->getCanvasWidth() / 2.0 - bounds.center().x();
-        break;
-    case ObjectAlignment::Right:
-        dx = project->getCanvasWidth() - bounds.right();
-        break;
-    case ObjectAlignment::Top:
-        dy = -bounds.top();
-        break;
-    case ObjectAlignment::VCenter:
-        dy = project->getCanvasHeight() / 2.0 - bounds.center().y();
-        break;
-    case ObjectAlignment::Bottom:
-        dy = project->getCanvasHeight() - bounds.bottom();
-        break;
-    }
+    struct MoveDelta
+    {
+        int index = -1;
+        QPointF delta;
+    };
 
+    QList<MoveDelta> deltas;
     for (int index : indexes) {
         const auto object = project->getObjectAt(index);
-        if (object)
-            object->moveBy(dx, dy);
+        if (!object)
+            continue;
+
+        const QRectF objectBounds = object->getBoundingRect();
+        QPointF delta;
+        switch (alignment) {
+        case ObjectAlignment::Left:
+            delta.setX(bounds.left() - objectBounds.left());
+            break;
+        case ObjectAlignment::HCenter:
+            delta.setX(bounds.center().x() - objectBounds.center().x());
+            break;
+        case ObjectAlignment::Right:
+            delta.setX(bounds.right() - objectBounds.right());
+            break;
+        case ObjectAlignment::Top:
+            delta.setY(bounds.top() - objectBounds.top());
+            break;
+        case ObjectAlignment::VCenter:
+            delta.setY(bounds.center().y() - objectBounds.center().y());
+            break;
+        case ObjectAlignment::Bottom:
+            delta.setY(bounds.bottom() - objectBounds.bottom());
+            break;
+        }
+
+        if (!qFuzzyIsNull(delta.x()) || !qFuzzyIsNull(delta.y()))
+            deltas.append({index, delta});
     }
+
+    if (deltas.isEmpty())
+        return;
+
+    project->recordObjectEdit();
+    for (const MoveDelta &move : deltas) {
+        const auto object = project->getObjectAt(move.index);
+        if (object)
+            object->moveBy(move.delta.x(), move.delta.y());
+    }
+    project->finishObjectEdit(tr("Выполнено выравнивание объектов"));
     m_objectProperties->clearProperties();
     m_viewport->update();
 }
@@ -705,6 +823,17 @@ void MainWindow::setSelectionState(bool active)
     if (m_selectionToolStrip) {
         m_selectionToolStrip->setSelectionActive(active);
     }
+    updateCommandState();
+}
+
+void MainWindow::updateCommandState()
+{
+    if (!m_selectionToolStrip)
+        return;
+
+    auto *project = ProjectManager::instance();
+    m_selectionToolStrip->setHistoryAvailable(project->canUndo(), project->canRedo());
+    m_selectionToolStrip->setPasteAvailable(project->canPasteObjects());
 }
 
 QAction* MainWindow::createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member)

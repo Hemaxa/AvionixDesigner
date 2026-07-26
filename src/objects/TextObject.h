@@ -28,6 +28,7 @@ struct FpgaFont
     QString name = QStringLiteral("Arial");
     int size = 14;
     int volume = 0;
+    QList<QChar> glyphOrder;
     QMap<QChar, FpgaGlyph> glyphs;
     QMap<QString, int> kerningPairs;
 };
@@ -41,6 +42,8 @@ public:
     QString fontFamily = QStringLiteral("Arial");
     int pixelSize = 14;
     int fontIndex = 0;
+    QString extraCharacters = QStringLiteral("α°+-/");
+    QStringList exportAlphabetGroups;
     bool restrictedAtlasEditing = false;
 
     explicit TextObject(QObject *parent = nullptr);
@@ -52,6 +55,7 @@ public:
     void resizeBy(int edgeFlags, double dx, double dy) override;
     QRectF getBoundingRect() const override;
     bool canUseText(const QString &candidate, QString *missingCharacters = nullptr) const;
+    QString exportCharacters() const;
     void setFontAtlas(const FpgaFont &font, bool restricted);
     bool hasFontAtlas() const;
     const FpgaFont& fontAtlas() const;

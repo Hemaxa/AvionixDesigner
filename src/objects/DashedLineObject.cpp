@@ -163,6 +163,19 @@ void DashedLineObject::resizeBy(int edgeFlags, double dx, double dy)
     emit changed();
 }
 
+void DashedLineObject::setEndpoint(int endpointIndex, const QPointF &point)
+{
+    if (endpointIndex == 0) {
+        x0 = point.x();
+        y0 = point.y();
+    } else {
+        x1 = point.x();
+        y1 = point.y();
+    }
+
+    emit changed();
+}
+
 bool DashedLineObject::setObjectProperty(const QString &name, const QString &value)
 {
     bool ok = false;

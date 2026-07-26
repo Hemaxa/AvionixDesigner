@@ -83,14 +83,16 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
     mainLayout->setSpacing(6);
 
     createButtons();
+    mainLayout->addStretch(1);
     mainLayout->addLayout(m_rowLayout);
-    mainLayout->addStretch();
+    mainLayout->addStretch(1);
 }
 
 void ObjectLibraryPanel::createButtons()
 {
     m_rowLayout = new QHBoxLayout();
     m_rowLayout->setSpacing(8);
+    m_rowLayout->setAlignment(Qt::AlignVCenter);
 
     QList<EditorObjectDescriptor> items;
     for (const auto &descriptor : FpgaSchemaRegistry::instance()->editorObjectCatalog()) {
@@ -103,12 +105,12 @@ void ObjectLibraryPanel::createButtons()
         const auto &item = items[i];
         QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title);
         m_libraryCards.append(card);
-        m_rowLayout->addWidget(card);
+        m_rowLayout->addWidget(card, 0, Qt::AlignVCenter);
     }
 
     QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
     m_libraryCards.append(imageButton);
-    m_rowLayout->addWidget(imageButton);
+    m_rowLayout->addWidget(imageButton, 0, Qt::AlignVCenter);
 
     m_rowLayout->addStretch();
 }

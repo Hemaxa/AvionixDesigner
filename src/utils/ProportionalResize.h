@@ -7,10 +7,11 @@
 
 struct ProportionalResizeResult
 {
-    QRectF rect;
-    double scale = 1.0;
+    QRectF rect; //новый прямоугольник после масштабирования
+    double scale = 1.0; //единый коэффициент масштабирования
 };
 
+//изменяет прямоугольник пропорционально по выбранным сторонам edgeFlags
 inline ProportionalResizeResult proportionalResizeRect(const QRectF &sourceRect, int edgeFlags, double dx, double dy)
 {
     if (sourceRect.isEmpty())

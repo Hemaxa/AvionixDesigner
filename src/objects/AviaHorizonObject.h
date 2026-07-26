@@ -29,7 +29,8 @@ public:
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
-    bool supportsRotationHandle() const override { return true; }
+    bool supportsRotationHandle() const override { return false; }
+    bool canResize() const override { return false; }
 
     void moveBy(double dx, double dy) override;
     void resizeBy(int edgeFlags, double dx, double dy) override;
@@ -41,5 +42,6 @@ public:
     double getAngleDegrees() const;
 
 private:
-    QRectF getLocalAreaRect() const;
+    QRectF getCanvasRect() const;
+    void updateCanvasArea();
 };

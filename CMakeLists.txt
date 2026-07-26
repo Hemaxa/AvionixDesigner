@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 0.1.0 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.0 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg)
 
@@ -74,11 +74,12 @@ qt_add_executable(AvionixDesigner
     src/windows/NewProjectDialog.cpp
     src/windows/SettingsWindow.h
     src/windows/SettingsWindow.cpp
+    src/windows/FontExportDialog.h
+    src/windows/FontExportDialog.cpp
     
     # Утилиты (header-only)
     src/utils/BitParser.h
     src/utils/XmlReader.h
-    src/utils/DebugDumper.h
     src/utils/ProportionalResize.h
     
     # Ресурсы

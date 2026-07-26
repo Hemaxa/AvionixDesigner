@@ -1,12 +1,16 @@
 #include "ViewportPanel.h"
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
+#include "DashedLineObject.h"
+#include <algorithm>
 #include <QPainter>
 #include <QWheelEvent>
 #include <QMouseEvent>
 #include <QDragEnterEvent>
 #include <QFileInfo>
+#include <QLineF>
 #include <QMimeData>
+#include <QPalette>
 #include <QSet>
 #include <QUrl>
 #include <QVector>
@@ -97,6 +101,24 @@ QPointF ViewportPanel::mapToCanvas(const QPoint &widgetPoint) const
     return QPointF((widgetPoint.x() - offsetX) / totalScale, (widgetPoint.y() - offsetY) / totalScale);
 }
 
+double ViewportPanel::currentTotalScale() const
+{
+    auto pm = ProjectManager::instance();
+    const double canvasW = qMax(1, pm->getCanvasWidth());
+    const double canvasH = qMax(1, pm->getCanvasHeight());
+
+    const double scaleX = static_cast<double>(width()) / canvasW;
+    const double scaleY = static_cast<double>(height()) / canvasH;
+    const double fitScale = qMin(scaleX, scaleY) * 0.95;
+
+    return qMax(0.001, fitScale * m_scale);
+}
+
+double ViewportPanel::handleSizeInCanvas() const
+{
+    return 8.0 / currentTotalScale();
+}
+
 void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate)
 {
     painter.save();
@@ -108,7 +130,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(rect);
     
-    const double size = 6.0 / m_scale; // Фиксированный визуальный размер
+    const double size = handleSizeInCanvas();
     const double half = size / 2.0;
 
     if (canResize) {
@@ -137,6 +159,32 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
         painter.drawEllipse(QPointF(rect.center().x(), rect.top() - size * 3), half, half);
     }
     
+    painter.restore();
+}
+
+void ViewportPanel::drawDashedLineEndpointManipulators(QPainter &painter, const DashedLineObject *line)
+{
+    if (!line)
+        return;
+
+    painter.save();
+
+    QPen guidePen(Qt::blue, 1, Qt::DashLine);
+    guidePen.setCosmetic(true);
+    painter.setPen(guidePen);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRect(line->getBoundingRect());
+
+    const double size = handleSizeInCanvas();
+    const double radius = size * 0.55;
+
+    QPen endpointPen(Qt::blue, 1.4);
+    endpointPen.setCosmetic(true);
+    painter.setPen(endpointPen);
+    painter.setBrush(Qt::white);
+    painter.drawEllipse(QPointF(line->x0, line->y0), radius, radius);
+    painter.drawEllipse(QPointF(line->x1, line->y1), radius, radius);
+
     painter.restore();
 }
 
@@ -366,19 +414,56 @@ void ViewportPanel::beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds
     m_dragStartCanvasPos = canvasPos;
     m_dragStartBounds = bounds;
     m_dragLastAppliedDelta = QPointF(0.0, 0.0);
+    m_dragStartObjectBounds.clear();
     m_activeSnapGuides.clear();
+
+    auto *project = ProjectManager::instance();
+    const QList<int> dragIndexes = m_selectedIndexes.isEmpty() && m_selectedIndex >= 0
+        ? QList<int>{m_selectedIndex}
+        : m_selectedIndexes;
+
+    for (int index : dragIndexes) {
+        const auto object = project->getObjectAt(index);
+        if (object)
+            m_dragStartObjectBounds.insert(index, object->getBoundingRect());
+    }
+}
+
+void ViewportPanel::moveObjectToDragDelta(int index, const QPointF &delta)
+{
+    const auto object = ProjectManager::instance()->getObjectAt(index);
+    if (!object || !m_dragStartObjectBounds.contains(index))
+        return;
+
+    const QRectF startRect = m_dragStartObjectBounds.value(index);
+    const QPointF targetTopLeft = startRect.topLeft() + delta;
+    const QPointF correction = targetTopLeft - object->getBoundingRect().topLeft();
+
+    if (!qFuzzyIsNull(correction.x()) || !qFuzzyIsNull(correction.y()))
+        object->moveBy(correction.x(), correction.y());
+}
+
+void ViewportPanel::ensureDragHistoryRecorded()
+{
+    if (m_dragHistoryRecorded)
+        return;
+
+    ProjectManager::instance()->recordObjectEdit();
+    m_dragHistoryRecorded = true;
+    m_dragEditedObjects = true;
 }
 
 int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, bool canResize, bool canRotate) const
 {
-    const double size = 6.0 / m_scale * 1.5; // Чуть больше зона клика
+    const double baseSize = handleSizeInCanvas();
+    const double size = baseSize * 1.5; // Чуть больше зона клика
     const double half = size / 2.0;
     
     auto isHit = [pos, half](double x, double y) {
         return qAbs(pos.x() - x) <= half && qAbs(pos.y() - y) <= half;
     };
     
-    if (canRotate && isHit(rect.center().x(), rect.top() - (6.0 / m_scale) * 3)) return 100; // Rotate enum
+    if (canRotate && isHit(rect.center().x(), rect.top() - baseSize * 3)) return 100; // Rotate enum
 
     if (!canResize)
         return 0;
@@ -395,6 +480,23 @@ int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, b
     return 0; // Нет попадания
 }
 
+int ViewportPanel::hitTestDashedLineEndpoints(const QPointF &canvasPos, const DashedLineObject *line) const
+{
+    if (!line)
+        return -1;
+
+    const double radius = handleSizeInCanvas() * 1.25;
+    const QPointF start(line->x0, line->y0);
+    const QPointF end(line->x1, line->y1);
+
+    if (QLineF(canvasPos, start).length() <= radius)
+        return 0;
+    if (QLineF(canvasPos, end).length() <= radius)
+        return 1;
+
+    return -1;
+}
+
 void ViewportPanel::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
@@ -402,8 +504,8 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     auto pm = ProjectManager::instance();
     
-    //заливаем фон виджета цветом из текущей темы
-    painter.fillRect(rect(), AppearanceManager::instance()->getColor("viewport"));
+    //заливаем фон виджета цветом, заданным для #ViewportPanel в QSS
+    painter.fillRect(rect(), palette().color(QPalette::Window));
     
     int canvasW = pm->getCanvasWidth();
     int canvasH = pm->getCanvasHeight();
@@ -440,9 +542,16 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         
         // Рисуем выделение
         if (m_selectedIndexes.contains(i)) {
+            const bool singleSelection = m_selectedIndexes.size() == 1;
+            if (singleSelection) {
+                if (auto dashedLine = dynamic_cast<DashedLineObject*>(objects[i].data())) {
+                    drawDashedLineEndpointManipulators(painter, dashedLine);
+                    continue;
+                }
+            }
+
             QRectF rect = objects[i]->getBoundingRect();
             bool canRotate = objects[i]->supportsRotationHandle();
-            const bool singleSelection = m_selectedIndexes.size() == 1;
             drawManipulators(painter, rect, singleSelection && objects[i]->canResize(), singleSelection && canRotate);
         }
     }
@@ -458,10 +567,10 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     // Рисуем рамку выделения
     if (m_dragMode == MarqueeSelect) {
         painter.save();
-        QColor marqueeColor = AppearanceManager::instance()->getColor("accent");
+        QColor marqueeColor = palette().color(QPalette::Highlight);
         marqueeColor.setAlpha(50);
         painter.setBrush(marqueeColor);
-        painter.setPen(QPen(AppearanceManager::instance()->getColor("accent"), 1, Qt::DashLine));
+        painter.setPen(QPen(palette().color(QPalette::Highlight), 1, Qt::DashLine));
         QRectF marqueeRect(m_marqueeStartPos, m_marqueeCurrentPos);
         painter.drawRect(marqueeRect.normalized());
         painter.restore();
@@ -470,7 +579,9 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     painter.restore();
     
     //рисуем рамку вокруг холста
-    painter.setPen(QPen(QColor(0x5a, 0x5a, 0x5a), 1));
+    QColor canvasFrameColor = palette().color(QPalette::WindowText);
+    canvasFrameColor.setAlpha(90);
+    painter.setPen(QPen(canvasFrameColor, 1));
     painter.drawRect(QRectF(offsetX, offsetY, canvasW * totalScale, canvasH * totalScale));
 }
 
@@ -493,10 +604,18 @@ void ViewportPanel::wheelEvent(QWheelEvent *event)
 
 void ViewportPanel::mousePressEvent(QMouseEvent *event)
 {
+    m_dragHistoryRecorded = false;
+    m_dragEditedObjects = false;
+
     if (event->button() == Qt::LeftButton) {
         QPointF canvasPos = mapToCanvas(event->pos());
         m_lastMousePos = canvasPos;
         auto pm = ProjectManager::instance();
+
+        if (m_selectedIndexes.size() > 1 && selectedObjectContains(canvasPos)) {
+            beginMoveDrag(canvasPos, selectedObjectsRect());
+            return;
+        }
         
         // 1. Проверяем клик по манипуляторам выделенного объекта
         if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
@@ -509,6 +628,15 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             }
             QRectF rect = obj->getBoundingRect();
             bool canRotate = obj->supportsRotationHandle();
+
+            if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
+                const int endpoint = hitTestDashedLineEndpoints(canvasPos, dashedLine);
+                if (endpoint >= 0) {
+                    m_dragMode = LineEndpoint;
+                    m_lineEndpointIndex = endpoint;
+                    return;
+                }
+            }
             
             int hit = hitTestManipulators(canvasPos, rect, obj->canResize(), canRotate);
             if (hit == 100) {
@@ -525,11 +653,6 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 return;
             }
         }
-
-        if (m_selectedIndexes.size() > 1 && selectedObjectContains(canvasPos)) {
-            beginMoveDrag(canvasPos, selectedObjectsRect());
-            return;
-        }
         
         // 2. Ищем объект под курсором (верхние строки списка считаются верхними слоями)
         m_dragMode = None;
@@ -541,17 +664,39 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 break;
             }
         }
+
+        QList<int> newSelectionIndexes;
+        if (newSelection >= 0) {
+            const QList<int> groupMembers = pm->groupMembersForObject(newSelection);
+            newSelectionIndexes = groupMembers.isEmpty() ? QList<int>{newSelection} : groupMembers;
+        }
         
-        if (m_selectedIndex != newSelection) {
-            setSelectedIndex(newSelection);
-            emit objectSelected(newSelection);
+        if (m_selectedIndexes != newSelectionIndexes) {
+            setSelectedIndexes(newSelectionIndexes);
+            emit objectSelected(m_selectedIndex);
             emit selectionChanged(m_selectedIndexes);
         }
 
         if (newSelection >= 0) {
+            if (m_selectedIndexes.size() > 1) {
+                beginMoveDrag(canvasPos, selectedObjectsRect());
+                return;
+            }
+
             auto selected = pm->getObjectAt(newSelection);
-            if (selected)
-                beginMoveDrag(canvasPos, selected->getBoundingRect());
+            if (selected) {
+                if (auto dashedLine = dynamic_cast<DashedLineObject*>(selected.data())) {
+                    const int endpoint = hitTestDashedLineEndpoints(canvasPos, dashedLine);
+                    if (endpoint >= 0) {
+                        m_dragMode = LineEndpoint;
+                        m_lineEndpointIndex = endpoint;
+                    } else {
+                        beginMoveDrag(canvasPos, selected->getBoundingRect());
+                    }
+                } else {
+                    beginMoveDrag(canvasPos, selected->getBoundingRect());
+                }
+            }
         }
         
         if (m_dragMode == None) {
@@ -596,11 +741,14 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         const QPointF desiredDelta = canvasPos - m_dragStartCanvasPos;
         const SnapResult snap = snappedMoveDeltaForSelection(m_selectedIndexes, m_dragStartBounds, desiredDelta);
         const QPointF applyDelta = snap.delta - m_dragLastAppliedDelta;
-        for (int index : m_selectedIndexes) {
-            auto object = ProjectManager::instance()->getObjectAt(index);
-            if (object)
-                object->moveBy(applyDelta.x(), applyDelta.y());
+        if (qFuzzyIsNull(applyDelta.x()) && qFuzzyIsNull(applyDelta.y())) {
+            m_activeSnapGuides = snap.guides;
+            update();
+            return;
         }
+        ensureDragHistoryRecorded();
+        for (int index : m_selectedIndexes)
+            moveObjectToDragDelta(index, snap.delta);
         m_dragLastAppliedDelta = snap.delta;
         m_activeSnapGuides = snap.guides;
         emit objectChanged();
@@ -611,16 +759,33 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             const QPointF desiredDelta = canvasPos - m_dragStartCanvasPos;
             const SnapResult snap = snappedMoveDelta(m_selectedIndex, m_dragStartBounds, desiredDelta);
             const QPointF applyDelta = snap.delta - m_dragLastAppliedDelta;
-            obj->moveBy(applyDelta.x(), applyDelta.y());
+            if (qFuzzyIsNull(applyDelta.x()) && qFuzzyIsNull(applyDelta.y())) {
+                m_activeSnapGuides = snap.guides;
+                update();
+                return;
+            }
+            ensureDragHistoryRecorded();
+            moveObjectToDragDelta(m_selectedIndex, snap.delta);
             m_dragLastAppliedDelta = snap.delta;
             m_activeSnapGuides = snap.guides;
             emit objectChanged();
             update();
         } else if (m_dragMode == Resize) {
             m_activeSnapGuides.clear();
+            if (qFuzzyIsNull(dx) && qFuzzyIsNull(dy))
+                return;
+            ensureDragHistoryRecorded();
             obj->resizeBy(m_resizeEdgeFlags, dx, dy);
             emit objectChanged();
             update();
+        } else if (m_dragMode == LineEndpoint) {
+            m_activeSnapGuides.clear();
+            if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
+                ensureDragHistoryRecorded();
+                dashedLine->setEndpoint(m_lineEndpointIndex, canvasPos);
+                emit objectChanged();
+                update();
+            }
         } else if (m_dragMode == Rotate && obj->supportsRotationHandle()) {
             m_activeSnapGuides.clear();
             QRectF rect = obj->getBoundingRect();
@@ -628,6 +793,9 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             double angleRad = qAtan2(canvasPos.y() - center.y(), canvasPos.x() - center.x());
             // Добавляем 90 градусов так как 0 градусов указывает направо, а ручка смотрит вверх
             double angleDeg = qRadiansToDegrees(angleRad) + 90.0;
+            if (event->modifiers() & Qt::ControlModifier)
+                angleDeg = qRound(angleDeg / 90.0) * 90.0;
+            ensureDragHistoryRecorded();
             obj->setRotation(angleDeg);
             emit objectChanged();
             update();
@@ -646,12 +814,21 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
         QRectF marqueeRect = QRectF(m_marqueeStartPos, m_marqueeCurrentPos).normalized();
         
         QList<int> newSelection;
+        QSet<int> selectedSet;
         for (int i = pm->getObjectCount() - 1; i >= 0; --i) {
             auto candidate = pm->getObjectAt(i);
             if (candidate->isViewVisible() && marqueeRect.intersects(candidate->getBoundingRect())) {
-                newSelection.prepend(i);
+                const QList<int> groupMembers = pm->groupMembersForObject(i);
+                const QList<int> indexes = groupMembers.isEmpty() ? QList<int>{i} : groupMembers;
+                for (int index : indexes) {
+                    if (selectedSet.contains(index))
+                        continue;
+                    selectedSet.insert(index);
+                    newSelection.append(index);
+                }
             }
         }
+        std::sort(newSelection.begin(), newSelection.end());
         
         if (m_selectedIndexes != newSelection) {
             setSelectedIndexes(newSelection);
@@ -661,9 +838,16 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
         update();
     }
     
+    if (m_dragEditedObjects)
+        ProjectManager::instance()->finishObjectEdit();
+
     m_dragMode = None;
+    m_lineEndpointIndex = -1;
     m_activeSnapGuides.clear();
     m_dragLastAppliedDelta = QPointF(0.0, 0.0);
+    m_dragStartObjectBounds.clear();
+    m_dragHistoryRecorded = false;
+    m_dragEditedObjects = false;
     update();
 }
 

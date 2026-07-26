@@ -5,6 +5,7 @@
 #include "BasePanel.h"
 
 #include <QList>
+#include <QMap>
 
 class ViewportPanel : public BasePanel
 {
@@ -63,9 +64,10 @@ private:
     QList<int> m_selectedIndexes; // Индексы выделенных объектов
     
     // Состояния манипуляторов
-    enum DragMode { None, Move, Resize, Rotate, Pan, MarqueeSelect };
+    enum DragMode { None, Move, Resize, Rotate, LineEndpoint, Pan, MarqueeSelect };
     DragMode m_dragMode = None;
     int m_resizeEdgeFlags = 0; // Битовая маска: 1=Left, 2=Right, 4=Top, 8=Bottom
+    int m_lineEndpointIndex = -1;
 
     enum class SnapGuideKind { Canvas, Grid, Object };
     struct SnapGuide
@@ -85,21 +87,32 @@ private:
     QPointF m_dragStartCanvasPos;
     QRectF m_dragStartBounds;
     QPointF m_dragLastAppliedDelta;
+    // Стартовые границы объектов для перемещения без накопления ошибок округления
+    QMap<int, QRectF> m_dragStartObjectBounds;
+    bool m_dragHistoryRecorded = false;
+    bool m_dragEditedObjects = false;
     QList<SnapGuide> m_activeSnapGuides;
     QPointF m_marqueeStartPos;
     QPointF m_marqueeCurrentPos;
     
     // Преобразования
     QPointF mapToCanvas(const QPoint &widgetPoint) const;
+    double currentTotalScale() const;
+    double handleSizeInCanvas() const;
     
     // Отрисовка манипуляторов
     void drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate);
+    void drawDashedLineEndpointManipulators(QPainter &painter, const class DashedLineObject *line);
     void drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale);
     void drawSnapGuides(QPainter &painter, int canvasW, int canvasH);
     SnapResult snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;
     SnapResult snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const;
     int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canResize, bool canRotate) const;
+    int hitTestDashedLineEndpoints(const QPointF &canvasPos, const class DashedLineObject *line) const;
     QRectF selectedObjectsRect() const;
     bool selectedObjectContains(const QPointF &canvasPos) const;
     void beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds);
+    // Перемещает объект к позиции, рассчитанной от начала перетаскивания
+    void moveObjectToDragDelta(int index, const QPointF &delta);
+    void ensureDragHistoryRecorded();
 };

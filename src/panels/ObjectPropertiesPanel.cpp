@@ -261,7 +261,7 @@ void ObjectPropertiesPanel::onCellChanged(int row, int column)
     const QString propName = nameItem->text();
     const QString newValue = valueItem->text();
 
-    if (m_currentObject->setObjectProperty(propName, newValue)) {
+    if (ProjectManager::instance()->setObjectProperty(m_currentObject.data(), propName, newValue)) {
         refreshTableValues();
         emit propertyChanged();
     }
@@ -302,7 +302,7 @@ void ObjectPropertiesPanel::onCellDoubleClicked(int row, int column)
     if (!selectedColor.isValid())
         return;
 
-    if (m_currentObject->setObjectProperty(propertyName, selectedColor.name())) {
+    if (ProjectManager::instance()->setObjectProperty(m_currentObject.data(), propertyName, selectedColor.name())) {
         refreshTableValues();
         emit propertyChanged();
     }
