@@ -7,6 +7,7 @@
 #include "ViewportSettingsPanel.h"
 
 #include <QFileDialog>
+#include <QMessageBox>
 
 PanelsManager::PanelsManager() = default;
 
@@ -75,10 +76,20 @@ void PanelsManager::onOpenFile()
         m_viewport,
         "Выберите XML файл",
         QString(),
-        "XML Files (*.xml)"
+        "XML (*.xml *.XML);;Все файлы (*.*)"
     );
     
     if (!fileName.isEmpty()) {
-        ProjectManager::instance()->loadFromFile(fileName);
+        auto *project = ProjectManager::instance();
+        if (!project->loadFromFile(fileName)) {
+            const QString details = project->lastErrorMessage().isEmpty()
+                ? QStringLiteral("Файл не загружен.")
+                : project->lastErrorMessage();
+            QMessageBox::warning(
+                m_viewport,
+                QStringLiteral("Не удалось открыть XML"),
+                QStringLiteral("Файл:\n%1\n\n%2").arg(fileName, details)
+            );
+        }
     }
 }

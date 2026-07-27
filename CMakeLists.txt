@@ -96,6 +96,10 @@ target_link_libraries(AvionixDesigner
 
 target_compile_features(AvionixDesigner PRIVATE cxx_std_17)
 
+target_compile_definitions(AvionixDesigner PRIVATE
+    APP_VERSION="${PROJECT_VERSION}"
+)
+
 # Добавляем директории для include, чтобы не использовать относительные пути
 target_include_directories(AvionixDesigner PRIVATE
     ${CMAKE_SOURCE_DIR}/src
