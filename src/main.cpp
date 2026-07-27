@@ -6,6 +6,11 @@
 #include "MainWindow.h"
 
 #include <QApplication>
+#include <QString>
+
+#ifndef APP_VERSION
+#define APP_VERSION "1.0.0"
+#endif
 
 //главная функция приложения
 int main(int argc, char *argv[])
@@ -16,7 +21,7 @@ int main(int argc, char *argv[])
     //мета-информация о приложении
     app.setApplicationName("Avionix Designer");
     app.setOrganizationName("Avionix");
-    app.setApplicationVersion("1.0");
+    app.setApplicationVersion(QString::fromLatin1(APP_VERSION));
     
     //регистрируем стандартные типы объектов (получаем словарь поддерживаемых объектов)
     ProjectManager::instance()->registerStandardTypes();

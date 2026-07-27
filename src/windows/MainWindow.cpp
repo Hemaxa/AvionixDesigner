@@ -95,8 +95,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     if (settings.value("autoLoad", false).toBool()) {
         const QString lastProject = settings.value("lastProject").toString();
         if (!lastProject.isEmpty() && QFile::exists(lastProject)) {
-            ProjectManager::instance()->loadFromFile(lastProject);
-            updateWindowTitle();
+            if (ProjectManager::instance()->loadFromFile(lastProject))
+                updateWindowTitle();
         }
     }
 
@@ -144,17 +144,31 @@ void MainWindow::onOpenFile()
         this,
         "Открыть проект или XML",
         QString(),
-        "XML (*.xml)"
+        "XML (*.xml *.XML);;Все файлы (*.*)"
     );
 
     if (!fileName.isEmpty()) {
-        ProjectManager::instance()->loadFromFile(fileName);
+        auto *project = ProjectManager::instance();
+        if (!project->loadFromFile(fileName)) {
+            const QString details = project->lastErrorMessage().isEmpty()
+                ? tr("Файл не загружен.")
+                : project->lastErrorMessage();
+            QMessageBox::warning(
+                this,
+                tr("Не удалось открыть XML"),
+                tr("Файл:\n%1\n\n%2").arg(fileName, details)
+            );
+            return;
+        }
+
         QSettings settings("Avionix", "Designer");
         settings.setValue("lastProject", fileName);
         m_objectList->refreshList();
         m_objectList->selectRows({});
+        m_objectProperties->clearProperties();
         m_viewport->setSelectedIndexes({});
         m_viewport->resetView();
+        setSelectionState(false);
         updateWindowTitle();
     }
 }

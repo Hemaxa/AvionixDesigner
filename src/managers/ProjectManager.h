@@ -33,6 +33,8 @@ public:
 
     //загружает проект из XML-файла редактора/ПЛИС
     bool loadFromFile(const QString &fileName);
+    //возвращает последнюю ошибку загрузки/сохранения для показа в интерфейсе
+    QString lastErrorMessage() const;
     //создаёт новый пустой проект с заданной рабочей областью
     bool createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath = QString());
     //сохраняет текущий проект в XML; если путь не задан, использует текущий путь проекта
@@ -191,6 +193,7 @@ private:
 
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
+    QString m_lastErrorMessage;
     QList<QSharedPointer<BaseObject>> m_objects;
     QStringList m_objectTags;
     QList<ObjectGroup> m_groups;
