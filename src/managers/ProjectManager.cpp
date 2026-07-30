@@ -1065,25 +1065,23 @@ void appendStaticGroupElementsFromImageLayers(QDomDocument &doc,
                                               const ParamSchema &schema,
                                               const ImageObject *image)
 {
-    QList<QList<ImageMaskComponent>> componentGroups = image->maskComponentGroups();
-    if (componentGroups.isEmpty()) {
+    QList<ImageMaskComponent> components = image->maskComponents();
+    if (components.isEmpty()) {
         ImageMaskComponent component;
         component.bounds = QRect(0, 0, qMax(1, qRound(image->width)), qMax(1, qRound(image->height)));
         component.color = image->effectiveMaskColor();
         component.mask = image->renderedImage();
-        componentGroups.append({component});
+        components.append(component);
     }
 
-    for (const QList<ImageMaskComponent> &componentGroup : componentGroups) {
-        const QList<QList<ImageMaskComponent>> packedGroups = packStaticGroupComponents(schema, componentGroup);
-        if (packedGroups.isEmpty()) {
-            objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, {}));
-            continue;
-        }
-
-        for (const QList<ImageMaskComponent> &groupComponents : packedGroups)
-            objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, groupComponents));
+    const QList<QList<ImageMaskComponent>> packedGroups = packStaticGroupComponents(schema, components);
+    if (packedGroups.isEmpty()) {
+        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, {}));
+        return;
     }
+
+    for (const QList<ImageMaskComponent> &groupComponents : packedGroups)
+        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, groupComponents));
 }
 
 QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
@@ -1403,7 +1401,9 @@ FpgaFont parseFontElement(const QDomElement &fontEl)
             const QString right = glyphEl.attribute("right");
             if (!left.isEmpty() && !right.isEmpty())
                 font.kerningPairs.insert(left.left(1) + right.left(1), glyphEl.attribute("delta", "0").toInt());
-        } else if (glyphEl.tagName() == QStringLiteral("digit") || glyphEl.tagName() == QStringLiteral("upper")) {
+        } else if (glyphEl.tagName() == QStringLiteral("digit")
+                   || glyphEl.tagName() == QStringLiteral("upper")
+                   || glyphEl.tagName() == QStringLiteral("lower")) {
             const QString literal = glyphEl.attribute("literal");
             if (!literal.isEmpty()) {
                 FpgaGlyph glyph;
@@ -2631,7 +2631,9 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile)
     outFile.close();
 
     emit logMessage(tr("Кадр для ПЛИС сохранён: %1").arg(outPath));
-    return loadXmlProject(outPath);
+    m_lastErrorMessage.clear();
+    m_filePath = outPath;
+    return true;
 }
 
 int ProjectManager::importImageAsStaticGroup(const QString &fileName)

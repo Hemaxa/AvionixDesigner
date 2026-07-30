@@ -17,6 +17,8 @@ constexpr int kMinLayerAlphaWeight = 1;
 constexpr int kColorMergeDistanceSquared = 72 * 72;
 constexpr int kWeakColorMergeDistanceSquared = 160 * 160;
 constexpr int kWeakColorMergePercent = 75;
+constexpr int kStaticGroupMaxDimension = 4095;
+constexpr int kStaticGroupMaxPixels = 65536;
 
 struct ColorStats
 {
@@ -477,6 +479,97 @@ QList<QList<ImageMaskComponent>> extractComponentGroups(const QImage &source, co
 
     return groups;
 }
+
+QRect visibleBoundsInRect(const QImage &image, const QRect &rect)
+{
+    QRect bounds;
+    bool hasPixels = false;
+
+    const QRect clipped = rect.intersected(image.rect());
+    for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
+        for (int x = clipped.left(); x <= clipped.right(); ++x) {
+            if (image.pixelColor(x, y).alpha() <= 0)
+                continue;
+
+            const QRect pixelRect(x, y, 1, 1);
+            bounds = hasPixels ? bounds.united(pixelRect) : pixelRect;
+            hasPixels = true;
+        }
+    }
+
+    return hasPixels ? bounds : QRect();
+}
+
+QList<QRect> staticGroupExportTiles(const ImageMaskComponent &component)
+{
+    QList<QRect> tiles;
+    if (component.mask.isNull() || component.bounds.isEmpty())
+        return tiles;
+
+    const int sourceWidth = component.mask.width();
+    const int sourceHeight = component.mask.height();
+    const int safeMaxWidth = qMax(1, qMin(kStaticGroupMaxDimension, kStaticGroupMaxPixels));
+
+    for (int left = 0; left < sourceWidth; left += safeMaxWidth) {
+        const int tileWidth = qMin(safeMaxWidth, sourceWidth - left);
+        const int tileHeightLimit = qMax(1, qMin(kStaticGroupMaxDimension, kStaticGroupMaxPixels / qMax(1, tileWidth)));
+
+        for (int top = 0; top < sourceHeight; top += tileHeightLimit) {
+            const QRect candidate(left, top, tileWidth, qMin(tileHeightLimit, sourceHeight - top));
+            const QRect visibleBounds = visibleBoundsInRect(component.mask, candidate);
+            if (!visibleBounds.isEmpty())
+                tiles.append(visibleBounds);
+        }
+    }
+
+    return tiles;
+}
+
+int staticGroupExportObjectCount(const QList<ImageMaskComponent> &components, int *initCount)
+{
+    int objectCount = 0;
+    int currentPixels = 0;
+    int states = 0;
+
+    for (const ImageMaskComponent &component : components) {
+        const QList<QRect> tiles = staticGroupExportTiles(component);
+        for (const QRect &tile : tiles) {
+            const int tilePixels = qMax(1, tile.width() * tile.height());
+            if (currentPixels > 0 && currentPixels + tilePixels > kStaticGroupMaxPixels) {
+                ++objectCount;
+                currentPixels = 0;
+            }
+
+            currentPixels += tilePixels;
+            ++states;
+        }
+    }
+
+    if (currentPixels > 0)
+        ++objectCount;
+
+    if (initCount)
+        *initCount = states;
+    return objectCount;
+}
+
+QString objectCountWord(int count)
+{
+    const int mod100 = count % 100;
+    if (mod100 >= 11 && mod100 <= 14)
+        return QStringLiteral("объектов");
+
+    switch (count % 10) {
+    case 1:
+        return QStringLiteral("объект");
+    case 2:
+    case 3:
+    case 4:
+        return QStringLiteral("объекта");
+    default:
+        return QStringLiteral("объектов");
+    }
+}
 }
 
 ImageObject::ImageObject(QObject *parent) : BaseObject(parent) {}
@@ -620,6 +713,34 @@ bool ImageObject::hasRotation() const
     return qAbs(rotationDegrees) > 0.01;
 }
 
+QString ImageObject::xmlExportSummary() const
+{
+    QList<ImageMaskComponent> components = maskComponents();
+    if (components.isEmpty()) {
+        ImageMaskComponent component;
+        component.bounds = QRect(0, 0, qMax(1, qRound(width)), qMax(1, qRound(height)));
+        component.color = effectiveMaskColor();
+        component.mask = renderedImage();
+        components.append(component);
+    }
+
+    if (hasRotation()) {
+        const int objectCount = qMax(1, components.size());
+        return QStringLiteral("rotationobject, дробление: %1 (%2 %3)")
+            .arg(objectCount > 1 ? QStringLiteral("да") : QStringLiteral("нет"))
+            .arg(objectCount)
+            .arg(objectCountWord(objectCount));
+    }
+
+    int initCount = 0;
+    const int objectCount = staticGroupExportObjectCount(components, &initCount);
+    return QStringLiteral("staticgroup, дробление: %1 (%2 %3, %4 init)")
+        .arg(objectCount > 1 ? QStringLiteral("да") : QStringLiteral("нет"))
+        .arg(qMax(1, objectCount))
+        .arg(objectCountWord(qMax(1, objectCount)))
+        .arg(qMax(1, initCount));
+}
+
 QByteArray ImageObject::sourcePayload() const
 {
     return m_sourceBytes;
@@ -707,6 +828,7 @@ QList<QPair<QString, QString>> ImageObject::getProperties() const
             props.append({QStringLiteral("Слой %1: Цвет").arg(component.layerIndex + 1), component.color.name()});
     }
 
+    props.append({QStringLiteral("XML экспорт"), xmlExportSummary()});
     return props;
 }
 

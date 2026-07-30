@@ -218,7 +218,10 @@ void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &
         m_tableWidget->setItem(i, 0, nameItem);
 
         auto *valueItem = new QTableWidgetItem(props[i].second);
-        if (isColorProperty(props[i].first)) {
+        if (isReadOnlyProperty(props[i].first)) {
+            valueItem->setFlags((valueItem->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+            valueItem->setForeground(QBrush(QColor("#9DB3C3")));
+        } else if (isColorProperty(props[i].first)) {
             valueItem->setFlags((valueItem->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
             const QColor previewColor(props[i].second);
             if (previewColor.isValid()) {
@@ -324,7 +327,12 @@ void ObjectPropertiesPanel::refreshTableValues()
         }
         if (auto *value = m_tableWidget->item(i, 1)) {
             value->setText(props[i].second);
-            if (isColorProperty(props[i].first)) {
+            if (isReadOnlyProperty(props[i].first)) {
+                value->setFlags((value->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+                value->setIcon(QIcon());
+                value->setBackground(QBrush());
+                value->setForeground(QBrush(QColor("#9DB3C3")));
+            } else if (isColorProperty(props[i].first)) {
                 value->setFlags((value->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
                 const QColor previewColor(props[i].second);
                 if (previewColor.isValid()) {
@@ -358,4 +366,9 @@ bool ObjectPropertiesPanel::isBooleanProperty(const QString &name) const
 {
     return name == QStringLiteral("Включен")
         || name.endsWith(QStringLiteral("Видимость"));
+}
+
+bool ObjectPropertiesPanel::isReadOnlyProperty(const QString &name) const
+{
+    return name == QStringLiteral("XML экспорт");
 }
