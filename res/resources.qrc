@@ -6,12 +6,10 @@
         <file>icons/library/rectangle.svg</file>
         <file>icons/library/dashedline.svg</file>
         <file>icons/library/ribonscale.svg</file>
-        <file>icons/library/staticgroup.svg</file>
-        <file>icons/library/rotationgroup.svg</file>
         <file>icons/library/aviahorizon.svg</file>
         <file>icons/library/text.svg</file>
         <file>icons/library/import-image.svg</file>
-        <file>icons/list/eye.svg</file>
+        <file>icons/list/eye-on.svg</file>
         <file>icons/list/eye-off.svg</file>
         <file>icons/settings/grid.svg</file>
         <file>icons/settings/snap-screen.svg</file>

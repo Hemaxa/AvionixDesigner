@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 1.0.0 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.1 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg)
 

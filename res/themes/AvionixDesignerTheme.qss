@@ -357,31 +357,31 @@ QToolButton:pressed {
 }
 
 QToolButton#LibraryCard {
-    min-width: 48px;
-    max-width: 48px;
-    min-height: 48px;
-    max-height: 48px;
+    min-width: 52px;
+    max-width: 52px;
+    min-height: 52px;
+    max-height: 52px;
     padding: 0;
-    qproperty-iconSize: 28px 28px;
+    qproperty-iconSize: 36px 36px;
 }
 
 QToolButton#SelectionToolButton,
 QToolButton#SettingsToolButton,
 QPushButton#SettingsColorButton {
-    min-width: 48px;
-    max-width: 48px;
-    min-height: 48px;
-    max-height: 48px;
+    min-width: 52px;
+    max-width: 52px;
+    min-height: 52px;
+    max-height: 52px;
     padding: 0;
 }
 
 QToolButton#SelectionToolButton,
 QToolButton#SettingsToolButton {
-    qproperty-iconSize: 24px 24px;
+    qproperty-iconSize: 32px 32px;
 }
 
 QPushButton#SettingsColorButton {
-    qproperty-iconSize: 28px 28px;
+    qproperty-iconSize: 36px 36px;
 }
 
 QPushButton#ResetButton {

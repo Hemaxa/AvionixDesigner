@@ -1,7 +1,6 @@
 #include "ObjectListPanel.h"
 #include "ProjectManager.h"
 #include <QAbstractItemModel>
-#include <algorithm>
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -11,28 +10,19 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMap>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QSizePolicy>
-#include <QSet>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace {
-enum ObjectListRoles
-{
-  KindRole = Qt::UserRole,
-  ObjectIndexRole,
-  GroupIdRole
-};
+enum ObjectListRoles { KindRole = Qt::UserRole, ObjectIndexRole, GroupIdRole };
 
-enum class RowKind
-{
-  Object = 0,
-  Group = 1
-};
+enum class RowKind { Object = 0, Group = 1 };
 
-QString typeLabelForObject(const BaseObject *object)
-{
+QString typeLabelForObject(const BaseObject *object) {
   if (!object)
     return {};
 
@@ -45,8 +35,7 @@ QString typeLabelForObject(const BaseObject *object)
       {QStringLiteral("AviaHorizon"), QStringLiteral("avia_horizon")},
       {QStringLiteral("Text"), QStringLiteral("text")},
       {QStringLiteral("Rectangle"), QStringLiteral("rectangle")},
-      {QStringLiteral("image"), QStringLiteral("image")}
-  };
+      {QStringLiteral("image"), QStringLiteral("image")}};
 
   if (labels.contains(typeName))
     return labels.value(typeName);
@@ -62,13 +51,13 @@ QString typeLabelForObject(const BaseObject *object)
   return label;
 }
 
-QString objectDisplayName(const QSharedPointer<BaseObject> &object)
-{
+QString objectDisplayName(const QSharedPointer<BaseObject> &object) {
   if (!object)
     return {};
-  return object->customName().isEmpty() ? object->getDisplayName() : object->customName();
+  return object->customName().isEmpty() ? object->getDisplayName()
+                                        : object->customName();
 }
-}
+} // namespace
 
 ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
   // устанавливаем имя для стилизации через QSS
@@ -137,12 +126,13 @@ void ObjectListPanel::refreshList() {
     item->setData(KindRole, static_cast<int>(RowKind::Object));
     item->setData(ObjectIndexRole, index);
     item->setData(GroupIdRole, -1);
-    item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
+    item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled |
+                   Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
     m_listWidget->addItem(item);
 
     auto *rowWidget = new QWidget(m_listWidget);
     rowWidget->setObjectName("ObjectListRowWidget");
-    rowWidget->setFixedHeight(36);
+    rowWidget->setFixedHeight(42);
     auto *rowLayout = new QHBoxLayout(rowWidget);
     rowLayout->setContentsMargins(grouped ? 24 : 6, 0, 6, 0);
     rowLayout->setSpacing(6);
@@ -152,13 +142,13 @@ void ObjectListPanel::refreshList() {
     eyeButton->setObjectName("ObjectListIconButton");
     eyeButton->setIcon(
         QIcon(obj->isViewVisible()
-                  ? QStringLiteral(":/icons/icons/list/eye.svg")
+                  ? QStringLiteral(":/icons/icons/list/eye-on.svg")
                   : QStringLiteral(":/icons/icons/list/eye-off.svg")));
     eyeButton->setToolTip(obj->isViewVisible()
                               ? QStringLiteral("Скрыть на холсте")
                               : QStringLiteral("Показать на холсте"));
-    eyeButton->setFixedSize(24, 24);
-    eyeButton->setIconSize(QSize(16, 16));
+    eyeButton->setFixedSize(30, 30);
+    eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
     auto *label = new QLabel(text, rowWidget);
@@ -182,10 +172,10 @@ void ObjectListPanel::refreshList() {
     exportCheck->setObjectName("ObjectExportCheck");
     exportCheck->setToolTip(QStringLiteral("Экспортировать в XML"));
     exportCheck->setChecked(obj->isExportEnabled());
-    exportCheck->setFixedSize(24, 24);
+    exportCheck->setFixedSize(30, 30);
     rowLayout->addWidget(exportCheck, 0, Qt::AlignVCenter);
 
-    item->setSizeHint(QSize(0, 36));
+    item->setSizeHint(QSize(0, 42));
     m_listWidget->setItemWidget(item, rowWidget);
 
     connect(eyeButton, &QToolButton::clicked, this, [this, index]() {
@@ -218,12 +208,13 @@ void ObjectListPanel::refreshList() {
     item->setData(KindRole, static_cast<int>(RowKind::Group));
     item->setData(ObjectIndexRole, -1);
     item->setData(GroupIdRole, group.id);
-    item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDropEnabled);
+    item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled |
+                   Qt::ItemIsDropEnabled);
     m_listWidget->addItem(item);
 
     auto *rowWidget = new QWidget(m_listWidget);
     rowWidget->setObjectName("ObjectListGroupRowWidget");
-    rowWidget->setFixedHeight(34);
+    rowWidget->setFixedHeight(40);
     auto *rowLayout = new QHBoxLayout(rowWidget);
     rowLayout->setContentsMargins(6, 0, 6, 0);
     rowLayout->setSpacing(6);
@@ -232,14 +223,13 @@ void ObjectListPanel::refreshList() {
     auto *eyeButton = new QToolButton(rowWidget);
     eyeButton->setObjectName("ObjectListIconButton");
     eyeButton->setIcon(
-        QIcon(anyVisible
-                  ? QStringLiteral(":/icons/icons/list/eye.svg")
-                  : QStringLiteral(":/icons/icons/list/eye-off.svg")));
+        QIcon(anyVisible ? QStringLiteral(":/icons/icons/list/eye.svg")
+                         : QStringLiteral(":/icons/icons/list/eye-off.svg")));
     eyeButton->setToolTip(anyVisible
                               ? QStringLiteral("Скрыть группу на холсте")
                               : QStringLiteral("Показать группу на холсте"));
-    eyeButton->setFixedSize(24, 24);
-    eyeButton->setIconSize(QSize(16, 16));
+    eyeButton->setFixedSize(30, 30);
+    eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
     auto *label = new QLabel(group.name, rowWidget);
@@ -261,20 +251,24 @@ void ObjectListPanel::refreshList() {
     exportCheck->setObjectName("ObjectExportCheck");
     exportCheck->setToolTip(QStringLiteral("Экспортировать группу в XML"));
     exportCheck->setChecked(allExportEnabled);
-    exportCheck->setFixedSize(24, 24);
+    exportCheck->setFixedSize(30, 30);
     rowLayout->addWidget(exportCheck, 0, Qt::AlignVCenter);
 
-    item->setSizeHint(QSize(0, 34));
+    item->setSizeHint(QSize(0, 40));
     m_listWidget->setItemWidget(item, rowWidget);
 
-    connect(eyeButton, &QToolButton::clicked, this, [this, groupId = group.id, anyVisible]() {
-      ProjectManager::instance()->setGroupViewVisible(groupId, !anyVisible);
-      refreshList();
-    });
+    connect(eyeButton, &QToolButton::clicked, this,
+            [this, groupId = group.id, anyVisible]() {
+              ProjectManager::instance()->setGroupViewVisible(groupId,
+                                                              !anyVisible);
+              refreshList();
+            });
 
-    connect(exportCheck, &QCheckBox::toggled, this, [groupId = group.id](bool checked) {
-      ProjectManager::instance()->setGroupExportEnabled(groupId, checked);
-    });
+    connect(exportCheck, &QCheckBox::toggled, this,
+            [groupId = group.id](bool checked) {
+              ProjectManager::instance()->setGroupExportEnabled(groupId,
+                                                                checked);
+            });
   };
 
   // заполняем список объектами; группы выводятся как служебные строки редактора
@@ -325,7 +319,8 @@ void ObjectListPanel::selectRows(const QList<int> &indexes) {
   QSet<int> selectedSet(indexes.begin(), indexes.end());
   for (int row = 0; row < m_listWidget->count(); ++row) {
     auto *item = m_listWidget->item(row);
-    if (!item || item->data(KindRole).toInt() != static_cast<int>(RowKind::Object))
+    if (!item ||
+        item->data(KindRole).toInt() != static_cast<int>(RowKind::Object))
       continue;
     const int objectIndex = item->data(ObjectIndexRole).toInt();
     if (!selectedSet.contains(objectIndex))
@@ -347,9 +342,10 @@ void ObjectListPanel::onRowChanged(int row) {
     const auto *item = m_listWidget->item(row);
     if (!item)
       return;
-    emit objectSelected(item->data(KindRole).toInt() == static_cast<int>(RowKind::Object)
-                        ? item->data(ObjectIndexRole).toInt()
-                        : -1);
+    emit objectSelected(item->data(KindRole).toInt() ==
+                                static_cast<int>(RowKind::Object)
+                            ? item->data(ObjectIndexRole).toInt()
+                            : -1);
   }
 }
 
@@ -386,7 +382,8 @@ void ObjectListPanel::onRowsMoved(const QModelIndex &parent, int start, int end,
   }
 
   auto *project = ProjectManager::instance();
-  if (order.size() != project->getObjectCount() || !project->reorderObjects(order)) {
+  if (order.size() != project->getObjectCount() ||
+      !project->reorderObjects(order)) {
     refreshList();
     return;
   }
@@ -403,14 +400,15 @@ void ObjectListPanel::onRowsMoved(const QModelIndex &parent, int start, int end,
   emit objectSelected(newSelection.size() == 1 ? newSelection.first() : -1);
 }
 
-void ObjectListPanel::onItemDoubleClicked(QListWidgetItem *item)
-{
+void ObjectListPanel::onItemDoubleClicked(QListWidgetItem *item) {
   if (!item)
     return;
 
   auto *project = ProjectManager::instance();
-  const bool isObject = item->data(KindRole).toInt() == static_cast<int>(RowKind::Object);
-  const QString title = isObject ? QStringLiteral("Имя объекта") : QStringLiteral("Имя группы");
+  const bool isObject =
+      item->data(KindRole).toInt() == static_cast<int>(RowKind::Object);
+  const QString title =
+      isObject ? QStringLiteral("Имя объекта") : QStringLiteral("Имя группы");
   QString currentName;
   if (isObject) {
     const int index = item->data(ObjectIndexRole).toInt();
@@ -423,7 +421,9 @@ void ObjectListPanel::onItemDoubleClicked(QListWidgetItem *item)
   }
 
   bool ok = false;
-  const QString newName = QInputDialog::getText(this, title, QStringLiteral("Название:"), QLineEdit::Normal, currentName, &ok);
+  const QString newName =
+      QInputDialog::getText(this, title, QStringLiteral("Название:"),
+                            QLineEdit::Normal, currentName, &ok);
   if (!ok)
     return;
 
@@ -434,8 +434,7 @@ void ObjectListPanel::onItemDoubleClicked(QListWidgetItem *item)
   }
 }
 
-QList<int> ObjectListPanel::selectedObjectIndexes() const
-{
+QList<int> ObjectListPanel::selectedObjectIndexes() const {
   QList<int> indexes;
   QSet<int> seen;
   auto *project = ProjectManager::instance();
@@ -454,7 +453,8 @@ QList<int> ObjectListPanel::selectedObjectIndexes() const
       continue;
     }
 
-    const QList<int> members = project->groupMembers(item->data(GroupIdRole).toInt());
+    const QList<int> members =
+        project->groupMembers(item->data(GroupIdRole).toInt());
     for (int index : members) {
       if (index >= 0 && !seen.contains(index)) {
         seen.insert(index);
