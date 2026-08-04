@@ -51,6 +51,7 @@ public:
     QList<ImageColorLayer> colorLayers() const;
     void setColorLayers(const QList<ImageColorLayer> &layers);
     bool hasRotation() const;
+    QString xmlExportSummary() const;
     QByteArray sourcePayload() const;
     void setSourcePayload(const QByteArray &payload);
 

@@ -46,6 +46,7 @@ private:
     void refreshTableValues();
     bool isColorProperty(const QString &name) const;
     bool isBooleanProperty(const QString &name) const;
+    bool isReadOnlyProperty(const QString &name) const;
     
     QLabel *m_titleLabel; //заголовок панели
     QLabel *m_subtitleLabel; //подзаголовок панели
