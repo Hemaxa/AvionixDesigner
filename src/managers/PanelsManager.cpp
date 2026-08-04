@@ -5,6 +5,9 @@
 #include "ObjectPropertiesPanel.h"
 #include "ObjectLibraryPanel.h"
 #include "ViewportSettingsPanel.h"
+#include "FpgaStreamingPanel.h"
+#include "FpgaSimulatorPanel.h"
+#include "fpga/FpgaProjectPacketBuilder.h"
 
 #include <QFileDialog>
 #include <QMessageBox>
@@ -29,6 +32,8 @@ void PanelsManager::createPanels()
     m_objectProperties = new ObjectPropertiesPanel();
     m_objectLibrary = new ObjectLibraryPanel();
     m_viewportSettings = new ViewportSettingsPanel();
+    m_fpgaStreaming = new FpgaStreamingPanel();
+    m_fpgaSimulator = new FpgaSimulatorPanel();
     
     connectSignals();
 }
@@ -40,6 +45,8 @@ void PanelsManager::showAllPanels()
     if (m_objectProperties) m_objectProperties->show();
     if (m_objectLibrary) m_objectLibrary->show();
     if (m_viewportSettings) m_viewportSettings->show();
+    if (m_fpgaStreaming) m_fpgaStreaming->show();
+    if (m_fpgaSimulator) m_fpgaSimulator->show();
 }
 
 void PanelsManager::closeAllPanels()
@@ -49,6 +56,8 @@ void PanelsManager::closeAllPanels()
     if (m_objectProperties) { delete m_objectProperties; m_objectProperties = nullptr; }
     if (m_objectLibrary) { delete m_objectLibrary; m_objectLibrary = nullptr; }
     if (m_viewportSettings) { delete m_viewportSettings; m_viewportSettings = nullptr; }
+    if (m_fpgaStreaming) { delete m_fpgaStreaming; m_fpgaStreaming = nullptr; }
+    if (m_fpgaSimulator) { delete m_fpgaSimulator; m_fpgaSimulator = nullptr; }
 }
 
 void PanelsManager::connectSignals()
@@ -68,6 +77,22 @@ void PanelsManager::connectSignals()
     });
     
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, m_objectList, &ObjectListPanel::refreshList);
+
+    // Связи FPGA
+    connect(m_fpgaStreaming, &FpgaStreamingPanel::simulatorBundleReady, m_fpgaSimulator, &FpgaSimulatorPanel::loadBundle);
+    
+    auto updateSimulator = [this]() {
+        if (m_fpgaSimulator && m_fpgaSimulator->isVisible()) {
+            QString error;
+            FpgaPacketBundle bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+            if (error.isEmpty() && bundle.document.isValid()) {
+                m_fpgaSimulator->loadBundle(bundle);
+            }
+        }
+    };
+    
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, updateSimulator);
+    connect(m_viewport, &ViewportPanel::objectChanged, this, updateSimulator);
 }
 
 void PanelsManager::onOpenFile()

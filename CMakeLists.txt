@@ -48,6 +48,12 @@ qt_add_executable(AvionixDesigner
     src/panels/SelectionToolStrip.cpp
     src/panels/EditorWorkspacePanel.h
     src/panels/EditorWorkspacePanel.cpp
+    src/panels/FpgaScreenWidget.h
+    src/panels/FpgaScreenWidget.cpp
+    src/panels/FpgaStreamingPanel.h
+    src/panels/FpgaStreamingPanel.cpp
+    src/panels/FpgaSimulatorPanel.h
+    src/panels/FpgaSimulatorPanel.cpp
     
     # Объекты
     src/objects/RectangleObject.h
@@ -66,6 +72,22 @@ qt_add_executable(AvionixDesigner
     src/objects/AviaHorizonObject.cpp
     src/objects/TextObject.h
     src/objects/TextObject.cpp
+    
+    # FPGA Подсистема
+    src/fpga/model/FpgaCompiledDocument.h
+    src/fpga/model/FpgaCompiledDocument.cpp
+    src/fpga/packets/FpgaPacket.h
+    src/fpga/packets/FpgaPacket.cpp
+    src/fpga/packets/FpgaPacketCompiler.h
+    src/fpga/packets/FpgaPacketCompiler.cpp
+    src/fpga/packets/FpgaPacketFramer.h
+    src/fpga/packets/FpgaPacketFramer.cpp
+    src/fpga/transport/FpgaPacketDump.h
+    src/fpga/transport/FpgaPacketDump.cpp
+    src/fpga/simulator/FpgaSimulator.h
+    src/fpga/simulator/FpgaSimulator.cpp
+    src/fpga/FpgaProjectPacketBuilder.h
+    src/fpga/FpgaProjectPacketBuilder.cpp
     
     # Окна
     src/windows/MainWindow.h

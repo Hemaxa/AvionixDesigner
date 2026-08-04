@@ -2593,16 +2593,10 @@ bool ProjectManager::saveToFile(const QString &targetFile)
     return exportToFpgaXml(targetFile);
 }
 
-bool ProjectManager::exportToFpgaXml(const QString &targetFile)
+QDomDocument ProjectManager::buildCompiledFpgaXml() const
 {
-    const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
-    if (outPath.isEmpty()) {
-        m_lastErrorMessage = tr("Не задан путь для сохранения XML");
-        return false;
-    }
-
     QMap<int, FpgaFont> generatedFonts;
-    const QDomDocument doc = buildCompiledXmlDocument(
+    return buildCompiledXmlDocument(
         m_document->projectName(),
         m_document->canvasWidth(),
         m_document->canvasHeight(),
@@ -2613,6 +2607,17 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile)
         m_objectTags,
         &generatedFonts
     );
+}
+
+bool ProjectManager::exportToFpgaXml(const QString &targetFile)
+{
+    const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
+    if (outPath.isEmpty()) {
+        m_lastErrorMessage = tr("Не задан путь для сохранения XML");
+        return false;
+    }
+
+    const QDomDocument doc = buildCompiledFpgaXml();
     
     //записываем XML обратно в файл
     QFile outFile(outPath);

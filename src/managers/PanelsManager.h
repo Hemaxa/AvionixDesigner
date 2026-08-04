@@ -9,6 +9,8 @@ class ObjectListPanel;
 class ObjectPropertiesPanel;
 class ObjectLibraryPanel;
 class ViewportSettingsPanel;
+class FpgaStreamingPanel;
+class FpgaSimulatorPanel;
 
 class PanelsManager : public QObject
 {
@@ -33,6 +35,8 @@ public:
     ObjectPropertiesPanel* objectProperties() const { return m_objectProperties; }
     ObjectLibraryPanel* objectLibrary() const { return m_objectLibrary; }
     ViewportSettingsPanel* viewportSettings() const { return m_viewportSettings; }
+    FpgaStreamingPanel* fpgaStreaming() const { return m_fpgaStreaming; }
+    FpgaSimulatorPanel* fpgaSimulator() const { return m_fpgaSimulator; }
 
 public slots:
     //обработчик открытия файла
@@ -50,4 +54,6 @@ private:
     ObjectPropertiesPanel *m_objectProperties = nullptr;
     ObjectLibraryPanel *m_objectLibrary = nullptr;
     ViewportSettingsPanel *m_viewportSettings = nullptr;
+    FpgaStreamingPanel *m_fpgaStreaming = nullptr;
+    FpgaSimulatorPanel *m_fpgaSimulator = nullptr;
 };

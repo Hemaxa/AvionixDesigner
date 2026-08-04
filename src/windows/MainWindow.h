@@ -107,6 +107,8 @@ private:
     QDockWidget *m_objectPropertiesDock = nullptr;
     QDockWidget *m_objectLibraryDock = nullptr;
     QDockWidget *m_viewportSettingsDock = nullptr;
+    QDockWidget *m_fpgaStreamingDock = nullptr;
+    QDockWidget *m_fpgaSimulatorDock = nullptr;
 
     SettingsWindow *m_settingsWindow = nullptr;
     NewProjectDialog *m_newProjectDialog = nullptr;

@@ -14,6 +14,9 @@
 #include "TextObject.h"
 #include "ViewportPanel.h"
 #include "ViewportSettingsPanel.h"
+#include "PanelsManager.h"
+#include "FpgaStreamingPanel.h"
+#include "FpgaSimulatorPanel.h"
 
 #include <QAction>
 #include <QDockWidget>
@@ -258,10 +261,10 @@ void MainWindow::createWidgets()
 
     m_viewport = m_workspacePanel->viewport();
     m_selectionToolStrip = m_workspacePanel->selectionToolStrip();
-    m_objectList = new ObjectListPanel(this);
-    m_objectProperties = new ObjectPropertiesPanel(this);
-    m_objectLibrary = new ObjectLibraryPanel(this);
-    m_viewportSettings = new ViewportSettingsPanel(this);
+    m_objectList = PanelsManager::instance()->objectList();
+    m_objectProperties = PanelsManager::instance()->objectProperties();
+    m_objectLibrary = PanelsManager::instance()->objectLibrary();
+    m_viewportSettings = PanelsManager::instance()->viewportSettings();
 
     m_objectListDock = new QDockWidget("Список объектов", this);
     m_objectListDock->setObjectName("ObjectListDock");
@@ -290,6 +293,23 @@ void MainWindow::createWidgets()
     addDockWidget(Qt::RightDockWidgetArea, m_objectListDock);
     addDockWidget(Qt::RightDockWidgetArea, m_objectPropertiesDock);
     splitDockWidget(m_objectListDock, m_objectPropertiesDock, Qt::Vertical);
+
+    m_fpgaStreamingDock = new QDockWidget("Управление ПЛИС", this);
+    m_fpgaStreamingDock->setObjectName("FpgaStreamingDock");
+    m_fpgaStreamingDock->setWidget(PanelsManager::instance()->fpgaStreaming());
+    m_fpgaStreamingDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_fpgaStreamingDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+
+    m_fpgaSimulatorDock = new QDockWidget("Симулятор ПЛИС", this);
+    m_fpgaSimulatorDock->setObjectName("FpgaSimulatorDock");
+    m_fpgaSimulatorDock->setWidget(PanelsManager::instance()->fpgaSimulator());
+    m_fpgaSimulatorDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_fpgaSimulatorDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+
+    addDockWidget(Qt::RightDockWidgetArea, m_fpgaStreamingDock);
+    addDockWidget(Qt::RightDockWidgetArea, m_fpgaSimulatorDock);
+    tabifyDockWidget(m_objectPropertiesDock, m_fpgaStreamingDock);
+    tabifyDockWidget(m_objectListDock, m_fpgaSimulatorDock);
 
     addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
@@ -387,6 +407,8 @@ void MainWindow::createMenus()
     viewMenu->addAction(m_objectPropertiesDock->toggleViewAction());
     viewMenu->addAction(m_objectLibraryDock->toggleViewAction());
     viewMenu->addAction(m_viewportSettingsDock->toggleViewAction());
+    viewMenu->addAction(m_fpgaStreamingDock->toggleViewAction());
+    viewMenu->addAction(m_fpgaSimulatorDock->toggleViewAction());
     viewMenu->addSeparator();
 
     QAction *resetViewAction = viewMenu->addAction("Сбросить масштаб");

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QColor>
+#include <QDomDocument>
 #include <QList>
 #include <QObject>
 #include <QSharedPointer>
@@ -41,6 +42,8 @@ public:
     bool saveToFile(const QString &targetFile = QString());
     //экспортирует текущий проект в строгий XML-формат для ПЛИС
     bool exportToFpgaXml(const QString &targetFile);
+    //собирает строгий XML-формат для ПЛИС в памяти без записи на диск
+    QDomDocument buildCompiledFpgaXml() const;
     //импортирует изображение как static_group с растровыми масками
     int importImageAsStaticGroup(const QString &fileName);
 
