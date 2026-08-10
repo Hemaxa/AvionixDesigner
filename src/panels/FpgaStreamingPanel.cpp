@@ -36,7 +36,6 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     m_binButton = createIconButton(QStringLiteral(":/icons/icons/fpga/bin.svg"), QStringLiteral("BIN dump"), this, true);
     m_simulatorButton = createIconButton(QStringLiteral(":/icons/icons/fpga/simulator.svg"), QStringLiteral("Симулятор ПЛИС"), this, true);
     m_uartButton = createIconButton(QStringLiteral(":/icons/icons/fpga/uart.svg"), QStringLiteral("UART"), this, true);
-    m_compileButton = createIconButton(QStringLiteral(":/icons/icons/fpga/compile.svg"), QStringLiteral("Скомпилировать пакеты"), this);
     m_startButton = createIconButton(QStringLiteral(":/icons/icons/fpga/play.svg"), QStringLiteral("Запустить выбранные режимы"), this);
     m_stopButton = createIconButton(QStringLiteral(":/icons/icons/fpga/stop.svg"), QStringLiteral("Остановить симуляцию"), this);
     m_stopButton->setEnabled(false);
@@ -56,7 +55,6 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     auto *buttonLayout = new QHBoxLayout();
     buttonLayout->setSpacing(6);
     buttonLayout->setAlignment(Qt::AlignVCenter);
-    buttonLayout->addWidget(m_compileButton);
     buttonLayout->addWidget(m_startButton);
     buttonLayout->addWidget(m_stopButton);
 
@@ -69,7 +67,6 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     layout->addLayout(buttonLayout);
     layout->addStretch(1);
 
-    connect(m_compileButton, &QToolButton::clicked, this, &FpgaStreamingPanel::compilePackets);
     connect(m_startButton, &QToolButton::clicked, this, &FpgaStreamingPanel::startStreaming);
     connect(m_stopButton, &QToolButton::clicked, this, &FpgaStreamingPanel::stopStreaming);
     connect(m_binButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
@@ -173,7 +170,6 @@ void FpgaStreamingPanel::setRunning(bool running)
     }
 
     m_running = running;
-    m_startButton->setEnabled(!m_running);
     m_stopButton->setEnabled(m_running);
     emit simulationActiveChanged(simulatorModeActive());
 }

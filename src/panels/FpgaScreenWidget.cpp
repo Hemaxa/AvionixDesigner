@@ -3,9 +3,9 @@
 #include "FpgaScreenWidget.h"
 
 #include <QPainter>
+#include <QPainterPath>
 #include <QPaintEvent>
 #include <QSizePolicy>
-#include <QSvgRenderer>
 
 FpgaScreenWidget::FpgaScreenWidget(QWidget *parent)
     : QWidget(parent)
@@ -28,53 +28,45 @@ void FpgaScreenWidget::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.fillRect(rect(), QColor(14, 18, 24));
 
-    const QRect inner = screenRectForImage();
-    QSvgRenderer renderer(QStringLiteral(":/icons/icons/fpga/chip-screen.svg"));
-    if (renderer.isValid())
-        renderer.render(&painter, iconRect());
+    const QRectF backing = backingRect();
+
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(QStringLiteral("#22303c")));
+    painter.drawRoundedRect(backing, 12, 12);
 
     if (m_image.isNull()) {
-        painter.fillRect(inner, QColor(8, 12, 16));
+        painter.setBrush(QColor(8, 12, 16));
+        painter.drawRoundedRect(backing.adjusted(1, 1, -1, -1), 10, 10);
         return;
     }
 
+    QPainterPath clipPath;
+    clipPath.addRoundedRect(backing, 12, 12);
+    painter.save();
+    painter.setClipPath(clipPath);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-    painter.drawImage(inner, m_image);
+    painter.drawImage(backing, m_image);
+    painter.restore();
 
-    painter.setPen(QPen(QColor(255, 255, 255, 24), 1));
-    painter.drawLine(inner.topLeft(), inner.topRight());
-    painter.drawLine(inner.topLeft(), inner.bottomLeft());
+    painter.setPen(QPen(QColor(255, 255, 255, 20), 1));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(backing.adjusted(0.5, 0.5, -0.5, -0.5), 12, 12);
 }
 
-QRect FpgaScreenWidget::iconRect() const
+QRectF FpgaScreenWidget::backingRect() const
 {
-    const QRect bounds = rect().adjusted(8, 8, -8, -8);
-    QSize iconSize(640, 420);
-    iconSize.scale(bounds.size(), Qt::KeepAspectRatio);
-    const QPoint topLeft(
-        bounds.left() + (bounds.width() - iconSize.width()) / 2,
-        bounds.top() + (bounds.height() - iconSize.height()) / 2
-    );
-    return QRect(topLeft, iconSize);
-}
+    const QRectF bounds = rect().adjusted(2, 2, -2, -2);
+    if (bounds.isEmpty())
+        return bounds;
 
-QRect FpgaScreenWidget::screenRectForImage() const
-{
-    const QRect chip = iconRect();
-    const QRect bounds(
-        chip.left() + qRound(chip.width() * 0.1625),
-        chip.top() + qRound(chip.height() * 0.205),
-        qRound(chip.width() * 0.675),
-        qRound(chip.height() * 0.59)
-    );
-    if (m_image.isNull() || bounds.isEmpty())
-        return bounds.adjusted(2, 2, -2, -2);
+    QSizeF contentSize = m_image.isNull()
+        ? QSizeF(16.0, 9.0)
+        : QSizeF(qMax(1, m_image.width()), qMax(1, m_image.height()));
+    contentSize.scale(bounds.size(), Qt::KeepAspectRatio);
 
-    QSize scaled = m_image.size();
-    scaled.scale(bounds.size(), Qt::KeepAspectRatio);
-    const QPoint topLeft(
-        bounds.left() + (bounds.width() - scaled.width()) / 2,
-        bounds.top() + (bounds.height() - scaled.height()) / 2
+    const QPointF topLeft(
+        bounds.left() + (bounds.width() - contentSize.width()) / 2.0,
+        bounds.top() + (bounds.height() - contentSize.height()) / 2.0
     );
-    return QRect(topLeft, scaled);
+    return QRectF(topLeft, contentSize);
 }

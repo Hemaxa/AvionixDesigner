@@ -27,12 +27,12 @@ signals:
     void simulationActiveChanged(bool active);
 
 private slots:
-    void compilePackets();
     void startStreaming();
     void stopStreaming();
     void modeSelectionChanged();
 
 private:
+    void compilePackets();
     bool ensureCompiled();
     bool hasSelectedMode() const;
     bool simulatorModeActive() const;
@@ -42,7 +42,6 @@ private:
     QToolButton *m_binButton = nullptr;
     QToolButton *m_simulatorButton = nullptr;
     QToolButton *m_uartButton = nullptr;
-    QToolButton *m_compileButton = nullptr;
     QToolButton *m_startButton = nullptr;
     QToolButton *m_stopButton = nullptr;
 

@@ -18,8 +18,7 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 private:
-    QRect iconRect() const;
-    QRect screenRectForImage() const;
+    QRectF backingRect() const;
 
     QImage m_image;
 };

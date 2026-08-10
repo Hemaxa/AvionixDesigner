@@ -20,8 +20,6 @@
         <file>icons/fpga/uart.svg</file>
         <file>icons/fpga/play.svg</file>
         <file>icons/fpga/stop.svg</file>
-        <file>icons/fpga/compile.svg</file>
-        <file>icons/fpga/chip-screen.svg</file>
         <file>icons/selection/align-top.svg</file>
         <file>icons/selection/align-vcenter.svg</file>
         <file>icons/selection/align-bottom.svg</file>
