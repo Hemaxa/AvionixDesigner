@@ -338,7 +338,9 @@ void TextObject::rebuildMaskFromQtFont()
     QFontMetrics metrics(font);
     QMap<QChar, FpgaGlyph> glyphs;
 
-    int totalWidth = 0;
+    int penX = 0;
+    int minX = 0;
+    int maxX = 0;
     int top = 0;
     int bottom = 0;
     bool firstGlyph = true;
@@ -346,7 +348,8 @@ void TextObject::rebuildMaskFromQtFont()
 
     for (const QChar ch : drawText) {
         if (ch.isSpace()) {
-            totalWidth += qMax(4, pixelSize / 2);
+            penX += qMax(4, pixelSize / 2);
+            maxX = qMax(maxX, penX);
             previous = ch;
             continue;
         }
@@ -356,8 +359,10 @@ void TextObject::rebuildMaskFromQtFont()
 
         const FpgaGlyph glyph = glyphs.value(ch);
         if (!previous.isNull())
-            totalWidth += previewKerningDelta(metrics, previous, ch);
-        totalWidth += glyph.advance;
+            penX += previewKerningDelta(metrics, previous, ch);
+
+        minX = qMin(minX, penX);
+        maxX = qMax(maxX, penX + qMax(glyph.width, glyph.advance));
 
         const int glyphTop = glyph.floater;
         const int glyphBottom = glyph.floater + glyph.height;
@@ -369,10 +374,11 @@ void TextObject::rebuildMaskFromQtFont()
             top = qMin(top, glyphTop);
             bottom = qMax(bottom, glyphBottom);
         }
+        penX += glyph.advance;
         previous = ch;
     }
 
-    totalWidth = qMax(1, totalWidth);
+    const int totalWidth = qMax(1, maxX - minX);
     const int imageHeight = qMax(1, bottom - top);
     QImage image(totalWidth, imageHeight, QImage::Format_ARGB32);
     image.fill(Qt::transparent);
@@ -393,7 +399,7 @@ void TextObject::rebuildMaskFromQtFont()
 
         if (!previous.isNull())
             currentX += previewKerningDelta(metrics, previous, ch);
-        painter.drawImage(QPoint(currentX, glyph.floater - top), glyphMaskToImage(glyph, state.color));
+        painter.drawImage(QPoint(currentX - minX, glyph.floater - top), glyphMaskToImage(glyph, state.color));
         currentX += glyph.advance;
         previous = ch;
     }
@@ -425,7 +431,9 @@ void TextObject::rebuildMaskFromAtlas()
     const QColor color = state.color.isValid() ? state.color : QColor(Qt::white);
     const QString drawText = text.isEmpty() ? QStringLiteral(" ") : text;
 
-    int totalWidth = 0;
+    int penX = 0;
+    int minX = 0;
+    int maxX = 0;
     int top = 0;
     int bottom = 0;
     bool firstGlyph = true;
@@ -433,7 +441,8 @@ void TextObject::rebuildMaskFromAtlas()
 
     for (const QChar ch : drawText) {
         if (ch.isSpace()) {
-            totalWidth += qMax(4, pixelSize / 2);
+            penX += qMax(4, pixelSize / 2);
+            maxX = qMax(maxX, penX);
             previous = ch;
             continue;
         }
@@ -442,8 +451,10 @@ void TextObject::rebuildMaskFromAtlas()
             continue;
 
         if (!previous.isNull())
-            totalWidth += m_fontAtlas.kerningPairs.value(QString(previous) + QString(ch), 0);
-        totalWidth += glyph.advance;
+            penX += m_fontAtlas.kerningPairs.value(QString(previous) + QString(ch), 0);
+        minX = qMin(minX, penX);
+        maxX = qMax(maxX, penX + qMax(glyph.width, glyph.advance));
+
         const int glyphTop = glyph.floater;
         const int glyphBottom = glyph.floater + glyph.height;
         if (firstGlyph) {
@@ -454,10 +465,11 @@ void TextObject::rebuildMaskFromAtlas()
             top = qMin(top, glyphTop);
             bottom = qMax(bottom, glyphBottom);
         }
+        penX += glyph.advance;
         previous = ch;
     }
 
-    totalWidth = qMax(1, totalWidth);
+    const int totalWidth = qMax(1, maxX - minX);
     const int imageHeight = qMax(1, bottom - top);
     QImage image(totalWidth, imageHeight, QImage::Format_ARGB32);
     image.fill(Qt::transparent);
@@ -478,7 +490,7 @@ void TextObject::rebuildMaskFromAtlas()
 
         if (!previous.isNull())
             currentX += m_fontAtlas.kerningPairs.value(QString(previous) + QString(ch), 0);
-        painter.drawImage(QPoint(currentX, glyph.floater - top), glyphMaskToImage(glyph, color));
+        painter.drawImage(QPoint(currentX - minX, glyph.floater - top), glyphMaskToImage(glyph, color));
         currentX += glyph.advance;
         previous = ch;
     }
@@ -588,15 +600,17 @@ QRect TextObject::overallRect() const
 
     const QString drawText = text.isEmpty() ? QStringLiteral(" ") : text;
     int currentX = 0;
+    int minX = 0;
+    int maxX = 0;
     int top = 0;
     int bottom = 0;
-    int lastGlyphRight = 0;
     bool firstGlyph = true;
     QChar previous;
 
     for (const QChar ch : drawText) {
         if (ch.isSpace()) {
             currentX += qMax(4, pixelSize / 2);
+            maxX = qMax(maxX, currentX);
             previous = ch;
             continue;
         }
@@ -609,7 +623,8 @@ QRect TextObject::overallRect() const
 
         const int glyphTop = glyph.floater;
         const int glyphBottom = glyph.floater + glyph.height;
-        lastGlyphRight = currentX + glyph.width;
+        minX = qMin(minX, currentX);
+        maxX = qMax(maxX, currentX + qMax(glyph.width, glyph.advance));
 
         if (firstGlyph) {
             top = glyphTop;
@@ -624,7 +639,7 @@ QRect TextObject::overallRect() const
         previous = ch;
     }
 
-    return QRect(state.x, state.y + top, qMax(1, lastGlyphRight), qMax(1, bottom - top));
+    return QRect(state.x + minX, state.y + top, qMax(1, maxX - minX), qMax(1, bottom - top));
 }
 
 QRectF TextObject::getBoundingRect() const

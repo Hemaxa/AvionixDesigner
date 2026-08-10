@@ -17,6 +17,7 @@
 #include "PanelsManager.h"
 #include "FpgaStreamingPanel.h"
 #include "FpgaSimulatorPanel.h"
+#include "fpga/FpgaProjectPacketBuilder.h"
 
 #include <QAction>
 #include <QDockWidget>
@@ -261,10 +262,15 @@ void MainWindow::createWidgets()
 
     m_viewport = m_workspacePanel->viewport();
     m_selectionToolStrip = m_workspacePanel->selectionToolStrip();
-    m_objectList = PanelsManager::instance()->objectList();
-    m_objectProperties = PanelsManager::instance()->objectProperties();
-    m_objectLibrary = PanelsManager::instance()->objectLibrary();
-    m_viewportSettings = PanelsManager::instance()->viewportSettings();
+    m_objectList = new ObjectListPanel(this);
+    m_objectProperties = new ObjectPropertiesPanel(this);
+    m_objectLibrary = new ObjectLibraryPanel(this);
+    m_viewportSettings = new ViewportSettingsPanel(this);
+    m_fpgaStreaming = new FpgaStreamingPanel(this);
+    m_fpgaSimulator = new FpgaSimulatorPanel(this);
+    m_fpgaSimulatorUpdateTimer = new QTimer(this);
+    m_fpgaSimulatorUpdateTimer->setSingleShot(true);
+    m_fpgaSimulatorUpdateTimer->setInterval(180);
 
     m_objectListDock = new QDockWidget("Список объектов", this);
     m_objectListDock->setObjectName("ObjectListDock");
@@ -296,24 +302,25 @@ void MainWindow::createWidgets()
 
     m_fpgaStreamingDock = new QDockWidget("Управление ПЛИС", this);
     m_fpgaStreamingDock->setObjectName("FpgaStreamingDock");
-    m_fpgaStreamingDock->setWidget(PanelsManager::instance()->fpgaStreaming());
+    m_fpgaStreamingDock->setWidget(m_fpgaStreaming);
     m_fpgaStreamingDock->setAllowedAreas(Qt::AllDockWidgetAreas);
     m_fpgaStreamingDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
 
     m_fpgaSimulatorDock = new QDockWidget("Симулятор ПЛИС", this);
     m_fpgaSimulatorDock->setObjectName("FpgaSimulatorDock");
-    m_fpgaSimulatorDock->setWidget(PanelsManager::instance()->fpgaSimulator());
+    m_fpgaSimulatorDock->setWidget(m_fpgaSimulator);
     m_fpgaSimulatorDock->setAllowedAreas(Qt::AllDockWidgetAreas);
     m_fpgaSimulatorDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
 
-    addDockWidget(Qt::RightDockWidgetArea, m_fpgaStreamingDock);
-    addDockWidget(Qt::RightDockWidgetArea, m_fpgaSimulatorDock);
-    tabifyDockWidget(m_objectPropertiesDock, m_fpgaStreamingDock);
-    tabifyDockWidget(m_objectListDock, m_fpgaSimulatorDock);
-
     addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
+    addDockWidget(Qt::BottomDockWidgetArea, m_fpgaStreamingDock);
+    
     splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
+    splitDockWidget(m_objectLibraryDock, m_fpgaStreamingDock, Qt::Horizontal);
+
+    m_fpgaSimulatorDock->setFloating(true);
+    m_fpgaSimulatorDock->hide();
 }
 
 void MainWindow::showEvent(QShowEvent *event)
@@ -344,10 +351,20 @@ void MainWindow::setupDockSizes()
     const int bottomHeight = qBound(96, static_cast<int>(windowH * 0.11), 144);
     resizeDocks({m_viewportSettingsDock}, {bottomHeight}, Qt::Vertical);
     resizeDocks(
-        {m_viewportSettingsDock, m_objectLibraryDock},
-        {static_cast<int>(windowW * 0.30), static_cast<int>(windowW * 0.54)},
+        {m_viewportSettingsDock, m_objectLibraryDock, m_fpgaStreamingDock},
+        {
+            static_cast<int>(windowW * 0.28),
+            static_cast<int>(windowW * 0.46),
+            static_cast<int>(windowW * 0.26)
+        },
         Qt::Horizontal
     );
+
+    if (m_fpgaSimulatorDock) {
+        m_fpgaSimulatorDock->setFloating(true);
+        m_fpgaSimulatorDock->resize(qMax(420, static_cast<int>(windowW * 0.36)), qMax(320, static_cast<int>(windowH * 0.38)));
+        m_fpgaSimulatorDock->hide();
+    }
 }
 
 void MainWindow::createMenus()
@@ -495,6 +512,23 @@ void MainWindow::connectSignals()
     });
 
     connect(m_viewport, &ViewportPanel::objectDropped, this, &MainWindow::createObjectAtPosition);
+
+    connect(m_fpgaStreaming, &FpgaStreamingPanel::simulatorLaunchRequested, this, [this]() {
+        m_fpgaSimulatorDock->show();
+        m_fpgaSimulatorDock->raise();
+    });
+    connect(m_fpgaStreaming, &FpgaStreamingPanel::simulatorBundleReady, m_fpgaSimulator, &FpgaSimulatorPanel::loadBundle);
+    connect(m_fpgaStreaming, &FpgaStreamingPanel::simulationActiveChanged, this, [this](bool active) {
+        m_fpgaSimulatorLiveActive = active;
+        if (!active) {
+            m_fpgaSimulatorUpdateTimer->stop();
+            return;
+        }
+        scheduleFpgaSimulatorUpdate();
+    });
+    connect(m_fpgaSimulatorUpdateTimer, &QTimer::timeout, this, &MainWindow::updateFpgaSimulatorNow);
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &MainWindow::scheduleFpgaSimulatorUpdate);
+    connect(m_viewport, &ViewportPanel::objectChanged, this, &MainWindow::scheduleFpgaSimulatorUpdate);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -527,8 +561,46 @@ void MainWindow::resetToDefaultLayout()
     QSettings settings("Avionix", "Designer");
     settings.remove("windowGeometry");
     settings.remove("windowState");
+
+    addDockWidget(Qt::RightDockWidgetArea, m_objectListDock);
+    addDockWidget(Qt::RightDockWidgetArea, m_objectPropertiesDock);
+    splitDockWidget(m_objectListDock, m_objectPropertiesDock, Qt::Vertical);
+
+    addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
+    addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
+    addDockWidget(Qt::BottomDockWidgetArea, m_fpgaStreamingDock);
+    splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
+    splitDockWidget(m_objectLibraryDock, m_fpgaStreamingDock, Qt::Horizontal);
+
+    m_objectListDock->show();
+    m_objectPropertiesDock->show();
+    m_viewportSettingsDock->show();
+    m_objectLibraryDock->show();
+    m_fpgaStreamingDock->show();
+    m_fpgaSimulatorDock->setFloating(true);
+    m_fpgaSimulatorDock->hide();
+
     showMaximized();
     setupDockSizes();
+}
+
+void MainWindow::scheduleFpgaSimulatorUpdate()
+{
+    if (!m_fpgaSimulatorLiveActive || !m_fpgaSimulatorDock || !m_fpgaSimulatorDock->isVisible())
+        return;
+
+    m_fpgaSimulatorUpdateTimer->start();
+}
+
+void MainWindow::updateFpgaSimulatorNow()
+{
+    if (!m_fpgaSimulatorLiveActive || !m_fpgaSimulator || !m_fpgaSimulatorDock->isVisible())
+        return;
+
+    QString error;
+    FpgaPacketBundle bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+    if (error.isEmpty() && bundle.document.isValid())
+        m_fpgaSimulator->loadBundle(bundle);
 }
 
 void MainWindow::createObjectOfType(const QString &typeName)

@@ -2,37 +2,29 @@
 
 #include "FpgaStreamingPanel.h"
 
+#include "ProjectManager.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include "fpga/transport/FpgaPacketDump.h"
 
-#include <QComboBox>
 #include <QFileDialog>
-#include <QHeaderView>
+#include <QFrame>
 #include <QHBoxLayout>
-#include <QLabel>
+#include <QIcon>
 #include <QMessageBox>
-#include <QPushButton>
-#include <QTableWidget>
-#include <QVBoxLayout>
-#include <QAbstractItemView>
+#include <QToolButton>
+#include <QSize>
+#include <QSizePolicy>
 
 namespace {
-QString fcsText(quint32 value)
+QToolButton* createIconButton(const QString &iconPath, const QString &toolTip, QWidget *parent, bool checkable = false)
 {
-    return QStringLiteral("0x%1").arg(value, 8, 16, QLatin1Char('0')).toUpper();
-}
-
-QString targetKey(FpgaStreamingPanel::Target target)
-{
-    switch (target) {
-    case FpgaStreamingPanel::Target::Bin:
-        return QStringLiteral("bin");
-    case FpgaStreamingPanel::Target::Simulator:
-        return QStringLiteral("simulator");
-    case FpgaStreamingPanel::Target::Uart:
-        return QStringLiteral("uart");
-    }
-    return QStringLiteral("bin");
+    auto *button = new QToolButton(parent);
+    button->setObjectName(QStringLiteral("SettingsToolButton"));
+    button->setIcon(QIcon(iconPath));
+    button->setToolTip(toolTip);
+    button->setCheckable(checkable);
+    button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    return button;
 }
 }
 
@@ -41,61 +33,49 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
 {
     setPanelName(QStringLiteral("FpgaStreamingPanel"));
 
-    m_targetCombo = new QComboBox(this);
-    m_targetCombo->addItem(QStringLiteral("BIN dump"), targetKey(Target::Bin));
-    m_targetCombo->addItem(QStringLiteral("Simulator"), targetKey(Target::Simulator));
-    m_targetCombo->addItem(QStringLiteral("UART"), targetKey(Target::Uart));
+    m_binButton = createIconButton(QStringLiteral(":/icons/icons/fpga/bin.svg"), QStringLiteral("BIN dump"), this, true);
+    m_simulatorButton = createIconButton(QStringLiteral(":/icons/icons/fpga/simulator.svg"), QStringLiteral("Симулятор ПЛИС"), this, true);
+    m_uartButton = createIconButton(QStringLiteral(":/icons/icons/fpga/uart.svg"), QStringLiteral("UART"), this, true);
+    m_compileButton = createIconButton(QStringLiteral(":/icons/icons/fpga/compile.svg"), QStringLiteral("Скомпилировать пакеты"), this);
+    m_startButton = createIconButton(QStringLiteral(":/icons/icons/fpga/play.svg"), QStringLiteral("Запустить выбранные режимы"), this);
+    m_stopButton = createIconButton(QStringLiteral(":/icons/icons/fpga/stop.svg"), QStringLiteral("Остановить симуляцию"), this);
+    m_stopButton->setEnabled(false);
+    m_simulatorButton->setChecked(true);
 
-    m_compileButton = new QPushButton(QStringLiteral("Скомпилировать"), this);
-    m_runButton = new QPushButton(QStringLiteral("Запустить"), this);
-    m_summaryLabel = new QLabel(QStringLiteral("Пакеты не собраны"), this);
-    m_warningsLabel = new QLabel(this);
-    m_warningsLabel->setWordWrap(true);
+    auto *modeLayout = new QHBoxLayout();
+    modeLayout->setSpacing(6);
+    modeLayout->setAlignment(Qt::AlignVCenter);
+    modeLayout->addWidget(m_binButton);
+    modeLayout->addWidget(m_simulatorButton);
+    modeLayout->addWidget(m_uartButton);
 
-    m_packetTable = new QTableWidget(this);
-    m_packetTable->setColumnCount(8);
-    m_packetTable->setHorizontalHeaderLabels({
-        QStringLiteral("#"),
-        QStringLiteral("Тип"),
-        QStringLiteral("Объект"),
-        QStringLiteral("obj_id"),
-        QStringLiteral("mem_id"),
-        QStringLiteral("Адрес"),
-        QStringLiteral("Payload"),
-        QStringLiteral("FCS")
-    });
-    m_packetTable->verticalHeader()->setVisible(false);
-    m_packetTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_packetTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_packetTable->setAlternatingRowColors(true);
-    m_packetTable->horizontalHeader()->setStretchLastSection(true);
-    m_packetTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    auto *separator = new QFrame(this);
+    separator->setFrameShape(QFrame::VLine);
+    separator->setObjectName(QStringLiteral("SettingsSeparator"));
 
     auto *buttonLayout = new QHBoxLayout();
-    buttonLayout->addWidget(m_targetCombo, 1);
+    buttonLayout->setSpacing(6);
+    buttonLayout->setAlignment(Qt::AlignVCenter);
     buttonLayout->addWidget(m_compileButton);
-    buttonLayout->addWidget(m_runButton);
+    buttonLayout->addWidget(m_startButton);
+    buttonLayout->addWidget(m_stopButton);
 
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(10, 10, 10, 10);
-    layout->setSpacing(8);
+    auto *layout = new QHBoxLayout(this);
+    layout->setContentsMargins(10, 8, 10, 8);
+    layout->setSpacing(12);
+    layout->setAlignment(Qt::AlignVCenter);
+    layout->addLayout(modeLayout);
+    layout->addWidget(separator, 0, Qt::AlignVCenter);
     layout->addLayout(buttonLayout);
-    layout->addWidget(m_summaryLabel);
-    layout->addWidget(m_warningsLabel);
-    layout->addWidget(m_packetTable, 1);
+    layout->addStretch(1);
 
-    connect(m_compileButton, &QPushButton::clicked, this, &FpgaStreamingPanel::compilePackets);
-    connect(m_runButton, &QPushButton::clicked, this, &FpgaStreamingPanel::runSelectedTarget);
-}
-
-FpgaStreamingPanel::Target FpgaStreamingPanel::currentTarget() const
-{
-    const QString key = m_targetCombo->currentData().toString();
-    if (key == QStringLiteral("simulator"))
-        return Target::Simulator;
-    if (key == QStringLiteral("uart"))
-        return Target::Uart;
-    return Target::Bin;
+    connect(m_compileButton, &QToolButton::clicked, this, &FpgaStreamingPanel::compilePackets);
+    connect(m_startButton, &QToolButton::clicked, this, &FpgaStreamingPanel::startStreaming);
+    connect(m_stopButton, &QToolButton::clicked, this, &FpgaStreamingPanel::stopStreaming);
+    connect(m_binButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
+    connect(m_simulatorButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
+    connect(m_uartButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &FpgaStreamingPanel::invalidatePackets);
 }
 
 void FpgaStreamingPanel::compilePackets()
@@ -106,48 +86,66 @@ void FpgaStreamingPanel::compilePackets()
     if (!error.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("Пакеты ПЛИС"), error);
     }
-    refreshSummary();
-    refreshTable();
 }
 
-void FpgaStreamingPanel::runSelectedTarget()
+void FpgaStreamingPanel::startStreaming()
 {
+    if (!hasSelectedMode()) {
+        QMessageBox::information(this, QStringLiteral("ПЛИС"), QStringLiteral("Выберите хотя бы один режим загрузки."));
+        return;
+    }
+
     if (!ensureCompiled())
         return;
 
-    switch (currentTarget()) {
-    case Target::Bin: {
+    if (m_binButton->isChecked()) {
         const QString fileName = QFileDialog::getSaveFileName(
             this,
             QStringLiteral("Сохранить BIN dump"),
             QStringLiteral("fpga_packets.bin"),
             QStringLiteral("BIN (*.bin);;Все файлы (*.*)")
         );
-        if (fileName.isEmpty())
-            return;
-
-        QString error;
-        if (!FpgaPacketDump::writeBinary(fileName, m_bundle, &error)) {
-            QMessageBox::warning(this, QStringLiteral("BIN dump"), error);
-            return;
+        if (!fileName.isEmpty()) {
+            QString error;
+            if (!FpgaPacketDump::writeBinary(fileName, m_bundle, &error)) {
+                QMessageBox::warning(this, QStringLiteral("BIN dump"), error);
+            } else {
+                QMessageBox::information(
+                    this,
+                    QStringLiteral("BIN dump"),
+                    QStringLiteral("BIN сохранен: %1 пакетов, %2 байт")
+                        .arg(m_bundle.packets.size())
+                        .arg(m_bundle.totalBytes())
+                );
+            }
         }
-        m_summaryLabel->setText(QStringLiteral("BIN сохранен: %1 пакетов, %2 байт")
-            .arg(m_bundle.packets.size())
-            .arg(m_bundle.totalBytes()));
-        break;
     }
-    case Target::Simulator:
+
+    if (m_simulatorButton->isChecked()) {
         emit simulatorLaunchRequested();
         emit simulatorBundleReady(m_bundle);
-        break;
-    case Target::Uart:
+    }
+
+    if (m_uartButton->isChecked()) {
         QMessageBox::information(
             this,
             QStringLiteral("UART"),
             QStringLiteral("UART backend еще не подключен. Пакеты уже можно проверить через BIN dump или симулятор.")
         );
-        break;
     }
+
+    setRunning(m_simulatorButton->isChecked());
+}
+
+void FpgaStreamingPanel::stopStreaming()
+{
+    setRunning(false);
+}
+
+void FpgaStreamingPanel::modeSelectionChanged()
+{
+    if (m_running)
+        emit simulationActiveChanged(simulatorModeActive());
 }
 
 bool FpgaStreamingPanel::ensureCompiled()
@@ -157,52 +155,33 @@ bool FpgaStreamingPanel::ensureCompiled()
     return m_hasBundle;
 }
 
-void FpgaStreamingPanel::refreshSummary()
+bool FpgaStreamingPanel::hasSelectedMode() const
 {
-    if (!m_hasBundle) {
-        m_summaryLabel->setText(QStringLiteral("Пакеты не собраны"));
-        m_warningsLabel->clear();
+    return m_binButton->isChecked() || m_simulatorButton->isChecked() || m_uartButton->isChecked();
+}
+
+bool FpgaStreamingPanel::simulatorModeActive() const
+{
+    return m_running && m_simulatorButton->isChecked();
+}
+
+void FpgaStreamingPanel::setRunning(bool running)
+{
+    if (m_running == running) {
+        emit simulationActiveChanged(simulatorModeActive());
         return;
     }
 
-    m_summaryLabel->setText(QStringLiteral("%1 объектов, %2 пакетов, %3 байт")
-        .arg(m_bundle.document.objects.size())
-        .arg(m_bundle.packets.size())
-        .arg(m_bundle.totalBytes()));
-    m_warningsLabel->setText(warningsText());
+    m_running = running;
+    m_startButton->setEnabled(!m_running);
+    m_stopButton->setEnabled(m_running);
+    emit simulationActiveChanged(simulatorModeActive());
 }
 
-void FpgaStreamingPanel::refreshTable()
+void FpgaStreamingPanel::invalidatePackets()
 {
-    m_packetTable->setRowCount(m_hasBundle ? m_bundle.packets.size() : 0);
     if (!m_hasBundle)
         return;
 
-    for (int row = 0; row < m_bundle.packets.size(); ++row) {
-        const FpgaPacket &packet = m_bundle.packets[row];
-        const QStringList values = {
-            QString::number(row),
-            packet.typeName(),
-            packet.objectType,
-            packet.objId >= 0 ? QString::number(packet.objId) : QStringLiteral("-"),
-            packet.memId >= 0 ? QString::number(packet.memId) : QStringLiteral("-"),
-            packet.address >= 0 ? QString::number(packet.address) : QStringLiteral("-"),
-            QString::number(packet.payloadSize),
-            fcsText(packet.fcs)
-        };
-
-        for (int col = 0; col < values.size(); ++col)
-            m_packetTable->setItem(row, col, new QTableWidgetItem(values[col]));
-    }
-}
-
-QString FpgaStreamingPanel::warningsText() const
-{
-    if (m_bundle.warnings.isEmpty())
-        return QString();
-
-    QStringList visible = m_bundle.warnings.mid(0, 3);
-    if (m_bundle.warnings.size() > visible.size())
-        visible.append(QStringLiteral("..."));
-    return visible.join(QStringLiteral("\n"));
+    m_hasBundle = false;
 }

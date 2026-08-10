@@ -7,7 +7,6 @@
 #include "ViewportSettingsPanel.h"
 #include "FpgaStreamingPanel.h"
 #include "FpgaSimulatorPanel.h"
-#include "fpga/FpgaProjectPacketBuilder.h"
 
 #include <QFileDialog>
 #include <QMessageBox>
@@ -80,19 +79,6 @@ void PanelsManager::connectSignals()
 
     // Связи FPGA
     connect(m_fpgaStreaming, &FpgaStreamingPanel::simulatorBundleReady, m_fpgaSimulator, &FpgaSimulatorPanel::loadBundle);
-    
-    auto updateSimulator = [this]() {
-        if (m_fpgaSimulator && m_fpgaSimulator->isVisible()) {
-            QString error;
-            FpgaPacketBundle bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
-            if (error.isEmpty() && bundle.document.isValid()) {
-                m_fpgaSimulator->loadBundle(bundle);
-            }
-        }
-    };
-    
-    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, updateSimulator);
-    connect(m_viewport, &ViewportPanel::objectChanged, this, updateSimulator);
 }
 
 void PanelsManager::onOpenFile()

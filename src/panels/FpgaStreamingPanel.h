@@ -5,10 +5,7 @@
 #include "BasePanel.h"
 #include "fpga/packets/FpgaPacket.h"
 
-class QComboBox;
-class QLabel;
-class QPushButton;
-class QTableWidget;
+class QToolButton;
 
 class FpgaStreamingPanel : public BasePanel
 {
@@ -27,25 +24,29 @@ public:
 signals:
     void simulatorBundleReady(const FpgaPacketBundle &bundle);
     void simulatorLaunchRequested();
+    void simulationActiveChanged(bool active);
 
 private slots:
     void compilePackets();
-    void runSelectedTarget();
+    void startStreaming();
+    void stopStreaming();
+    void modeSelectionChanged();
 
 private:
-    Target currentTarget() const;
     bool ensureCompiled();
-    void refreshSummary();
-    void refreshTable();
-    QString warningsText() const;
+    bool hasSelectedMode() const;
+    bool simulatorModeActive() const;
+    void setRunning(bool running);
+    void invalidatePackets();
 
-    QComboBox *m_targetCombo = nullptr;
-    QPushButton *m_compileButton = nullptr;
-    QPushButton *m_runButton = nullptr;
-    QLabel *m_summaryLabel = nullptr;
-    QLabel *m_warningsLabel = nullptr;
-    QTableWidget *m_packetTable = nullptr;
+    QToolButton *m_binButton = nullptr;
+    QToolButton *m_simulatorButton = nullptr;
+    QToolButton *m_uartButton = nullptr;
+    QToolButton *m_compileButton = nullptr;
+    QToolButton *m_startButton = nullptr;
+    QToolButton *m_stopButton = nullptr;
 
     FpgaPacketBundle m_bundle;
     bool m_hasBundle = false;
+    bool m_running = false;
 };

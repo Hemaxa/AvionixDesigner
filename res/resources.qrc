@@ -15,6 +15,13 @@
         <file>icons/settings/snap-screen.svg</file>
         <file>icons/settings/snap-grid.svg</file>
         <file>icons/settings/snap-objects.svg</file>
+        <file>icons/fpga/bin.svg</file>
+        <file>icons/fpga/simulator.svg</file>
+        <file>icons/fpga/uart.svg</file>
+        <file>icons/fpga/play.svg</file>
+        <file>icons/fpga/stop.svg</file>
+        <file>icons/fpga/compile.svg</file>
+        <file>icons/fpga/chip-screen.svg</file>
         <file>icons/selection/align-top.svg</file>
         <file>icons/selection/align-vcenter.svg</file>
         <file>icons/selection/align-bottom.svg</file>

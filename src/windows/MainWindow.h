@@ -9,6 +9,7 @@
 
 class QAction;
 class QDockWidget;
+class QTimer;
 class EditorWorkspacePanel;
 class TextObject;
 class NewProjectDialog;
@@ -19,6 +20,8 @@ class SelectionToolStrip;
 class SettingsWindow;
 class ViewportPanel;
 class ViewportSettingsPanel;
+class FpgaStreamingPanel;
+class FpgaSimulatorPanel;
 
 class MainWindow : public QMainWindow
 {
@@ -94,6 +97,10 @@ private:
     void updateCommandState();
     //показывает диалог выбора алфавитов для новых текстовых font-ресурсов перед XML-экспортом
     bool configureFontExportAlphabets();
+    //планирует отложенное обновление live-симулятора ПЛИС
+    void scheduleFpgaSimulatorUpdate();
+    //пересобирает пакеты и обновляет панель live-симулятора
+    void updateFpgaSimulatorNow();
 
     EditorWorkspacePanel *m_workspacePanel = nullptr;
     ViewportPanel *m_viewport = nullptr;
@@ -102,6 +109,8 @@ private:
     ObjectPropertiesPanel *m_objectProperties = nullptr;
     ObjectLibraryPanel *m_objectLibrary = nullptr;
     ViewportSettingsPanel *m_viewportSettings = nullptr;
+    FpgaStreamingPanel *m_fpgaStreaming = nullptr;
+    FpgaSimulatorPanel *m_fpgaSimulator = nullptr;
 
     QDockWidget *m_objectListDock = nullptr;
     QDockWidget *m_objectPropertiesDock = nullptr;
@@ -109,8 +118,10 @@ private:
     QDockWidget *m_viewportSettingsDock = nullptr;
     QDockWidget *m_fpgaStreamingDock = nullptr;
     QDockWidget *m_fpgaSimulatorDock = nullptr;
+    QTimer *m_fpgaSimulatorUpdateTimer = nullptr;
 
     SettingsWindow *m_settingsWindow = nullptr;
     NewProjectDialog *m_newProjectDialog = nullptr;
     bool m_initialSizesSet = false;
+    bool m_fpgaSimulatorLiveActive = false;
 };
