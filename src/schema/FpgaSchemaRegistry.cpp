@@ -156,23 +156,33 @@ FpgaSchemaRegistry* FpgaSchemaRegistry::instance()
 
 QString FpgaSchemaRegistry::canonicalSchemaName(const QString &typeName) const
 {
-    if (typeName == "aviahorizont")
+    const QString normalized = typeName.trimmed().toLower();
+    if (normalized == "aviahorizont")
         return QStringLiteral("aviagorizont");
-    if (typeName == "text")
+    if (normalized == "text")
         return QStringLiteral("staticgroup");
-    if (typeName == "ribonscale")
+    if (normalized == "ribonscale")
         return QStringLiteral("RibonScale");
+    if (normalized == "rotation_object")
+        return QStringLiteral("rotationobject");
+    if (normalized == "static_group")
+        return QStringLiteral("staticgroup");
     return typeName;
 }
 
 QString FpgaSchemaRegistry::canonicalObjectTag(const QString &typeName) const
 {
-    if (typeName == "aviahorizont")
+    const QString normalized = typeName.trimmed().toLower();
+    if (normalized == "aviahorizont")
         return QStringLiteral("aviagorizont");
-    if (typeName == "text")
+    if (normalized == "text")
         return QStringLiteral("staticgroup");
-    if (typeName == "ribonscale")
+    if (normalized == "ribonscale")
         return QStringLiteral("RibonScale");
+    if (normalized == "rotation_object")
+        return QStringLiteral("rotationobject");
+    if (normalized == "static_group")
+        return QStringLiteral("staticgroup");
     return typeName;
 }
 
@@ -182,9 +192,9 @@ QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schema
         return rectangleFields();
     if (schemaName == "rectangle_a")
         return rectangleAlphaFields();
-    if (schemaName == "rotationobject")
+    if (schemaName == "rotationobject" || schemaName == "rotation_object")
         return rotationObjectFields();
-    if (schemaName == "staticgroup")
+    if (schemaName == "staticgroup" || schemaName == "static_group")
         return staticGroupFields();
     if (schemaName == "aviagorizont")
         return aviaHorizonFields();
@@ -223,7 +233,9 @@ QMap<QString, QString> FpgaSchemaRegistry::defaultSchemaAliases() const
 {
     return {
         {"aviahorizont", "aviagorizont"},
-        {"ribonscale", "RibonScale"}
+        {"ribonscale", "RibonScale"},
+        {"rotation_object", "rotationobject"},
+        {"static_group", "staticgroup"}
     };
 }
 
@@ -236,6 +248,6 @@ QList<EditorObjectDescriptor> FpgaSchemaRegistry::editorObjectCatalog() const
         {"aviagorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
         {"text", QStringLiteral("Текст"), QStringLiteral(":/icons/icons/library/text.svg"), true, true},
         {"staticgroup", QStringLiteral("static_group"), QStringLiteral(":/icons/icons/library/staticgroup.svg"), false, false},
-        {"rotationobject", QStringLiteral("Rotation Group"), QStringLiteral(":/icons/icons/library/rotationgroup.svg"), false, false}
+        {"rotationobject", QStringLiteral("rotation_object"), QStringLiteral(":/icons/icons/library/rotationgroup.svg"), false, false}
     };
 }

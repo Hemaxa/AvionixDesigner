@@ -6,6 +6,34 @@
 
 RotationObject::RotationObject(QObject *parent) : BaseObject(parent), color(Qt::white) {}
 
+namespace {
+RotationObjectLayer layerFromInit(const QString &hexInit, const ParamSchema &schema)
+{
+    RotationObjectLayer layer;
+    if (schema.contains("enb"))
+        layer.enabled = BitParser::extract(hexInit, schema["enb"].offset, schema["enb"].size) != 0;
+    if (schema.contains("xrot"))
+        layer.xRot = BitParser::extract(hexInit, schema["xrot"].offset, schema["xrot"].size);
+    if (schema.contains("yrot"))
+        layer.yRot = BitParser::extract(hexInit, schema["yrot"].offset, schema["yrot"].size);
+    if (schema.contains("top"))
+        layer.top = BitParser::extractSigned(hexInit, schema["top"].offset, schema["top"].size);
+    if (schema.contains("left"))
+        layer.left = BitParser::extractSigned(hexInit, schema["left"].offset, schema["left"].size);
+    if (schema.contains("bottom"))
+        layer.bottom = BitParser::extractSigned(hexInit, schema["bottom"].offset, schema["bottom"].size);
+    if (schema.contains("right"))
+        layer.right = BitParser::extractSigned(hexInit, schema["right"].offset, schema["right"].size);
+    if (schema.contains("color"))
+        layer.color = BitParser::parseColor(BitParser::extract(hexInit, schema["color"].offset, schema["color"].size));
+    if (schema.contains("sin"))
+        layer.sinVal = BitParser::extractSigned(hexInit, schema["sin"].offset, schema["sin"].size);
+    if (schema.contains("cos"))
+        layer.cosVal = BitParser::extractSigned(hexInit, schema["cos"].offset, schema["cos"].size);
+    return layer;
+}
+}
+
 void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
     //парсинг центра вращения (пиксельные координаты)
@@ -37,6 +65,8 @@ void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
     if (schema.contains("cos")) {
         cosVal = BitParser::extractSigned(hexInit, schema["cos"].offset, schema["cos"].size);
     }
+
+    m_layers = {currentLayer()};
 }
 
 void RotationObject::parseExtraData(const QDomElement &element)
@@ -51,30 +81,7 @@ void RotationObject::parseExtraData(const QDomElement &element)
 
     if (w <= 0 || h <= 0) return;
 
-    //создание изображения маски
-    maskImage = QImage(w, h, QImage::Format_ARGB32);
-    maskImage.fill(Qt::transparent); //сначала изображение прозрачное
-
-    QStringList parts = text.split(',');
-    int idx = 0;
-    
-    //заполнение пикселей маски
-    for (int py = 0; py < h; ++py) {
-        for (int px = 0; px < w; ++px) {
-            if (idx >= parts.size()) break;
-            
-            int val = parts[idx].trimmed().toInt();
-            idx++;
-
-            //в xml содержатся значения 0..7, 0 - полностью прозрачно, 7 - совершенно непрозрачно
-            if (val > 0) {
-                int alpha8bit = (val * 255) / 7;
-                QColor pixelColor = color; //цвет берется из цвета объекта
-                pixelColor.setAlpha(alpha8bit);
-                maskImage.setPixelColor(px, py, pixelColor);
-            }
-        }
-    }
+    setMaskFromDataText(text, w, h);
 }
 
 void RotationObject::draw(QPainter &painter)
@@ -82,19 +89,37 @@ void RotationObject::draw(QPainter &painter)
     if (maskImage.isNull()) return;
 
     painter.save();
-    
-    //вычисляем угол вращения из sin/cos
-    double angleDeg = getAngleDegrees();
-    
-    if (qAbs(angleDeg) > 0.01) {
-        //переносим начало координат в точку вращения, поворачиваем, возвращаем
-        painter.translate(xRot, yRot);
-        painter.rotate(angleDeg);
-        painter.drawImage(QPointF(left, top), maskImage);
-    }
-    else {
-        //без вращения — рисуем напрямую
-        painter.drawImage(QPointF(xRot + left, yRot + top), maskImage);
+
+    const QVector<RotationObjectLayer> layers = m_layers.isEmpty() ? QVector<RotationObjectLayer>{currentLayer()} : m_layers;
+    for (const RotationObjectLayer &layer : layers) {
+        if (!layer.enabled)
+            continue;
+
+        QImage layerImage = maskImage;
+        if (!layerImage.isNull()) {
+            for (int y = 0; y < layerImage.height(); ++y) {
+                for (int x = 0; x < layerImage.width(); ++x) {
+                    QColor pixel = layerImage.pixelColor(x, y);
+                    if (pixel.alpha() == 0)
+                        continue;
+                    pixel.setRed(layer.color.red());
+                    pixel.setGreen(layer.color.green());
+                    pixel.setBlue(layer.color.blue());
+                    layerImage.setPixelColor(x, y, pixel);
+                }
+            }
+        }
+
+        const double angleDeg = qRadiansToDegrees(qAtan2(layer.sinVal / 65536.0, layer.cosVal / 65536.0));
+        painter.save();
+        if (qAbs(angleDeg) > 0.01) {
+            painter.translate(layer.xRot, layer.yRot);
+            painter.rotate(angleDeg);
+            painter.drawImage(QPointF(layer.left, layer.top), layerImage);
+        } else {
+            painter.drawImage(QPointF(layer.xRot + layer.left, layer.yRot + layer.top), layerImage);
+        }
+        painter.restore();
     }
     painter.restore();
 }
@@ -106,7 +131,7 @@ QString RotationObject::getTypeName() const
 
 QString RotationObject::getDisplayName() const
 {
-    return "Rotation Group";
+    return "rotation_object";
 }
 
 double RotationObject::getAngleDegrees() const
@@ -136,14 +161,26 @@ QList<QPair<QString, QString>> RotationObject::getProperties() const
     if (!maskImage.isNull()) {
         props.append({"Маска", QString("%1x%2").arg(maskImage.width()).arg(maskImage.height())});
     }
+    if (m_layers.size() > 1)
+        props.append({"Цветовых слоев", QString::number(m_layers.size())});
     
     return props;
 }
 
 QRectF RotationObject::getBoundingRect() const
 {
-    //абсолютные координаты = точка вращения + смещения
-    return QRectF(xRot + left, yRot + top, right - left, bottom - top);
+    const QVector<RotationObjectLayer> layers = m_layers.isEmpty() ? QVector<RotationObjectLayer>{currentLayer()} : m_layers;
+    QRectF bounds;
+    bool hasBounds = false;
+    for (const RotationObjectLayer &layer : layers) {
+        const QRectF layerBounds(layer.xRot + layer.left,
+                                 layer.yRot + layer.top,
+                                 layer.right - layer.left,
+                                 layer.bottom - layer.top);
+        bounds = hasBounds ? bounds.united(layerBounds) : layerBounds;
+        hasBounds = true;
+    }
+    return hasBounds ? bounds : QRectF();
 }
 
 bool RotationObject::contains(const QPointF &point) const
@@ -165,6 +202,10 @@ void RotationObject::moveBy(double dx, double dy)
 {
     xRot += dx;
     yRot += dy;
+    for (RotationObjectLayer &layer : m_layers) {
+        layer.xRot += dx;
+        layer.yRot += dy;
+    }
     emit changed();
 }
 
@@ -192,6 +233,7 @@ void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
     if (!maskImage.isNull() && (maskImage.width() != newWidth || maskImage.height() != newHeight)) {
         maskImage = maskImage.scaled(newWidth, newHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
     }
+    syncFirstLayerFromPublicFields();
     
     emit changed();
 }
@@ -201,6 +243,10 @@ void RotationObject::setRotation(double angle)
     double angleRad = qDegreesToRadians(angle);
     sinVal = qRound(qSin(angleRad) * 65536.0);
     cosVal = qRound(qCos(angleRad) * 65536.0);
+    for (RotationObjectLayer &layer : m_layers) {
+        layer.sinVal = sinVal;
+        layer.cosVal = cosVal;
+    }
     emit changed();
 }
 
@@ -255,7 +301,10 @@ bool RotationObject::setObjectProperty(const QString &name, const QString &value
         ok = color.isValid();
     }
     
-    if (ok) emit changed();
+    if (ok) {
+        syncFirstLayerFromPublicFields();
+        emit changed();
+    }
     return ok;
 }
 
@@ -275,4 +324,115 @@ QMap<QString, quint32> RotationObject::serializeParams() const
         {"sin", static_cast<quint32>(sinVal)},
         {"cos", static_cast<quint32>(cosVal)}
     };
+}
+
+QList<QMap<QString, quint32>> RotationObject::serializeLayerParams() const
+{
+    if (m_layers.isEmpty())
+        return {serializeParams()};
+
+    QList<QMap<QString, quint32>> params;
+    params.reserve(m_layers.size());
+    for (const RotationObjectLayer &layer : m_layers) {
+        const int width = qMax(1, qRound(layer.right - layer.left));
+        params.append({
+            {"enb", layer.enabled && isViewVisible() ? 1u : 0u},
+            {"xrot", static_cast<quint32>(layer.xRot)},
+            {"yrot", static_cast<quint32>(layer.yRot)},
+            {"top", static_cast<quint32>(static_cast<qint32>(layer.top))},
+            {"left", static_cast<quint32>(static_cast<qint32>(layer.left))},
+            {"bottom", static_cast<quint32>(static_cast<qint32>(layer.bottom))},
+            {"right", static_cast<quint32>(static_cast<qint32>(layer.right))},
+            {"sq", static_cast<quint32>(qCeil(width / 8.0))},
+            {"color", BitParser::colorToBgr(layer.color)},
+            {"sin", static_cast<quint32>(layer.sinVal)},
+            {"cos", static_cast<quint32>(layer.cosVal)}
+        });
+    }
+    return params;
+}
+
+void RotationObject::setHardwareLayersFromInitHex(const QStringList &initHexList, const ParamSchema &schema)
+{
+    QVector<RotationObjectLayer> layers;
+    for (const QString &hex : initHexList) {
+        const QString trimmed = hex.trimmed();
+        if (!trimmed.isEmpty())
+            layers.append(layerFromInit(trimmed, schema));
+    }
+    if (layers.isEmpty())
+        layers.append(currentLayer());
+
+    m_layers = layers;
+    applyLayerToPublicFields(m_layers.first());
+}
+
+QVector<RotationObjectLayer> RotationObject::hardwareLayers() const
+{
+    return m_layers;
+}
+
+RotationObjectLayer RotationObject::currentLayer() const
+{
+    RotationObjectLayer layer;
+    layer.left = left;
+    layer.top = top;
+    layer.right = right;
+    layer.bottom = bottom;
+    layer.xRot = xRot;
+    layer.yRot = yRot;
+    layer.sinVal = sinVal;
+    layer.cosVal = cosVal;
+    layer.color = color;
+    layer.enabled = isViewVisible();
+    return layer;
+}
+
+void RotationObject::applyLayerToPublicFields(const RotationObjectLayer &layer)
+{
+    left = layer.left;
+    top = layer.top;
+    right = layer.right;
+    bottom = layer.bottom;
+    xRot = layer.xRot;
+    yRot = layer.yRot;
+    sinVal = layer.sinVal;
+    cosVal = layer.cosVal;
+    color = layer.color;
+}
+
+void RotationObject::syncFirstLayerFromPublicFields()
+{
+    if (m_layers.isEmpty())
+        m_layers.append(currentLayer());
+    else
+        m_layers[0] = currentLayer();
+}
+
+void RotationObject::setMaskFromDataText(const QString &text, int width, int height)
+{
+    maskImage = QImage(width, height, QImage::Format_ARGB32);
+    maskImage.fill(Qt::transparent);
+
+    QVector<int> values;
+    values.reserve(width * height);
+    for (const QChar ch : text) {
+        if (!ch.isDigit())
+            continue;
+        values.append(qBound(0, ch.digitValue(), 7));
+    }
+
+    int idx = 0;
+    for (int py = 0; py < height; ++py) {
+        for (int px = 0; px < width; ++px) {
+            const int val = idx < values.size() ? values[idx] : 0;
+            ++idx;
+            if (val <= 0)
+                continue;
+
+            QColor pixelColor = Qt::white;
+            pixelColor.setAlpha((val * 255) / 7);
+            maskImage.setPixelColor(px, py, pixelColor);
+        }
+    }
 }

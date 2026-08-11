@@ -47,6 +47,20 @@ QColor colorFromBgrAttribute(const QString &value)
     );
 }
 
+QString canonicalCompiledName(const QString &name)
+{
+    const QString normalized = name.trimmed().toLower();
+    if (normalized == QStringLiteral("rotation_object"))
+        return QStringLiteral("rotationobject");
+    if (normalized == QStringLiteral("static_group"))
+        return QStringLiteral("staticgroup");
+    if (normalized == QStringLiteral("ribonscale"))
+        return QStringLiteral("RibonScale");
+    if (normalized == QStringLiteral("aviahorizont"))
+        return QStringLiteral("aviagorizont");
+    return name;
+}
+
 FpgaMemoryKind memoryKindForObject(const QString &type)
 {
     if (type == QStringLiteral("rotationobject"))
@@ -71,7 +85,7 @@ QMap<QString, ParamSchema> parseSchemas(const QDomElement &root)
             });
             fieldEl = fieldEl.nextSiblingElement();
         }
-        schemas.insert(schemaEl.tagName(), schema);
+        schemas.insert(canonicalCompiledName(schemaEl.tagName()), schema);
         schemaEl = schemaEl.nextSiblingElement();
     }
     return schemas;
@@ -103,7 +117,7 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
     QDomElement objectEl = objectsEl.firstChildElement();
     while (!objectEl.isNull()) {
         FpgaCompiledObject object;
-        object.type = objectEl.tagName();
+        object.type = canonicalCompiledName(objectEl.tagName());
 
         QDomElement childEl = objectEl.firstChildElement();
         while (!childEl.isNull()) {

@@ -596,7 +596,11 @@ QImage FpgaSimulator::renderFrame() const
         } else if (object.type == QStringLiteral("text")) {
             renderText(&frame, object, m_parameters, fonts, document.schemas.value(QStringLiteral("text")));
         } else if (object.type == QStringLiteral("rotationobject")) {
-            renderRotationObject(&frame, paramHex, m_rotationMemory.value(object.memId), document.schemas.value(QStringLiteral("rotationobject")));
+            const ParamSchema schema = document.schemas.value(QStringLiteral("rotationobject"));
+            for (int i = 0; i < object.paramCount; ++i) {
+                const QString layerParamHex = bytesToHex(m_parameters.value(object.startParamIndex + i));
+                renderRotationObject(&frame, layerParamHex, m_rotationMemory.value(object.memId), schema);
+            }
         } else if (object.type == QStringLiteral("aviagorizont") || object.type == QStringLiteral("aviahorizont")) {
             renderAviaHorizon(&frame, paramHex, document.schemas.value(QStringLiteral("aviagorizont")));
         } else if (object.type == QStringLiteral("dashed_line")) {

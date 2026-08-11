@@ -243,6 +243,61 @@ ViewportPanel::SnapResult ViewportPanel::snappedMoveDelta(int objectIndex, const
     return snappedMoveDeltaForSelection(QList<int>{objectIndex}, originalRect, delta);
 }
 
+QRectF visibleBoundsForIndexes(const QList<int> &indexes)
+{
+    QRectF bounds;
+    bool hasBounds = false;
+    auto *project = ProjectManager::instance();
+
+    for (int index : indexes) {
+        const auto object = project->getObjectAt(index);
+        if (!object || !object->isViewVisible())
+            continue;
+        bounds = hasBounds ? bounds.united(object->getBoundingRect()) : object->getBoundingRect();
+        hasBounds = true;
+    }
+
+    return hasBounds ? bounds : QRectF();
+}
+
+QList<QRectF> snapTargetRectsForSelection(const QSet<int> &selectedSet)
+{
+    QList<QRectF> targets;
+    QSet<int> groupedMembers;
+    auto *project = ProjectManager::instance();
+
+    for (const auto &group : project->objectGroups()) {
+        bool intersectsSelection = false;
+        for (int member : group.members) {
+            groupedMembers.insert(member);
+            if (selectedSet.contains(member))
+                intersectsSelection = true;
+        }
+
+        if (intersectsSelection)
+            continue;
+
+        const QRectF bounds = visibleBoundsForIndexes(group.members);
+        if (!bounds.isEmpty())
+            targets.append(bounds);
+    }
+
+    for (int i = 0; i < project->getObjectCount(); ++i) {
+        if (selectedSet.contains(i) || groupedMembers.contains(i))
+            continue;
+
+        const auto object = project->getObjectAt(i);
+        if (!object || !object->isViewVisible())
+            continue;
+
+        const QRectF bounds = object->getBoundingRect();
+        if (!bounds.isEmpty())
+            targets.append(bounds);
+    }
+
+    return targets;
+}
+
 ViewportPanel::SnapResult ViewportPanel::snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const
 {
     auto *project = ProjectManager::instance();
@@ -327,16 +382,9 @@ ViewportPanel::SnapResult ViewportPanel::snappedMoveDeltaForSelection(const QLis
 
     moved = movedRect();
     const QVector<double> sourceX = {moved.left(), moved.center().x(), moved.right()};
+    const QList<QRectF> targetRects = snapTargetRectsForSelection(selectedSet);
 
-    for (int i = 0; i < project->getObjectCount(); ++i) {
-        if (selectedSet.contains(i))
-            continue;
-
-        const auto object = project->getObjectAt(i);
-        if (!object || !object->isViewVisible())
-            continue;
-
-        const QRectF other = object->getBoundingRect();
+    for (const QRectF &other : targetRects) {
         const QVector<double> targetX = {other.left(), other.center().x(), other.right()};
         const QVector<double> targetY = {other.top(), other.center().y(), other.bottom()};
 
@@ -371,6 +419,98 @@ ViewportPanel::SnapResult ViewportPanel::snappedMoveDeltaForSelection(const QLis
         if (snappedX || snappedY)
             break;
     }
+
+    return result;
+}
+
+ViewportPanel::SnapPointResult ViewportPanel::snappedPoint(const QList<int> &excludedIndexes, const QPointF &point) const
+{
+    auto *project = ProjectManager::instance();
+    SnapPointResult result;
+    result.point = point;
+    constexpr double snapDistance = 6.0;
+
+    QSet<int> excludedSet;
+    for (int index : excludedIndexes)
+        excludedSet.insert(index);
+
+    auto applyX = [&result](double target, SnapGuideKind kind) {
+        result.point.setX(target);
+        result.guides.append({kind, Qt::Vertical, target});
+    };
+    auto applyY = [&result](double target, SnapGuideKind kind) {
+        result.point.setY(target);
+        result.guides.append({kind, Qt::Horizontal, target});
+    };
+
+    if (project->snapToGrid()) {
+        const double gridStep = project->gridStep();
+        const double targetX = qRound(result.point.x() / gridStep) * gridStep;
+        const double targetY = qRound(result.point.y() / gridStep) * gridStep;
+        if (qAbs(result.point.x() - targetX) <= snapDistance)
+            applyX(targetX, SnapGuideKind::Grid);
+        if (qAbs(result.point.y() - targetY) <= snapDistance)
+            applyY(targetY, SnapGuideKind::Grid);
+    }
+
+    if (project->snapToCanvas()) {
+        const QVector<double> canvasX = {0.0, project->getCanvasWidth() / 2.0, static_cast<double>(project->getCanvasWidth())};
+        const QVector<double> canvasY = {0.0, project->getCanvasHeight() / 2.0, static_cast<double>(project->getCanvasHeight())};
+        for (double x : canvasX) {
+            if (qAbs(result.point.x() - x) <= snapDistance) {
+                applyX(x, SnapGuideKind::Canvas);
+                break;
+            }
+        }
+        for (double y : canvasY) {
+            if (qAbs(result.point.y() - y) <= snapDistance) {
+                applyY(y, SnapGuideKind::Canvas);
+                break;
+            }
+        }
+    }
+
+    if (!project->snapToObjects())
+        return result;
+
+    const QList<QRectF> targetRects = snapTargetRectsForSelection(excludedSet);
+    double bestDistanceX = snapDistance + 1.0;
+    double bestTargetX = result.point.x();
+    double bestDistanceY = snapDistance + 1.0;
+    double bestTargetY = result.point.y();
+
+    for (const QRectF &rect : targetRects) {
+        const QVector<QPointF> anchors = {
+            rect.topLeft(),
+            rect.topRight(),
+            rect.bottomLeft(),
+            rect.bottomRight(),
+            rect.center(),
+            QPointF(rect.center().x(), rect.top()),
+            QPointF(rect.center().x(), rect.bottom()),
+            QPointF(rect.left(), rect.center().y()),
+            QPointF(rect.right(), rect.center().y())
+        };
+
+        for (const QPointF &anchor : anchors) {
+            const double dx = qAbs(result.point.x() - anchor.x());
+            if (dx <= snapDistance && dx < bestDistanceX) {
+                bestDistanceX = dx;
+                bestTargetX = anchor.x();
+            }
+
+            const double dy = qAbs(result.point.y() - anchor.y());
+            if (dy <= snapDistance && dy < bestDistanceY) {
+                bestDistanceY = dy;
+                bestTargetY = anchor.y();
+            }
+        }
+    }
+
+    if (bestDistanceX <= snapDistance)
+        applyX(bestTargetX, SnapGuideKind::Object);
+    if (bestDistanceY <= snapDistance)
+        applyY(bestTargetY, SnapGuideKind::Object);
 
     return result;
 }
@@ -634,6 +774,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 if (endpoint >= 0) {
                     m_dragMode = LineEndpoint;
                     m_lineEndpointIndex = endpoint;
+                    m_dragStartCanvasPos = canvasPos;
                     return;
                 }
             }
@@ -690,6 +831,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                     if (endpoint >= 0) {
                         m_dragMode = LineEndpoint;
                         m_lineEndpointIndex = endpoint;
+                        m_dragStartCanvasPos = canvasPos;
                     } else {
                         beginMoveDrag(canvasPos, selected->getBoundingRect());
                     }
@@ -779,10 +921,11 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             emit objectChanged();
             update();
         } else if (m_dragMode == LineEndpoint) {
-            m_activeSnapGuides.clear();
             if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
+                const SnapPointResult snap = snappedPoint(QList<int>{m_selectedIndex}, canvasPos);
                 ensureDragHistoryRecorded();
-                dashedLine->setEndpoint(m_lineEndpointIndex, canvasPos);
+                dashedLine->setEndpoint(m_lineEndpointIndex, snap.point);
+                m_activeSnapGuides = snap.guides;
                 emit objectChanged();
                 update();
             }

@@ -223,7 +223,7 @@ void ObjectListPanel::refreshList() {
     auto *eyeButton = new QToolButton(rowWidget);
     eyeButton->setObjectName("ObjectListIconButton");
     eyeButton->setIcon(
-        QIcon(anyVisible ? QStringLiteral(":/icons/icons/list/eye.svg")
+        QIcon(anyVisible ? QStringLiteral(":/icons/icons/list/eye-on.svg")
                          : QStringLiteral(":/icons/icons/list/eye-off.svg")));
     eyeButton->setToolTip(anyVisible
                               ? QStringLiteral("Скрыть группу на холсте")

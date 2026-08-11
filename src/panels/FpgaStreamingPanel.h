@@ -5,6 +5,9 @@
 #include "BasePanel.h"
 #include "fpga/packets/FpgaPacket.h"
 
+class QBoxLayout;
+class QFrame;
+class QResizeEvent;
 class QToolButton;
 
 class FpgaStreamingPanel : public BasePanel
@@ -32,12 +35,19 @@ private slots:
     void modeSelectionChanged();
 
 private:
+    void resizeEvent(QResizeEvent *event) override;
     void compilePackets();
     bool ensureCompiled();
     bool hasSelectedMode() const;
     bool simulatorModeActive() const;
     void setRunning(bool running);
     void invalidatePackets();
+    void updateAdaptiveLayout();
+
+    QBoxLayout *m_layout = nullptr;
+    QBoxLayout *m_modeLayout = nullptr;
+    QBoxLayout *m_buttonLayout = nullptr;
+    QFrame *m_separator = nullptr;
 
     QToolButton *m_binButton = nullptr;
     QToolButton *m_simulatorButton = nullptr;
@@ -48,4 +58,5 @@ private:
     FpgaPacketBundle m_bundle;
     bool m_hasBundle = false;
     bool m_running = false;
+    bool m_verticalLayout = false;
 };

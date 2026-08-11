@@ -7,10 +7,11 @@
 #include "fpga/transport/FpgaPacketDump.h"
 
 #include <QFileDialog>
+#include <QBoxLayout>
 #include <QFrame>
-#include <QHBoxLayout>
 #include <QIcon>
 #include <QMessageBox>
+#include <QResizeEvent>
 #include <QToolButton>
 #include <QSize>
 #include <QSizePolicy>
@@ -25,6 +26,11 @@ QToolButton* createIconButton(const QString &iconPath, const QString &toolTip, Q
     button->setCheckable(checkable);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     return button;
+}
+
+bool shouldUseVerticalControls(const QWidget *widget)
+{
+    return widget && widget->height() > widget->width() * 1.15;
 }
 }
 
@@ -41,31 +47,31 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     m_stopButton->setEnabled(false);
     m_simulatorButton->setChecked(true);
 
-    auto *modeLayout = new QHBoxLayout();
-    modeLayout->setSpacing(6);
-    modeLayout->setAlignment(Qt::AlignVCenter);
-    modeLayout->addWidget(m_binButton);
-    modeLayout->addWidget(m_simulatorButton);
-    modeLayout->addWidget(m_uartButton);
+    m_modeLayout = new QBoxLayout(QBoxLayout::LeftToRight);
+    m_modeLayout->setSpacing(6);
+    m_modeLayout->setAlignment(Qt::AlignCenter);
+    m_modeLayout->addWidget(m_binButton, 0, Qt::AlignCenter);
+    m_modeLayout->addWidget(m_simulatorButton, 0, Qt::AlignCenter);
+    m_modeLayout->addWidget(m_uartButton, 0, Qt::AlignCenter);
 
-    auto *separator = new QFrame(this);
-    separator->setFrameShape(QFrame::VLine);
-    separator->setObjectName(QStringLiteral("SettingsSeparator"));
+    m_separator = new QFrame(this);
+    m_separator->setFrameShape(QFrame::VLine);
+    m_separator->setObjectName(QStringLiteral("SettingsSeparator"));
 
-    auto *buttonLayout = new QHBoxLayout();
-    buttonLayout->setSpacing(6);
-    buttonLayout->setAlignment(Qt::AlignVCenter);
-    buttonLayout->addWidget(m_startButton);
-    buttonLayout->addWidget(m_stopButton);
+    m_buttonLayout = new QBoxLayout(QBoxLayout::LeftToRight);
+    m_buttonLayout->setSpacing(6);
+    m_buttonLayout->setAlignment(Qt::AlignCenter);
+    m_buttonLayout->addWidget(m_startButton, 0, Qt::AlignCenter);
+    m_buttonLayout->addWidget(m_stopButton, 0, Qt::AlignCenter);
 
-    auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(12);
-    layout->setAlignment(Qt::AlignVCenter);
-    layout->addLayout(modeLayout);
-    layout->addWidget(separator, 0, Qt::AlignVCenter);
-    layout->addLayout(buttonLayout);
-    layout->addStretch(1);
+    m_layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
+    m_layout->setContentsMargins(10, 8, 10, 8);
+    m_layout->setSpacing(12);
+    m_layout->setAlignment(Qt::AlignCenter);
+    m_layout->addLayout(m_modeLayout);
+    m_layout->addWidget(m_separator, 0, Qt::AlignCenter);
+    m_layout->addLayout(m_buttonLayout);
+    m_layout->addStretch(1);
 
     connect(m_startButton, &QToolButton::clicked, this, &FpgaStreamingPanel::startStreaming);
     connect(m_stopButton, &QToolButton::clicked, this, &FpgaStreamingPanel::stopStreaming);
@@ -73,6 +79,13 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     connect(m_simulatorButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
     connect(m_uartButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &FpgaStreamingPanel::invalidatePackets);
+    updateAdaptiveLayout();
+}
+
+void FpgaStreamingPanel::resizeEvent(QResizeEvent *event)
+{
+    BasePanel::resizeEvent(event);
+    updateAdaptiveLayout();
 }
 
 void FpgaStreamingPanel::compilePackets()
@@ -180,4 +193,25 @@ void FpgaStreamingPanel::invalidatePackets()
         return;
 
     m_hasBundle = false;
+}
+
+void FpgaStreamingPanel::updateAdaptiveLayout()
+{
+    if (!m_layout || !m_modeLayout || !m_buttonLayout || !m_separator)
+        return;
+
+    const bool vertical = shouldUseVerticalControls(this);
+    if (m_verticalLayout == vertical)
+        return;
+
+    m_verticalLayout = vertical;
+    const QBoxLayout::Direction direction = vertical ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight;
+    m_layout->setDirection(direction);
+    m_modeLayout->setDirection(direction);
+    m_buttonLayout->setDirection(direction);
+    m_separator->setFrameShape(vertical ? QFrame::HLine : QFrame::VLine);
+    m_layout->setAlignment(Qt::AlignCenter);
+    m_modeLayout->setAlignment(Qt::AlignCenter);
+    m_buttonLayout->setAlignment(Qt::AlignCenter);
+    updateGeometry();
 }

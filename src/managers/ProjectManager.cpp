@@ -31,6 +31,7 @@
 namespace {
 constexpr int kFallbackStaticGroupMaxDimension = 4095;
 constexpr int kFallbackStaticGroupAddressablePixels = 65536;
+constexpr int kFallbackRotationObjectAddressableTiles = 2048;
 
 QString compactEncodingName(const QString &encoding)
 {
@@ -442,6 +443,88 @@ QList<ImageMaskComponent> simplifyComponentsForStaticGroup(const ParamSchema &sc
     return simplified;
 }
 
+QRect alphaBounds(const QImage &image)
+{
+    QRect bounds;
+    bool hasPixels = false;
+    const QImage argb = image.convertToFormat(QImage::Format_ARGB32);
+
+    for (int y = 0; y < argb.height(); ++y) {
+        for (int x = 0; x < argb.width(); ++x) {
+            if (argb.pixelColor(x, y).alpha() <= 0)
+                continue;
+
+            const QRect pixelRect(x, y, 1, 1);
+            bounds = hasPixels ? bounds.united(pixelRect) : pixelRect;
+            hasPixels = true;
+        }
+    }
+
+    return hasPixels ? bounds : QRect();
+}
+
+int rotationTileCost(const QSize &size)
+{
+    if (size.width() <= 0 || size.height() <= 0)
+        return 0;
+    return ((size.width() + 7) / 8) * ((size.height() + 7) / 8);
+}
+
+ImageMaskComponent singleComponentForRotationObject(const ImageObject *image)
+{
+    ImageMaskComponent component;
+    if (!image)
+        return component;
+
+    const QImage source = image->renderedSourceImage().convertToFormat(QImage::Format_ARGB32);
+    if (source.isNull())
+        return component;
+
+    QRect bounds = alphaBounds(source);
+    if (bounds.isEmpty())
+        bounds = QRect(0, 0, qMax(1, source.width()), qMax(1, source.height()));
+
+    component.bounds = bounds;
+    component.color = image->effectiveMaskColor();
+    component.mask = source.copy(bounds);
+    return component;
+}
+
+ImageMaskComponent simplifyComponentForRotationObject(const ImageMaskComponent &component)
+{
+    if (component.mask.isNull() || component.bounds.isEmpty())
+        return component;
+
+    double scale = 1.0;
+    if ((component.bounds.width() + 7) / 8 > 255)
+        scale = qMin(scale, (255.0 * 8.0) / component.bounds.width());
+
+    const int initialTiles = rotationTileCost(component.bounds.size());
+    if (initialTiles > kFallbackRotationObjectAddressableTiles)
+        scale = qMin(scale, qSqrt(static_cast<double>(kFallbackRotationObjectAddressableTiles) / initialTiles));
+
+    if (scale >= 0.999)
+        return component;
+
+    ImageMaskComponent simplified = component;
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        const int width = qMax(1, static_cast<int>(qFloor(component.bounds.width() * scale)));
+        const int height = qMax(1, static_cast<int>(qFloor(component.bounds.height() * scale)));
+        simplified.bounds = QRect(qRound(component.bounds.left() * scale),
+                                  qRound(component.bounds.top() * scale),
+                                  width,
+                                  height);
+        simplified.mask = component.mask.scaled(width, height, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+        if (rotationTileCost(simplified.bounds.size()) <= kFallbackRotationObjectAddressableTiles
+            && (simplified.bounds.width() + 7) / 8 <= 255) {
+            break;
+        }
+        scale *= 0.96;
+    }
+
+    return simplified;
+}
+
 void copyBaseFlags(const BaseObject *source, BaseObject *target)
 {
     target->setViewVisible(source->isViewVisible());
@@ -542,6 +625,13 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->cosVal = rotation->cosVal;
         clone->color = rotation->color;
         clone->maskImage = rotation->maskImage;
+        if (!rotation->hardwareLayers().isEmpty()) {
+            ParamSchema schema = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("rotationobject"));
+            QStringList initHexList;
+            for (const auto &params : rotation->serializeLayerParams())
+                initHexList.append(buildInitHex(schema, params));
+            clone->setHardwareLayersFromInitHex(initHexList, schema);
+        }
         rawClone = clone;
     } else if (auto image = dynamic_cast<ImageObject*>(source.data())) {
         auto *clone = new ImageObject();
@@ -666,11 +756,15 @@ QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const
         return objEl;
     }
 
-    QDomElement initEl = doc.createElement("init");
-    initEl.appendChild(doc.createTextNode(buildInitHex(schema, obj->serializeParams())));
-    objEl.appendChild(initEl);
-
     if (auto rotation = dynamic_cast<RotationObject*>(obj.data())) {
+        const QList<QMap<QString, quint32>> layerParams = rotation->serializeLayerParams();
+        for (int layerIndex = 0; layerIndex < layerParams.size(); ++layerIndex) {
+            QDomElement initEl = doc.createElement("init");
+            initEl.setAttribute("index", layerIndex + 1);
+            initEl.appendChild(doc.createTextNode(buildInitHex(schema, layerParams[layerIndex])));
+            objEl.appendChild(initEl);
+        }
+
         QDomElement dataEl = doc.createElement("data");
         QImage image = rotation->maskImage;
         if (image.isNull()) {
@@ -681,7 +775,12 @@ QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const
         dataEl.setAttribute("height", image.height());
         dataEl.appendChild(doc.createTextNode(serializeMaskData(image)));
         objEl.appendChild(dataEl);
+        return objEl;
     }
+
+    QDomElement initEl = doc.createElement("init");
+    initEl.appendChild(doc.createTextNode(buildInitHex(schema, obj->serializeParams())));
+    objEl.appendChild(initEl);
 
     return objEl;
 }
@@ -1115,18 +1214,17 @@ void appendCompiledImageElements(QDomDocument &doc,
         return;
     }
 
-    const QList<ImageMaskComponent> components = image->maskComponents();
-    if (components.isEmpty()) {
-        ImageMaskComponent component;
+    ImageMaskComponent component = singleComponentForRotationObject(image);
+    if (component.mask.isNull() || component.bounds.isEmpty()) {
         component.bounds = QRect(0, 0, qMax(1, qRound(image->width)), qMax(1, qRound(image->height)));
         component.color = image->effectiveMaskColor();
         component.mask = image->renderedImage();
-        objectsEl.appendChild(createRotationObjectElementFromImageComponent(doc, rotationSchema, image, component));
-        return;
     }
 
-    for (const ImageMaskComponent &component : components)
-        objectsEl.appendChild(createRotationObjectElementFromImageComponent(doc, rotationSchema, image, component));
+    objectsEl.appendChild(createRotationObjectElementFromImageComponent(doc,
+                                                                        rotationSchema,
+                                                                        image,
+                                                                        simplifyComponentForRotationObject(component)));
 }
 
 struct ExportFontKey
@@ -1777,19 +1875,34 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             }
         }
         else if (m_schemas.contains(schemaName)) {
-            QString hexInit = objEl.firstChildElement("init").text().trimmed();
+            QStringList initHexList;
+            QDomElement initReaderEl = objEl.firstChildElement("init");
+            while (!initReaderEl.isNull()) {
+                const QString hex = initReaderEl.text().trimmed();
+                if (!hex.isEmpty())
+                    initHexList.append(hex);
+                initReaderEl = initReaderEl.nextSiblingElement("init");
+            }
+            QString hexInit = initHexList.isEmpty() ? QString() : initHexList.first();
             
             //создаем объект через фабрику
+            const QString canonicalTag = registry->canonicalObjectTag(tagName);
             BaseObject *obj = ObjectsManager::instance()->createObject(tagName);
+            if (!obj && canonicalTag != tagName)
+                obj = ObjectsManager::instance()->createObject(canonicalTag);
+            if (!obj && schemaName != tagName && schemaName != canonicalTag)
+                obj = ObjectsManager::instance()->createObject(schemaName);
             
             if (obj && !hexInit.isEmpty()) {
                 obj->parse(hexInit, m_schemas[schemaName]);
+                if (auto rotation = dynamic_cast<RotationObject*>(obj))
+                    rotation->setHardwareLayersFromInitHex(initHexList, m_schemas[schemaName]);
                 obj->parseExtraData(objEl);
                 obj->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
                 obj->setExportEnabled(objEl.attribute("export", "1").toInt() != 0);
                 
                 m_objects.append(QSharedPointer<BaseObject>(obj));
-                m_objectTags.append(tagName);
+                m_objectTags.append(canonicalTag);
                 
             }
         }
@@ -1869,12 +1982,17 @@ void ProjectManager::clearHistory()
     m_redoStack.clear();
     m_clipboardObjects.clear();
     m_clipboardTags.clear();
+    m_clipboardGroups.clear();
 }
 
 void ProjectManager::insertObjectAtFront(BaseObject *object, const QString &tagName)
 {
     m_objects.prepend(QSharedPointer<BaseObject>(object));
     m_objectTags.prepend(tagName);
+    for (ObjectGroup &group : m_groups) {
+        for (int &member : group.members)
+            ++member;
+    }
 }
 
 bool ProjectManager::undo()
@@ -1927,7 +2045,9 @@ void ProjectManager::registerStandardTypes()
     om->registerType("RibonScale", []() { return new RibbonScaleObject(); });
     om->registerType("ribonscale", []() { return new RibbonScaleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
+    om->registerType("rotation_object", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
+    om->registerType("static_group", []() { return new StaticGroupObject(); });
     om->registerType("image", []() { return new ImageObject(); });
     om->registerType("aviagorizont", []() { return new AviaHorizonObject(); });
     om->registerType("aviahorizont", []() { return new AviaHorizonObject(); });
@@ -2249,6 +2369,7 @@ int ProjectManager::groupObjects(const QList<int> &indexes)
     m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [](const ObjectGroup &group) {
         return group.members.size() < 2;
     }), m_groups.end());
+    syncNextGroupId();
 
     ObjectGroup group;
     group.id = m_nextGroupId++;
@@ -2292,6 +2413,28 @@ bool ProjectManager::ungroupObjects(const QList<int> &indexes)
     emit projectChanged();
     emit logMessage(tr("Группа разгруппирована"));
     return true;
+}
+
+bool ProjectManager::addObjectToGroup(int groupId, int index, bool recordChange)
+{
+    if (index < 0 || index >= m_objects.size())
+        return false;
+
+    for (ObjectGroup &group : m_groups) {
+        if (group.id != groupId)
+            continue;
+        if (group.members.contains(index))
+            return true;
+
+        if (recordChange)
+            recordHistory();
+        group.members.append(index);
+        std::sort(group.members.begin(), group.members.end());
+        emit projectChanged();
+        return true;
+    }
+
+    return false;
 }
 
 QList<int> ProjectManager::groupMembersForObject(int index) const
@@ -2421,12 +2564,15 @@ bool ProjectManager::copyObjects(const QList<int> &indexes)
 {
     m_clipboardObjects.clear();
     m_clipboardTags.clear();
+    m_clipboardGroups.clear();
 
     QSet<int> seen;
+    QMap<int, int> sourceToClipboard;
     for (int index : indexes) {
         if (index < 0 || index >= m_objects.size() || seen.contains(index))
             continue;
         seen.insert(index);
+        sourceToClipboard.insert(index, m_clipboardObjects.size());
         m_clipboardObjects.append(cloneObject(m_objects[index]));
         m_clipboardTags.append(index < m_objectTags.size() ? m_objectTags[index] : QString());
     }
@@ -2434,8 +2580,34 @@ bool ProjectManager::copyObjects(const QList<int> &indexes)
     if (m_clipboardObjects.isEmpty())
         return false;
 
+    for (const ObjectGroup &group : m_groups) {
+        bool groupFullyCopied = !group.members.isEmpty();
+        ObjectGroup copiedGroup;
+        copiedGroup.id = group.id;
+        copiedGroup.name = group.name;
+        for (int member : group.members) {
+            if (!sourceToClipboard.contains(member)) {
+                groupFullyCopied = false;
+                break;
+            }
+            copiedGroup.members.append(sourceToClipboard.value(member));
+        }
+        if (groupFullyCopied && copiedGroup.members.size() >= 2) {
+            std::sort(copiedGroup.members.begin(), copiedGroup.members.end());
+            m_clipboardGroups.append(copiedGroup);
+        }
+    }
+
     emit logMessage(tr("Скопировано объектов: %1").arg(m_clipboardObjects.size()));
     return true;
+}
+
+void ProjectManager::syncNextGroupId()
+{
+    int nextId = 1;
+    for (const ObjectGroup &group : m_groups)
+        nextId = qMax(nextId, group.id + 1);
+    m_nextGroupId = qMax(m_nextGroupId, nextId);
 }
 
 QList<int> ProjectManager::pasteObjects()
@@ -2445,6 +2617,12 @@ QList<int> ProjectManager::pasteObjects()
         return pastedIndexes;
 
     recordHistory();
+    const int pasteCount = m_clipboardObjects.size();
+    for (ObjectGroup &group : m_groups) {
+        for (int &member : group.members)
+            member += pasteCount;
+    }
+
     for (int i = m_clipboardObjects.size() - 1; i >= 0; --i) {
         const auto clone = cloneObject(m_clipboardObjects[i]);
         if (!clone)
@@ -2456,6 +2634,23 @@ QList<int> ProjectManager::pasteObjects()
 
     for (int i = 0; i < m_clipboardObjects.size(); ++i)
         pastedIndexes.append(i);
+
+    syncNextGroupId();
+    for (const ObjectGroup &clipboardGroup : m_clipboardGroups) {
+        ObjectGroup group;
+        group.id = m_nextGroupId++;
+        group.name = clipboardGroup.name;
+        if (group.name.isEmpty() || group.name.startsWith(tr("Группа ")))
+            group.name = tr("Группа %1").arg(group.id);
+        group.members = clipboardGroup.members;
+        group.members.erase(std::remove_if(group.members.begin(), group.members.end(), [pasteCount](int member) {
+            return member < 0 || member >= pasteCount;
+        }), group.members.end());
+        std::sort(group.members.begin(), group.members.end());
+        group.members.erase(std::unique(group.members.begin(), group.members.end()), group.members.end());
+        if (group.members.size() >= 2)
+            m_groups.append(group);
+    }
 
     emit projectChanged();
     emit logMessage(tr("Вставлено объектов: %1").arg(pastedIndexes.size()));

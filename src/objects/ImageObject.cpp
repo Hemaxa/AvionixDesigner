@@ -505,6 +505,30 @@ double staticGroupSimplificationScale(const QList<ImageMaskComponent> &component
     return scale;
 }
 
+int rotationTileCost(const QSize &size)
+{
+    if (size.width() <= 0 || size.height() <= 0)
+        return 0;
+    return ((size.width() + 7) / 8) * ((size.height() + 7) / 8);
+}
+
+double rotationSimplificationScale(const QSize &size)
+{
+    if (size.width() <= 0 || size.height() <= 0)
+        return 1.0;
+
+    constexpr int maxTiles = 2048;
+    double scale = 1.0;
+    if ((size.width() + 7) / 8 > 255)
+        scale = qMin(scale, (255.0 * 8.0) / size.width());
+
+    const int tiles = rotationTileCost(size);
+    if (tiles > maxTiles)
+        scale = qMin(scale, qSqrt(static_cast<double>(maxTiles) / tiles));
+
+    return scale;
+}
+
 QString objectCountWord(int count)
 {
     const int mod100 = count % 100;
@@ -677,11 +701,15 @@ QString ImageObject::xmlExportSummary() const
     }
 
     if (hasRotation()) {
-        const int objectCount = qMax(1, components.size());
-        return QStringLiteral("rotationobject, дробление: %1 (%2 %3)")
-            .arg(objectCount > 1 ? QStringLiteral("да") : QStringLiteral("нет"))
-            .arg(objectCount)
-            .arg(objectCountWord(objectCount));
+        const QSize size(qMax(1, qRound(width)), qMax(1, qRound(height)));
+        const double scale = rotationSimplificationScale(size);
+        const QSize exportSize(scale >= 0.999
+                                   ? size
+                                   : QSize(qMax(1, static_cast<int>(qFloor(size.width() * scale))),
+                                           qMax(1, static_cast<int>(qFloor(size.height() * scale)))));
+        return QStringLiteral("rotationobject, упрощение: %1 (1 объект, память %2/2048 тайлов)")
+            .arg(scale < 0.999 ? QStringLiteral("да") : QStringLiteral("нет"))
+            .arg(rotationTileCost(exportSize));
     }
 
     const double scale = staticGroupSimplificationScale(components);
@@ -790,16 +818,7 @@ QList<QPair<QString, QString>> ImageObject::getProperties() const
 
 QRectF ImageObject::getBoundingRect() const
 {
-    const QRectF baseRect(x, y, width, height);
-    if (!hasRotation())
-        return baseRect;
-
-    const QPointF center = baseRect.center();
-    QTransform transform;
-    transform.translate(center.x(), center.y());
-    transform.rotate(rotationDegrees);
-    transform.translate(-center.x(), -center.y());
-    return transform.mapRect(baseRect);
+    return QRectF(x, y, width, height);
 }
 
 bool ImageObject::contains(const QPointF &point) const

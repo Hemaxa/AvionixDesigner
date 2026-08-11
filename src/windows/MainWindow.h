@@ -95,6 +95,8 @@ private:
     void setSelectionState(bool active);
     //обновляет доступность команд истории и вставки
     void updateCommandState();
+    //возвращает выбранную группу, если текущее выделение полностью ей соответствует
+    int selectedGroupId() const;
     //показывает диалог выбора алфавитов для новых текстовых font-ресурсов перед XML-экспортом
     bool configureFontExportAlphabets();
     //планирует отложенное обновление live-симулятора ПЛИС

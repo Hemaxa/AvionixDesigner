@@ -6,7 +6,8 @@
 
 #include <QList>
 
-class QHBoxLayout;
+class QBoxLayout;
+class QResizeEvent;
 class QToolButton;
 
 class ObjectLibraryPanel : public BasePanel
@@ -21,9 +22,12 @@ signals:
     void imageImportRequested();
 
 private:
+    void resizeEvent(QResizeEvent *event) override;
     void createButtons();
     QToolButton* createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title);
+    void updateAdaptiveLayout();
 
-    QHBoxLayout *m_rowLayout = nullptr;
+    QBoxLayout *m_rowLayout = nullptr;
     QList<QToolButton*> m_libraryCards;
+    bool m_verticalLayout = false;
 };
