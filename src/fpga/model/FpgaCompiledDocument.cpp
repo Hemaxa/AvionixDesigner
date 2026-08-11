@@ -4,9 +4,10 @@
 
 #include <QDomDocument>
 #include <QDomElement>
+#include <QRegularExpression>
 
 namespace {
-QString cleanTextPayload(QString text)
+QString cleanDensePayload(QString text)
 {
     text.remove(QLatin1Char('\t'));
     text.remove(QLatin1Char('\n'));
@@ -14,6 +15,18 @@ QString cleanTextPayload(QString text)
     text.remove(QLatin1Char(' '));
     text.remove(QLatin1Char(','));
     return text;
+}
+
+QString cleanCodePayload(const QString &text)
+{
+    QStringList codes;
+    const QStringList parts = text.split(QRegularExpression(QStringLiteral("[,\\s]+")), Qt::SkipEmptyParts);
+    for (const QString &part : parts) {
+        const QString code = part.trimmed();
+        if (!code.isEmpty())
+            codes.append(code);
+    }
+    return codes.join(QLatin1Char(','));
 }
 
 QColor colorFromBgrAttribute(const QString &value)
@@ -95,9 +108,19 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
         QDomElement childEl = objectEl.firstChildElement();
         while (!childEl.isNull()) {
             if (childEl.tagName() == QStringLiteral("init")) {
-                object.iparams.append(cleanTextPayload(childEl.text()));
+                object.iparams.append(cleanDensePayload(childEl.text()));
             } else if (childEl.tagName() == QStringLiteral("data")) {
-                object.data = cleanTextPayload(childEl.text());
+                object.data = object.type == QStringLiteral("text")
+                    ? cleanCodePayload(childEl.text())
+                    : cleanDensePayload(childEl.text());
+            } else if (object.type == QStringLiteral("font") && childEl.tagName() == QStringLiteral("kerning")) {
+                const QString left = childEl.attribute(QStringLiteral("left"));
+                const QString right = childEl.attribute(QStringLiteral("right"));
+                if (!left.isEmpty() && !right.isEmpty()) {
+                    object.kerningPairs.insert(
+                        left.left(1) + right.left(1),
+                        childEl.attribute(QStringLiteral("delta"), QStringLiteral("0")).toInt());
+                }
             }
             childEl = childEl.nextSiblingElement();
         }
@@ -130,4 +153,3 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
 
     return compiled;
 }
-

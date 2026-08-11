@@ -24,6 +24,7 @@ struct FpgaCompiledObject
     QString type;
     QStringList iparams;
     QString data;
+    QMap<QString, int> kerningPairs;
     int startParamIndex = 0;
     int paramCount = 0;
     int memId = -1;
@@ -43,4 +44,3 @@ struct FpgaCompiledDocument
     bool isValid() const { return width > 0 && height > 0; }
     static FpgaCompiledDocument fromDomDocument(const QDomDocument &dom, QString *errorMessage = nullptr);
 };
-
