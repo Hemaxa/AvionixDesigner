@@ -480,77 +480,29 @@ QList<QList<ImageMaskComponent>> extractComponentGroups(const QImage &source, co
     return groups;
 }
 
-QRect visibleBoundsInRect(const QImage &image, const QRect &rect)
+qint64 staticGroupPixelCost(const QList<ImageMaskComponent> &components)
 {
-    QRect bounds;
-    bool hasPixels = false;
-
-    const QRect clipped = rect.intersected(image.rect());
-    for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
-        for (int x = clipped.left(); x <= clipped.right(); ++x) {
-            if (image.pixelColor(x, y).alpha() <= 0)
-                continue;
-
-            const QRect pixelRect(x, y, 1, 1);
-            bounds = hasPixels ? bounds.united(pixelRect) : pixelRect;
-            hasPixels = true;
-        }
-    }
-
-    return hasPixels ? bounds : QRect();
+    qint64 pixels = 0;
+    for (const ImageMaskComponent &component : components)
+        pixels += qMax<qint64>(1, static_cast<qint64>(component.bounds.width()) * component.bounds.height());
+    return pixels;
 }
 
-QList<QRect> staticGroupExportTiles(const ImageMaskComponent &component)
+double staticGroupSimplificationScale(const QList<ImageMaskComponent> &components)
 {
-    QList<QRect> tiles;
-    if (component.mask.isNull() || component.bounds.isEmpty())
-        return tiles;
-
-    const int sourceWidth = component.mask.width();
-    const int sourceHeight = component.mask.height();
-    const int safeMaxWidth = qMax(1, qMin(kStaticGroupMaxDimension, kStaticGroupMaxPixels));
-
-    for (int left = 0; left < sourceWidth; left += safeMaxWidth) {
-        const int tileWidth = qMin(safeMaxWidth, sourceWidth - left);
-        const int tileHeightLimit = qMax(1, qMin(kStaticGroupMaxDimension, kStaticGroupMaxPixels / qMax(1, tileWidth)));
-
-        for (int top = 0; top < sourceHeight; top += tileHeightLimit) {
-            const QRect candidate(left, top, tileWidth, qMin(tileHeightLimit, sourceHeight - top));
-            const QRect visibleBounds = visibleBoundsInRect(component.mask, candidate);
-            if (!visibleBounds.isEmpty())
-                tiles.append(visibleBounds);
-        }
-    }
-
-    return tiles;
-}
-
-int staticGroupExportObjectCount(const QList<ImageMaskComponent> &components, int *initCount)
-{
-    int objectCount = 0;
-    int currentPixels = 0;
-    int states = 0;
-
+    double scale = 1.0;
     for (const ImageMaskComponent &component : components) {
-        const QList<QRect> tiles = staticGroupExportTiles(component);
-        for (const QRect &tile : tiles) {
-            const int tilePixels = qMax(1, tile.width() * tile.height());
-            if (currentPixels > 0 && currentPixels + tilePixels > kStaticGroupMaxPixels) {
-                ++objectCount;
-                currentPixels = 0;
-            }
-
-            currentPixels += tilePixels;
-            ++states;
-        }
+        if (component.bounds.width() > kStaticGroupMaxDimension)
+            scale = qMin(scale, static_cast<double>(kStaticGroupMaxDimension) / component.bounds.width());
+        if (component.bounds.height() > kStaticGroupMaxDimension)
+            scale = qMin(scale, static_cast<double>(kStaticGroupMaxDimension) / component.bounds.height());
     }
 
-    if (currentPixels > 0)
-        ++objectCount;
+    const qint64 pixels = staticGroupPixelCost(components);
+    if (pixels > kStaticGroupMaxPixels)
+        scale = qMin(scale, qSqrt(static_cast<double>(kStaticGroupMaxPixels) / pixels));
 
-    if (initCount)
-        *initCount = states;
-    return objectCount;
+    return scale;
 }
 
 QString objectCountWord(int count)
@@ -732,13 +684,17 @@ QString ImageObject::xmlExportSummary() const
             .arg(objectCountWord(objectCount));
     }
 
-    int initCount = 0;
-    const int objectCount = staticGroupExportObjectCount(components, &initCount);
-    return QStringLiteral("staticgroup, дробление: %1 (%2 %3, %4 init)")
-        .arg(objectCount > 1 ? QStringLiteral("да") : QStringLiteral("нет"))
-        .arg(qMax(1, objectCount))
-        .arg(objectCountWord(qMax(1, objectCount)))
-        .arg(qMax(1, initCount));
+    const double scale = staticGroupSimplificationScale(components);
+    const qint64 sourcePixels = staticGroupPixelCost(components);
+    const qint64 exportPixels = scale >= 0.999
+        ? sourcePixels
+        : qMin<qint64>(kStaticGroupMaxPixels, qMax<qint64>(1, qFloor(sourcePixels * scale * scale)));
+
+    return QStringLiteral("staticgroup, упрощение: %1 (1 объект, %2 init, память %3/%4)")
+        .arg(scale < 0.999 ? QStringLiteral("да") : QStringLiteral("нет"))
+        .arg(qMax(1, components.size()))
+        .arg(exportPixels)
+        .arg(kStaticGroupMaxPixels);
 }
 
 QByteArray ImageObject::sourcePayload() const

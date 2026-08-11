@@ -119,6 +119,21 @@ void blendPixel(QImage *image, int x, int y, const QColor &color, int mask)
     ));
 }
 
+void blendPixel256(QImage *image, int x, int y, const QColor &color, int mask)
+{
+    if (!image || x < 0 || y < 0 || x >= image->width() || y >= image->height())
+        return;
+
+    mask = qBound(0, mask, 256);
+    const QColor dst = image->pixelColor(x, y);
+    const int inv = 256 - mask;
+    image->setPixelColor(x, y, QColor(
+        (color.red() * mask + dst.red() * inv) >> 8,
+        (color.green() * mask + dst.green() * inv) >> 8,
+        (color.blue() * mask + dst.blue() * inv) >> 8
+    ));
+}
+
 QMap<int, SimFont> buildFonts(const FpgaCompiledDocument &document,
                               const QMap<int, QByteArray> &parameters,
                               const QMap<int, QByteArray> &staticMemory)
@@ -483,17 +498,36 @@ void renderDashedLine(QImage *frame, const QString &paramHex, const ParamSchema 
     const int dt = extractSignedField(paramHex, schema, QStringLiteral("dt"));
     const int a = extractSignedField(paramHex, schema, QStringLiteral("a"));
     const int b = extractSignedField(paramHex, schema, QStringLiteral("b"));
-    const int width = static_cast<int>(extractField(paramHex, schema, QStringLiteral("Width"))) + 1;
-    const int dash = static_cast<int>(extractField(paramHex, schema, QStringLiteral("Length"))) + 1;
-    const int x1 = x0 + qRound(a * dt / 256.0);
-    const int y1 = y0 + qRound(b * dt / 256.0);
+    if (dt <= 0)
+        return;
 
-    QPen pen(color, qMax(1, width));
-    pen.setDashPattern({static_cast<qreal>(qMax(1, dash)), static_cast<qreal>(qMax(1, dash))});
-    QPainter painter(frame);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(pen);
-    painter.drawLine(QPoint(x0, y0), QPoint(x1, y1));
+    const int step = static_cast<int>(extractField(paramHex, schema, QStringLiteral("StepPow")));
+    const int length = static_cast<int>(extractField(paramHex, schema, QStringLiteral("Length")));
+    const int phase = static_cast<int>(extractField(paramHex, schema, QStringLiteral("Phase")));
+    const int width = static_cast<int>(extractField(paramHex, schema, QStringLiteral("Width")));
+    const qint64 wdt = static_cast<qint64>(width + 1) * 128;
+    const qint64 qLimit = static_cast<qint64>(dt) << 8;
+    const int dashMask = (1 << (qBound(0, step, 7) + 1)) - 1;
+
+    for (int y = 0; y < frame->height(); ++y) {
+        for (int x = 0; x < frame->width(); ++x) {
+            const qint64 difx = x - x0;
+            const qint64 dify = y - y0;
+            const qint64 q = static_cast<qint64>(a) * difx + static_cast<qint64>(b) * dify;
+            if (q < 0 || q > qLimit)
+                continue;
+
+            const bool dashGate = (((q + (static_cast<qint64>(phase) << 8)) >> 8) & dashMask) <= length;
+            if (!dashGate)
+                continue;
+
+            const qint64 t = static_cast<qint64>(b) * difx - static_cast<qint64>(a) * dify;
+            const qint64 val = wdt - qAbs(t);
+            const int mask = val < 0 ? 0 : (val >= 256 ? 256 : static_cast<int>(val) & 0x1FF);
+            if (mask > 0)
+                blendPixel256(frame, x, y, color, mask);
+        }
+    }
 }
 }
 
