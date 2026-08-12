@@ -195,10 +195,17 @@ if(WIN32)
     set(CPACK_PACKAGE_FILE_NAME "AvionixDesigner-${PROJECT_VERSION}-windows-x64")
     set(CPACK_NSIS_DISPLAY_NAME "Avionix Designer")
     set(CPACK_NSIS_PACKAGE_NAME "Avionix Designer")
-    set(CPACK_NSIS_MODIFY_PATH OFF)
+    set(CPACK_NSIS_MODIFY_PATH ON)
     set(CPACK_NSIS_MUI_ICON "${APP_ICON_ICO}")
     set(CPACK_NSIS_MUI_UNIICON "${APP_ICON_ICO}")
     set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\AvionixDesigner.exe")
+    set(CPACK_NSIS_CREATE_ICONS_EXTRA [[
+  StrCmp "$INSTALL_DESKTOP" "1" 0 +2
+    CreateShortCut "$DESKTOP\Avionix Designer.lnk" "$INSTDIR\bin\AvionixDesigner.exe"
+    ]])
+    set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS [[
+  Delete "$DESKTOP\Avionix Designer.lnk"
+    ]])
 elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop")
     set(CPACK_PACKAGE_FILE_NAME "AvionixDesigner-${PROJECT_VERSION}-macos")

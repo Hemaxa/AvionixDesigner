@@ -56,7 +56,7 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2019_64
-          modules: qtsvg qtserialport
+          modules: qtserialport
           cache: true
 
       - name: Install NSIS
@@ -115,7 +115,7 @@ jobs:
           host: mac
           target: desktop
           arch: clang_64
-          modules: qtsvg qtserialport
+          modules: qtserialport
           cache: true
 
       - name: Configure
