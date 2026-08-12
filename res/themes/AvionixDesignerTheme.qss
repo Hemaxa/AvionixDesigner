@@ -455,6 +455,36 @@ QDialog#FontExportDialog QHeaderView::section {
     min-height: 34px;
 }
 
+QDialog#UartStreamingDialog {
+    background-color: #0f141a;
+}
+
+QDialog#UartStreamingDialog QLabel {
+    color: #9fb3c1;
+}
+
+QDialog#UartStreamingDialog #DialogTitleLabel {
+    color: #edf7fb;
+}
+
+QDialog#UartStreamingDialog #UartHintLabel {
+    color: #9fb3c1;
+    background-color: #121922;
+    border: 1px solid #22303c;
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+QDialog#UartStreamingDialog #SecondaryButton {
+    min-width: 92px;
+}
+
+QDialog#UartStreamingDialog #UartPortCombo,
+QDialog#UartStreamingDialog #UartBaudRateSpin,
+QDialog#UartStreamingDialog #UartIntervalSpin {
+    min-width: 220px;
+}
+
 QScrollArea {
     background-color: transparent;
     border: none;
