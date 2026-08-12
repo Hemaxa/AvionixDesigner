@@ -14,6 +14,10 @@
 #include "TextObject.h"
 #include "ViewportPanel.h"
 #include "ViewportSettingsPanel.h"
+#include "PanelsManager.h"
+#include "FpgaStreamingPanel.h"
+#include "FpgaSimulatorPanel.h"
+#include "fpga/FpgaProjectPacketBuilder.h"
 
 #include <QAction>
 #include <QDockWidget>
@@ -262,6 +266,11 @@ void MainWindow::createWidgets()
     m_objectProperties = new ObjectPropertiesPanel(this);
     m_objectLibrary = new ObjectLibraryPanel(this);
     m_viewportSettings = new ViewportSettingsPanel(this);
+    m_fpgaStreaming = new FpgaStreamingPanel(this);
+    m_fpgaSimulator = new FpgaSimulatorPanel(this);
+    m_fpgaSimulatorUpdateTimer = new QTimer(this);
+    m_fpgaSimulatorUpdateTimer->setSingleShot(true);
+    m_fpgaSimulatorUpdateTimer->setInterval(180);
 
     m_objectListDock = new QDockWidget("Список объектов", this);
     m_objectListDock->setObjectName("ObjectListDock");
@@ -291,9 +300,27 @@ void MainWindow::createWidgets()
     addDockWidget(Qt::RightDockWidgetArea, m_objectPropertiesDock);
     splitDockWidget(m_objectListDock, m_objectPropertiesDock, Qt::Vertical);
 
+    m_fpgaStreamingDock = new QDockWidget("Управление ПЛИС", this);
+    m_fpgaStreamingDock->setObjectName("FpgaStreamingDock");
+    m_fpgaStreamingDock->setWidget(m_fpgaStreaming);
+    m_fpgaStreamingDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_fpgaStreamingDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+
+    m_fpgaSimulatorDock = new QDockWidget("Симулятор ПЛИС", this);
+    m_fpgaSimulatorDock->setObjectName("FpgaSimulatorDock");
+    m_fpgaSimulatorDock->setWidget(m_fpgaSimulator);
+    m_fpgaSimulatorDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_fpgaSimulatorDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+
     addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
+    addDockWidget(Qt::BottomDockWidgetArea, m_fpgaStreamingDock);
+    
     splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
+    splitDockWidget(m_objectLibraryDock, m_fpgaStreamingDock, Qt::Horizontal);
+
+    m_fpgaSimulatorDock->setFloating(true);
+    m_fpgaSimulatorDock->hide();
 }
 
 void MainWindow::showEvent(QShowEvent *event)
@@ -321,13 +348,23 @@ void MainWindow::setupDockSizes()
     const int objectPropsHeight = static_cast<int>(windowH * 0.48);
     resizeDocks({m_objectListDock, m_objectPropertiesDock}, {objectListHeight, objectPropsHeight}, Qt::Vertical);
 
-    const int bottomHeight = qBound(96, static_cast<int>(windowH * 0.11), 144);
+    const int bottomHeight = qMax(96, static_cast<int>(windowH * 0.14));
     resizeDocks({m_viewportSettingsDock}, {bottomHeight}, Qt::Vertical);
     resizeDocks(
-        {m_viewportSettingsDock, m_objectLibraryDock},
-        {static_cast<int>(windowW * 0.30), static_cast<int>(windowW * 0.54)},
+        {m_viewportSettingsDock, m_objectLibraryDock, m_fpgaStreamingDock},
+        {
+            static_cast<int>(windowW * 0.28),
+            static_cast<int>(windowW * 0.46),
+            static_cast<int>(windowW * 0.26)
+        },
         Qt::Horizontal
     );
+
+    if (m_fpgaSimulatorDock) {
+        m_fpgaSimulatorDock->setFloating(true);
+        m_fpgaSimulatorDock->resize(qMax(420, static_cast<int>(windowW * 0.36)), qMax(320, static_cast<int>(windowH * 0.38)));
+        m_fpgaSimulatorDock->hide();
+    }
 }
 
 void MainWindow::createMenus()
@@ -387,6 +424,8 @@ void MainWindow::createMenus()
     viewMenu->addAction(m_objectPropertiesDock->toggleViewAction());
     viewMenu->addAction(m_objectLibraryDock->toggleViewAction());
     viewMenu->addAction(m_viewportSettingsDock->toggleViewAction());
+    viewMenu->addAction(m_fpgaStreamingDock->toggleViewAction());
+    viewMenu->addAction(m_fpgaSimulatorDock->toggleViewAction());
     viewMenu->addSeparator();
 
     QAction *resetViewAction = viewMenu->addAction("Сбросить масштаб");
@@ -473,6 +512,23 @@ void MainWindow::connectSignals()
     });
 
     connect(m_viewport, &ViewportPanel::objectDropped, this, &MainWindow::createObjectAtPosition);
+
+    connect(m_fpgaStreaming, &FpgaStreamingPanel::simulatorLaunchRequested, this, [this]() {
+        m_fpgaSimulatorDock->show();
+        m_fpgaSimulatorDock->raise();
+    });
+    connect(m_fpgaStreaming, &FpgaStreamingPanel::simulatorBundleReady, m_fpgaSimulator, &FpgaSimulatorPanel::loadBundle);
+    connect(m_fpgaStreaming, &FpgaStreamingPanel::simulationActiveChanged, this, [this](bool active) {
+        m_fpgaSimulatorLiveActive = active;
+        if (!active) {
+            m_fpgaSimulatorUpdateTimer->stop();
+            return;
+        }
+        scheduleFpgaSimulatorUpdate();
+    });
+    connect(m_fpgaSimulatorUpdateTimer, &QTimer::timeout, this, &MainWindow::updateFpgaSimulatorNow);
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &MainWindow::scheduleFpgaSimulatorUpdate);
+    connect(m_viewport, &ViewportPanel::objectChanged, this, &MainWindow::scheduleFpgaSimulatorUpdate);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -505,15 +561,57 @@ void MainWindow::resetToDefaultLayout()
     QSettings settings("Avionix", "Designer");
     settings.remove("windowGeometry");
     settings.remove("windowState");
+
+    addDockWidget(Qt::RightDockWidgetArea, m_objectListDock);
+    addDockWidget(Qt::RightDockWidgetArea, m_objectPropertiesDock);
+    splitDockWidget(m_objectListDock, m_objectPropertiesDock, Qt::Vertical);
+
+    addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
+    addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
+    addDockWidget(Qt::BottomDockWidgetArea, m_fpgaStreamingDock);
+    splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
+    splitDockWidget(m_objectLibraryDock, m_fpgaStreamingDock, Qt::Horizontal);
+
+    m_objectListDock->show();
+    m_objectPropertiesDock->show();
+    m_viewportSettingsDock->show();
+    m_objectLibraryDock->show();
+    m_fpgaStreamingDock->show();
+    m_fpgaSimulatorDock->setFloating(true);
+    m_fpgaSimulatorDock->hide();
+
     showMaximized();
     setupDockSizes();
 }
 
+void MainWindow::scheduleFpgaSimulatorUpdate()
+{
+    if (!m_fpgaSimulatorLiveActive || !m_fpgaSimulatorDock || !m_fpgaSimulatorDock->isVisible())
+        return;
+
+    m_fpgaSimulatorUpdateTimer->start();
+}
+
+void MainWindow::updateFpgaSimulatorNow()
+{
+    if (!m_fpgaSimulatorLiveActive || !m_fpgaSimulator || !m_fpgaSimulatorDock->isVisible())
+        return;
+
+    QString error;
+    FpgaPacketBundle bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+    if (error.isEmpty() && bundle.document.isValid())
+        m_fpgaSimulator->loadBundle(bundle);
+}
+
 void MainWindow::createObjectOfType(const QString &typeName)
 {
-    const int index = ProjectManager::instance()->addObject(typeName);
+    const int groupId = selectedGroupId();
+    auto *project = ProjectManager::instance();
+    const int index = project->addObject(typeName);
     if (index < 0)
         return;
+    if (groupId >= 0)
+        project->addObjectToGroup(groupId, index, false);
 
     m_objectList->refreshList();
     m_objectList->selectRows({index});
@@ -525,9 +623,13 @@ void MainWindow::createObjectOfType(const QString &typeName)
 
 void MainWindow::createObjectAtPosition(const QString &typeName, const QPointF &pos)
 {
-    const int index = ProjectManager::instance()->addObject(typeName, pos.x(), pos.y());
+    const int groupId = selectedGroupId();
+    auto *project = ProjectManager::instance();
+    const int index = project->addObject(typeName, pos.x(), pos.y());
     if (index < 0)
         return;
+    if (groupId >= 0)
+        project->addObjectToGroup(groupId, index, false);
 
     m_objectList->refreshList();
     m_objectList->selectRows({index});
@@ -755,14 +857,64 @@ void MainWindow::alignSelectedObject(int actionId)
         return;
     }
 
-    QRectF bounds;
-    bool hasBounds = false;
     auto *project = ProjectManager::instance();
+
+    struct AlignUnit
+    {
+        QList<int> members;
+        QRectF bounds;
+    };
+
+    QList<AlignUnit> units;
+    QSet<int> selectedSet(indexes.begin(), indexes.end());
+    QSet<int> consumed;
+    auto unitBounds = [project](const QList<int> &members) {
+        QRectF bounds;
+        bool hasBounds = false;
+        for (int index : members) {
+            const auto object = project->getObjectAt(index);
+            if (!object)
+                continue;
+            bounds = hasBounds ? bounds.united(object->getBoundingRect()) : object->getBoundingRect();
+            hasBounds = true;
+        }
+        return hasBounds ? bounds : QRectF();
+    };
+
+    for (const auto &group : project->objectGroups()) {
+        bool complete = !group.members.isEmpty();
+        for (int member : group.members) {
+            if (!selectedSet.contains(member)) {
+                complete = false;
+                break;
+            }
+        }
+        if (!complete)
+            continue;
+
+        const QRectF bounds = unitBounds(group.members);
+        if (!bounds.isEmpty()) {
+            units.append({group.members, bounds});
+            for (int member : group.members)
+                consumed.insert(member);
+        }
+    }
+
     for (int index : indexes) {
+        if (consumed.contains(index))
+            continue;
         const auto object = project->getObjectAt(index);
         if (!object)
             continue;
-        bounds = hasBounds ? bounds.united(object->getBoundingRect()) : object->getBoundingRect();
+        const QRectF bounds = object->getBoundingRect();
+        if (!bounds.isEmpty())
+            units.append({QList<int>{index}, bounds});
+    }
+
+    QRectF bounds;
+    bool hasBounds = false;
+    for (const AlignUnit &unit : units) {
+        bounds = hasBounds ? bounds.united(unit.bounds) : unit.bounds;
         hasBounds = true;
     }
 
@@ -776,36 +928,35 @@ void MainWindow::alignSelectedObject(int actionId)
     };
 
     QList<MoveDelta> deltas;
-    for (int index : indexes) {
-        const auto object = project->getObjectAt(index);
-        if (!object)
-            continue;
-
-        const QRectF objectBounds = object->getBoundingRect();
+    const bool alignToCanvas = units.size() == 1;
+    for (const AlignUnit &unit : units) {
+        const QRectF objectBounds = unit.bounds;
         QPointF delta;
         switch (alignment) {
         case ObjectAlignment::Left:
-            delta.setX(bounds.left() - objectBounds.left());
+            delta.setX((alignToCanvas ? 0.0 : bounds.left()) - objectBounds.left());
             break;
         case ObjectAlignment::HCenter:
-            delta.setX(bounds.center().x() - objectBounds.center().x());
+            delta.setX((alignToCanvas ? project->getCanvasWidth() / 2.0 : bounds.center().x()) - objectBounds.center().x());
             break;
         case ObjectAlignment::Right:
-            delta.setX(bounds.right() - objectBounds.right());
+            delta.setX((alignToCanvas ? project->getCanvasWidth() : bounds.right()) - objectBounds.right());
             break;
         case ObjectAlignment::Top:
-            delta.setY(bounds.top() - objectBounds.top());
+            delta.setY((alignToCanvas ? 0.0 : bounds.top()) - objectBounds.top());
             break;
         case ObjectAlignment::VCenter:
-            delta.setY(bounds.center().y() - objectBounds.center().y());
+            delta.setY((alignToCanvas ? project->getCanvasHeight() / 2.0 : bounds.center().y()) - objectBounds.center().y());
             break;
         case ObjectAlignment::Bottom:
-            delta.setY(bounds.bottom() - objectBounds.bottom());
+            delta.setY((alignToCanvas ? project->getCanvasHeight() : bounds.bottom()) - objectBounds.bottom());
             break;
         }
 
-        if (!qFuzzyIsNull(delta.x()) || !qFuzzyIsNull(delta.y()))
-            deltas.append({index, delta});
+        if (!qFuzzyIsNull(delta.x()) || !qFuzzyIsNull(delta.y())) {
+            for (int index : unit.members)
+                deltas.append({index, delta});
+        }
     }
 
     if (deltas.isEmpty())
@@ -848,6 +999,27 @@ void MainWindow::updateCommandState()
     auto *project = ProjectManager::instance();
     m_selectionToolStrip->setHistoryAvailable(project->canUndo(), project->canRedo());
     m_selectionToolStrip->setPasteAvailable(project->canPasteObjects());
+}
+
+int MainWindow::selectedGroupId() const
+{
+    if (!m_viewport)
+        return -1;
+
+    QList<int> selected = m_viewport->getSelectedIndexes();
+    if (selected.size() < 2)
+        return -1;
+    std::sort(selected.begin(), selected.end());
+
+    auto *project = ProjectManager::instance();
+    for (const auto &group : project->objectGroups()) {
+        QList<int> members = group.members;
+        std::sort(members.begin(), members.end());
+        if (members == selected)
+            return group.id;
+    }
+
+    return -1;
 }
 
 QAction* MainWindow::createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member)

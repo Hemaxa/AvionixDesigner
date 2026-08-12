@@ -4,6 +4,22 @@
 
 #include "BaseObject.h"
 #include <QImage>
+#include <QStringList>
+#include <QVector>
+
+struct RotationObjectLayer
+{
+    double left = 0;
+    double top = 0;
+    double right = 0;
+    double bottom = 0;
+    double xRot = 0;
+    double yRot = 0;
+    double sinVal = 0;
+    double cosVal = 0;
+    QColor color = Qt::white;
+    bool enabled = true;
+};
 
 class RotationObject : public BaseObject
 {
@@ -42,7 +58,18 @@ public:
     bool setObjectProperty(const QString &name, const QString &value) override;
     void parseExtraData(const QDomElement &element) override;
     QMap<QString, quint32> serializeParams() const override;
+    QList<QMap<QString, quint32>> serializeLayerParams() const;
+    void setHardwareLayersFromInitHex(const QStringList &initHexList, const ParamSchema &schema);
+    QVector<RotationObjectLayer> hardwareLayers() const;
     
     //метод, который возвращает угол вращения в градусах, вычисленный из sinVal/cosVal
     double getAngleDegrees() const;
+
+private:
+    RotationObjectLayer currentLayer() const;
+    void applyLayerToPublicFields(const RotationObjectLayer &layer);
+    void syncFirstLayerFromPublicFields();
+    void setMaskFromDataText(const QString &text, int width, int height);
+
+    QVector<RotationObjectLayer> m_layers;
 };

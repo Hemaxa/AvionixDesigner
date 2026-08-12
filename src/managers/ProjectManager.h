@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QColor>
+#include <QDomDocument>
 #include <QList>
 #include <QObject>
 #include <QSharedPointer>
@@ -41,6 +42,8 @@ public:
     bool saveToFile(const QString &targetFile = QString());
     //экспортирует текущий проект в строгий XML-формат для ПЛИС
     bool exportToFpgaXml(const QString &targetFile);
+    //собирает строгий XML-формат для ПЛИС в памяти без записи на диск
+    QDomDocument buildCompiledFpgaXml() const;
     //импортирует изображение как static_group с растровыми масками
     int importImageAsStaticGroup(const QString &fileName);
 
@@ -51,6 +54,8 @@ public:
     int addObject(const QString &typeName);
     //создаёт объект по имени типа и центрирует его в заданной точке холста
     int addObject(const QString &typeName, double x, double y);
+    //добавляет существующий объект в редакторскую группу
+    bool addObjectToGroup(int groupId, int index, bool recordChange = true);
     //удаляет один объект по индексу
     bool removeObject(int index);
     //удаляет набор объектов по индексам
@@ -190,6 +195,7 @@ private:
     void restoreSnapshot(const ProjectSnapshot &snapshot);
     void clearHistory();
     void insertObjectAtFront(BaseObject *object, const QString &tagName);
+    void syncNextGroupId();
 
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
@@ -205,6 +211,7 @@ private:
     QList<ProjectSnapshot> m_redoStack;
     QList<QSharedPointer<BaseObject>> m_clipboardObjects;
     QStringList m_clipboardTags;
+    QList<ObjectGroup> m_clipboardGroups;
     bool m_showGrid = false;
     bool m_snapToCanvas = true;
     bool m_snapToGrid = false;

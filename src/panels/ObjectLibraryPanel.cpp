@@ -2,16 +2,16 @@
 
 #include "FpgaSchemaRegistry.h"
 
+#include <QBoxLayout>
 #include <QDrag>
-#include <QHBoxLayout>
 #include <QIcon>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QResizeEvent>
 #include <QSizePolicy>
 #include <QToolButton>
-#include <QVBoxLayout>
 
 namespace {
 QIcon createPlaceholderIcon(const QString &glyph)
@@ -31,6 +31,11 @@ QIcon createPlaceholderIcon(const QString &glyph)
     painter.drawText(pixmap.rect(), Qt::AlignCenter, glyph);
 
     return QIcon(pixmap);
+}
+
+bool shouldUseVerticalControls(const QWidget *widget)
+{
+    return widget && widget->height() > widget->width() * 1.15;
 }
 
 class DraggableToolButton : public QToolButton
@@ -78,7 +83,7 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("ObjectLibraryPanel");
 
-    auto *mainLayout = new QVBoxLayout(this);
+    auto *mainLayout = new QBoxLayout(QBoxLayout::TopToBottom, this);
     mainLayout->setContentsMargins(6, 6, 6, 6);
     mainLayout->setSpacing(6);
 
@@ -86,13 +91,20 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
     mainLayout->addStretch(1);
     mainLayout->addLayout(m_rowLayout);
     mainLayout->addStretch(1);
+    updateAdaptiveLayout();
+}
+
+void ObjectLibraryPanel::resizeEvent(QResizeEvent *event)
+{
+    BasePanel::resizeEvent(event);
+    updateAdaptiveLayout();
 }
 
 void ObjectLibraryPanel::createButtons()
 {
-    m_rowLayout = new QHBoxLayout();
+    m_rowLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_rowLayout->setSpacing(8);
-    m_rowLayout->setAlignment(Qt::AlignVCenter);
+    m_rowLayout->setAlignment(Qt::AlignCenter);
 
     QList<EditorObjectDescriptor> items;
     for (const auto &descriptor : FpgaSchemaRegistry::instance()->editorObjectCatalog()) {
@@ -105,14 +117,12 @@ void ObjectLibraryPanel::createButtons()
         const auto &item = items[i];
         QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title);
         m_libraryCards.append(card);
-        m_rowLayout->addWidget(card, 0, Qt::AlignVCenter);
+        m_rowLayout->addWidget(card, 0, Qt::AlignCenter);
     }
 
     QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
     m_libraryCards.append(imageButton);
-    m_rowLayout->addWidget(imageButton, 0, Qt::AlignVCenter);
-
-    m_rowLayout->addStretch();
+    m_rowLayout->addWidget(imageButton, 0, Qt::AlignCenter);
 }
 
 QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title)
@@ -145,4 +155,19 @@ QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, cons
     });
 
     return button;
+}
+
+void ObjectLibraryPanel::updateAdaptiveLayout()
+{
+    if (!m_rowLayout)
+        return;
+
+    const bool vertical = shouldUseVerticalControls(this);
+    if (m_verticalLayout == vertical)
+        return;
+
+    m_verticalLayout = vertical;
+    m_rowLayout->setDirection(vertical ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+    m_rowLayout->setAlignment(Qt::AlignCenter);
+    updateGeometry();
 }

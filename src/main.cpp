@@ -6,6 +6,7 @@
 #include "MainWindow.h"
 
 #include <QApplication>
+#include <QIcon>
 #include <QString>
 
 #ifndef APP_VERSION
@@ -22,6 +23,7 @@ int main(int argc, char *argv[])
     app.setApplicationName("Avionix Designer");
     app.setOrganizationName("Avionix");
     app.setApplicationVersion(QString::fromLatin1(APP_VERSION));
+    app.setWindowIcon(QIcon(QStringLiteral(":/app/icon.png")));
     
     //регистрируем стандартные типы объектов (получаем словарь поддерживаемых объектов)
     ProjectManager::instance()->registerStandardTypes();

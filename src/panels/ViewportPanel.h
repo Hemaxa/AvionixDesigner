@@ -82,6 +82,12 @@ private:
         QPointF delta;
         QList<SnapGuide> guides;
     };
+
+    struct SnapPointResult
+    {
+        QPointF point;
+        QList<SnapGuide> guides;
+    };
     
     QPointF m_lastMousePos; // Последняя позиция мыши для расчёта дельт
     QPointF m_dragStartCanvasPos;
@@ -107,6 +113,7 @@ private:
     void drawSnapGuides(QPainter &painter, int canvasW, int canvasH);
     SnapResult snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;
     SnapResult snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const;
+    SnapPointResult snappedPoint(const QList<int> &excludedIndexes, const QPointF &point) const;
     int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canResize, bool canRotate) const;
     int hitTestDashedLineEndpoints(const QPointF &canvasPos, const class DashedLineObject *line) const;
     QRectF selectedObjectsRect() const;

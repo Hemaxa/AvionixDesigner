@@ -1,5 +1,5 @@
-name: Windows Release
-run-name: Windows release from ${{ github.ref_name }}
+name: macOS Release
+run-name: macOS release from ${{ github.ref_name }}
 
 on:
   push:
@@ -11,13 +11,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: windows-release-${{ github.ref }}
+  group: macos-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build-windows:
-    name: Build Windows installer
-    runs-on: windows-2022
+  build-macos:
+    name: Build macOS installer
+    runs-on: macos-13
 
     steps:
       - name: Checkout
@@ -41,22 +41,17 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.5.3'
-          host: windows
+          host: mac
           target: desktop
-          arch: win64_msvc2019_64
+          arch: clang_64
           modules: qtserialport
           cache: true
-
-      - name: Install NSIS
-        shell: pwsh
-        run: choco install nsis -y --no-progress
 
       - name: Configure
         shell: pwsh
         run: >
           cmake -S . -B build
-          -G "Visual Studio 17 2022"
-          -A x64
+          -G Ninja
           -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
@@ -71,11 +66,11 @@ jobs:
         id: package
         shell: pwsh
         run: |
-          $installer = Get-ChildItem -Path build -Filter "AvionixDesigner-*-windows-x64.exe" -Recurse |
+          $installer = Get-ChildItem -Path build -Filter "AvionixDesigner-*-macos.dmg" -Recurse |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
           if (-not $installer) {
-            throw "Windows installer was not produced by CPack"
+            throw "macOS installer was not produced by CPack"
           }
           "installer=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "installer_name=$($installer.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -83,7 +78,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AvionixDesigner-${{ steps.version.outputs.version }}-windows-x64
+          name: AvionixDesigner-${{ steps.version.outputs.version }}-macos
           path: ${{ steps.package.outputs.installer }}
 
       - name: Publish GitHub release
@@ -115,5 +110,5 @@ jobs:
           } else {
             gh release create $env:RELEASE_TAG $env:INSTALLER `
               --title "AvionixDesigner $env:RELEASE_VERSION" `
-              --notes "Windows installer built from CMake project version $env:RELEASE_VERSION."
+              --notes "macOS installer built from CMake project version $env:RELEASE_VERSION."
           }
