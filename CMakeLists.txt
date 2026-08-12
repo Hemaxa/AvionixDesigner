@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.19)
 project(AvionixDesigner VERSION 1.0.2 LANGUAGES CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg SerialPort)
 
 qt_standard_project_setup()
 
-set(APP_ICON_DIR "${CMAKE_SOURCE_DIR}/app-icons")
+set(APP_ICON_DIR "${CMAKE_SOURCE_DIR}/res/app-icons")
 set(APP_ICON_PNG "${APP_ICON_DIR}/icon.png")
 set(APP_ICON_ICO "${APP_ICON_DIR}/AvionixDesigner.ico")
 set(APP_ICON_ICNS "${APP_ICON_DIR}/AvionixDesigner.icns")
@@ -101,6 +101,8 @@ qt_add_executable(AvionixDesigner
     src/fpga/packets/FpgaPacketFramer.cpp
     src/fpga/transport/FpgaPacketDump.h
     src/fpga/transport/FpgaPacketDump.cpp
+    src/fpga/transport/FpgaUartTransport.h
+    src/fpga/transport/FpgaUartTransport.cpp
     src/fpga/simulator/FpgaSimulator.h
     src/fpga/simulator/FpgaSimulator.cpp
     src/fpga/FpgaProjectPacketBuilder.h
@@ -131,6 +133,7 @@ target_link_libraries(AvionixDesigner
         Qt::Widgets
         Qt::Xml
         Qt::Svg
+        Qt::SerialPort
 )
 
 target_compile_features(AvionixDesigner PRIVATE cxx_std_17)

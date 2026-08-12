@@ -5,13 +5,17 @@
 #include "ProjectManager.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include "fpga/transport/FpgaPacketDump.h"
+#include "fpga/transport/FpgaUartTransport.h"
 
 #include <QFileDialog>
 #include <QBoxLayout>
 #include <QFrame>
 #include <QIcon>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QResizeEvent>
+#include <QSerialPortInfo>
+#include <QSettings>
 #include <QToolButton>
 #include <QSize>
 #include <QSizePolicy>
@@ -31,6 +35,18 @@ QToolButton* createIconButton(const QString &iconPath, const QString &toolTip, Q
 bool shouldUseVerticalControls(const QWidget *widget)
 {
     return widget && widget->height() > widget->width() * 1.15;
+}
+
+QStringList availablePortNames()
+{
+    QStringList names;
+    const QList<QSerialPortInfo> ports = QSerialPortInfo::availablePorts();
+    names.reserve(ports.size());
+    for (const QSerialPortInfo &port : ports)
+        names.append(port.portName());
+    names.removeDuplicates();
+    names.sort(Qt::CaseInsensitive);
+    return names;
 }
 }
 
@@ -137,11 +153,8 @@ void FpgaStreamingPanel::startStreaming()
     }
 
     if (m_uartButton->isChecked()) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("UART"),
-            QStringLiteral("UART backend еще не подключен. Пакеты уже можно проверить через BIN dump или симулятор.")
-        );
+        if (!sendViaUart())
+            return;
     }
 
     setRunning(m_simulatorButton->isChecked());
@@ -173,6 +186,58 @@ bool FpgaStreamingPanel::hasSelectedMode() const
 bool FpgaStreamingPanel::simulatorModeActive() const
 {
     return m_running && m_simulatorButton->isChecked();
+}
+
+bool FpgaStreamingPanel::sendViaUart()
+{
+    QSettings settings(QStringLiteral("Avionix"), QStringLiteral("Designer"));
+    QStringList ports = availablePortNames();
+    const QString savedPort = settings.value(QStringLiteral("fpga/uartPort")).toString();
+    if (!savedPort.isEmpty() && !ports.contains(savedPort))
+        ports.prepend(savedPort);
+
+    bool ok = false;
+    const QString portName = ports.isEmpty()
+        ? QInputDialog::getText(this, QStringLiteral("UART"), QStringLiteral("Порт:"), QLineEdit::Normal, savedPort, &ok).trimmed()
+        : QInputDialog::getItem(this, QStringLiteral("UART"), QStringLiteral("Порт:"), ports, qMax(0, ports.indexOf(savedPort)), false, &ok).trimmed();
+    if (!ok || portName.isEmpty())
+        return false;
+
+    const int savedBaudRate = settings.value(QStringLiteral("fpga/uartBaudRate"), 921600).toInt();
+    const int baudRate = QInputDialog::getInt(
+        this,
+        QStringLiteral("UART"),
+        QStringLiteral("Baudrate:"),
+        savedBaudRate,
+        1200,
+        4000000,
+        1,
+        &ok
+    );
+    if (!ok)
+        return false;
+
+    FpgaUartConfig config;
+    config.portName = portName;
+    config.baudRate = baudRate;
+    config.writeInitialZero = true;
+
+    QString error;
+    if (!FpgaUartTransport::writeBundle(m_bundle, config, &error)) {
+        QMessageBox::warning(this, QStringLiteral("UART"), error);
+        return false;
+    }
+
+    settings.setValue(QStringLiteral("fpga/uartPort"), portName);
+    settings.setValue(QStringLiteral("fpga/uartBaudRate"), baudRate);
+    QMessageBox::information(
+        this,
+        QStringLiteral("UART"),
+        QStringLiteral("Отправлено: %1 пакетов, %2 байт")
+            .arg(m_bundle.packets.size())
+            .arg(m_bundle.totalBytes() + 1)
+    );
+    return true;
 }
 
 void FpgaStreamingPanel::setRunning(bool running)

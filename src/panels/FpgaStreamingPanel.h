@@ -15,13 +15,6 @@ class FpgaStreamingPanel : public BasePanel
     Q_OBJECT
 
 public:
-    enum class Target
-    {
-        Bin,
-        Simulator,
-        Uart
-    };
-
     explicit FpgaStreamingPanel(QWidget *parent = nullptr);
 
 signals:
@@ -40,6 +33,7 @@ private:
     bool ensureCompiled();
     bool hasSelectedMode() const;
     bool simulatorModeActive() const;
+    bool sendViaUart();
     void setRunning(bool running);
     void invalidatePackets();
     void updateAdaptiveLayout();
