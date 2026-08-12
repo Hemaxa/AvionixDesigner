@@ -4,10 +4,12 @@
 
 #include "BasePanel.h"
 #include "fpga/packets/FpgaPacket.h"
+#include "fpga/transport/FpgaUartTransport.h"
 
 class QBoxLayout;
 class QFrame;
 class QResizeEvent;
+class QTimer;
 class QToolButton;
 
 class FpgaStreamingPanel : public BasePanel
@@ -22,18 +24,28 @@ signals:
     void simulatorLaunchRequested();
     void simulationActiveChanged(bool active);
 
-private slots:
+public slots:
     void startStreaming();
     void stopStreaming();
+
+    void toggleBinMode();
+    void toggleSimulatorMode();
+    void toggleUartMode();
+
+private slots:
     void modeSelectionChanged();
+    void transmitUartFrame();
 
 private:
     void resizeEvent(QResizeEvent *event) override;
-    void compilePackets();
+    bool compilePackets(bool showError = true);
     bool ensureCompiled();
     bool hasSelectedMode() const;
     bool simulatorModeActive() const;
-    bool sendViaUart();
+    bool configureUartStreaming();
+    bool sendCurrentBundleViaUart(bool showSuccessMessage);
+    void startUartStreaming();
+    void stopUartStreaming();
     void setRunning(bool running);
     void invalidatePackets();
     void updateAdaptiveLayout();
@@ -50,7 +62,12 @@ private:
     QToolButton *m_stopButton = nullptr;
 
     FpgaPacketBundle m_bundle;
+    QTimer *m_uartTimer = nullptr;
+    FpgaUartConfig m_uartConfig;
+    int m_uartIntervalMs = 2000;
     bool m_hasBundle = false;
     bool m_running = false;
+    bool m_uartStreaming = false;
+    bool m_uartSending = false;
     bool m_verticalLayout = false;
 };

@@ -56,7 +56,7 @@ signals:
 
 private:
     //создаёт кнопку панели быстрых действий с иконкой и подсказкой
-    QToolButton* createActionButton(const QString &iconPath, const QString &toolTip);
+    QToolButton* createActionButton(const QString &iconPath, const QString &toolTip, const QString &shortcutText = QString());
 
     QList<QToolButton*> m_buttons;
     QList<QToolButton*> m_selectionButtons;

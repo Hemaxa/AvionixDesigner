@@ -13,6 +13,7 @@
 #include <QLabel>
 #include <QSettings>
 #include <QListWidget>
+#include <QScrollArea>
 #include <QStackedWidget>
 #include <QSpinBox>
 #include <QColorDialog>
@@ -115,7 +116,11 @@ void SettingsWindow::createWidgets()
     m_stackedWidget->addWidget(settingsWidget);
 
     // Вкладка "Горячие клавиши"
-    auto *hotkeysWidget = new QWidget(this);
+    auto *hotkeysScroll = new QScrollArea(this);
+    hotkeysScroll->setWidgetResizable(true);
+    hotkeysScroll->setFrameShape(QFrame::NoFrame);
+
+    auto *hotkeysWidget = new QWidget(hotkeysScroll);
     auto *hotkeysLayout = new QFormLayout(hotkeysWidget);
     hotkeysLayout->setContentsMargins(0, 0, 0, 0);
     hotkeysLayout->setHorizontalSpacing(22);
@@ -130,8 +135,27 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Добавить изображение:", new QLabel("Ctrl+I", this));
 
     hotkeysLayout->addRow(new QLabel("<br><b>Редактирование:</b>", this));
+    hotkeysLayout->addRow("Отменить:", new QLabel("Ctrl+Z", this));
+    hotkeysLayout->addRow("Повторить:", new QLabel("Ctrl+Y", this));
+    hotkeysLayout->addRow("Копировать:", new QLabel("Ctrl+C", this));
+    hotkeysLayout->addRow("Вставить:", new QLabel("Ctrl+V", this));
     hotkeysLayout->addRow("Удалить объект:", new QLabel("Delete / Backspace", this));
+    hotkeysLayout->addRow("Сгруппировать:", new QLabel("Ctrl+G", this));
+    hotkeysLayout->addRow("Разгруппировать:", new QLabel("Ctrl+Shift+G", this));
+    hotkeysLayout->addRow("На передний план:", new QLabel("Ctrl+]", this));
+    hotkeysLayout->addRow("На задний план:", new QLabel("Ctrl+[", this));
+
+    hotkeysLayout->addRow(new QLabel("<br><b>Выравнивание:</b>", this));
+    hotkeysLayout->addRow("По левому краю:", new QLabel("Ctrl+Alt+Left", this));
+    hotkeysLayout->addRow("По центру горизонтально:", new QLabel("Ctrl+Alt+H", this));
+    hotkeysLayout->addRow("По правому краю:", new QLabel("Ctrl+Alt+Right", this));
+    hotkeysLayout->addRow("По верхнему краю:", new QLabel("Ctrl+Alt+Up", this));
+    hotkeysLayout->addRow("По центру вертикально:", new QLabel("Ctrl+Alt+V", this));
+    hotkeysLayout->addRow("По нижнему краю:", new QLabel("Ctrl+Alt+Down", this));
+
+    hotkeysLayout->addRow(new QLabel("<br><b>Вид и привязки:</b>", this));
     hotkeysLayout->addRow("Сбросить масштаб:", new QLabel("Ctrl+0", this));
+    hotkeysLayout->addRow("Показать сетку:", new QLabel("Shift+V", this));
     hotkeysLayout->addRow("Привязка к сетке:", new QLabel("Shift+G", this));
     hotkeysLayout->addRow("Привязка к экрану:", new QLabel("Shift+C", this));
     hotkeysLayout->addRow("Привязка к объектам:", new QLabel("Shift+O", this));
@@ -139,7 +163,15 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow(new QLabel("<br><b>Добавление объектов:</b>", this));
     hotkeysLayout->addRow("Добавить объект по типу:", new QLabel("Alt+1, Alt+2, ...", this));
 
-    m_stackedWidget->addWidget(hotkeysWidget);
+    hotkeysLayout->addRow(new QLabel("<br><b>ПЛИС:</b>", this));
+    hotkeysLayout->addRow("Запустить режимы:", new QLabel("Ctrl+Enter", this));
+    hotkeysLayout->addRow("Остановить режимы:", new QLabel("Ctrl+Shift+Enter", this));
+    hotkeysLayout->addRow("BIN dump:", new QLabel("Ctrl+Alt+B", this));
+    hotkeysLayout->addRow("Симулятор ПЛИС:", new QLabel("Ctrl+Alt+F", this));
+    hotkeysLayout->addRow("UART:", new QLabel("Ctrl+Alt+U", this));
+
+    hotkeysScroll->setWidget(hotkeysWidget);
+    m_stackedWidget->addWidget(hotkeysScroll);
 
     connect(m_listWidget, &QListWidget::currentRowChanged, m_stackedWidget, &QStackedWidget::setCurrentIndex);
     m_listWidget->setCurrentRow(0);

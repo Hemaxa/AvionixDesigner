@@ -16,13 +16,20 @@
 #include <QToolButton>
 
 namespace {
-QToolButton* createSettingsToggle(const QString &iconPath, const QString &toolTip, QWidget *parent)
+QString toolTipWithShortcut(const QString &text, const QString &shortcutText)
+{
+    if (shortcutText.isEmpty())
+        return text;
+    return QStringLiteral("%1 (%2)").arg(text, shortcutText);
+}
+
+QToolButton* createSettingsToggle(const QString &iconPath, const QString &toolTip, QWidget *parent, const QString &shortcutText = QString())
 {
     auto *button = new QToolButton(parent);
     button->setObjectName("SettingsToolButton");
     button->setCheckable(true);
     button->setIcon(QIcon(iconPath));
-    button->setToolTip(toolTip);
+    button->setToolTip(toolTipWithShortcut(toolTip, shortcutText));
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     return button;
 }
@@ -99,10 +106,10 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_snapLayout->setSpacing(6);
     m_snapLayout->setAlignment(Qt::AlignCenter);
 
-    m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), this);
-    m_snapCanvasButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-screen.svg"), QStringLiteral("Привязка к границам экрана"), this);
-    m_snapGridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-grid.svg"), QStringLiteral("Привязка к сетке"), this);
-    m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к другим объектам"), this);
+    m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), this, QStringLiteral("Shift+V"));
+    m_snapCanvasButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-screen.svg"), QStringLiteral("Привязка к границам экрана"), this, QStringLiteral("Shift+C"));
+    m_snapGridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-grid.svg"), QStringLiteral("Привязка к сетке"), this, QStringLiteral("Shift+G"));
+    m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к другим объектам"), this, QStringLiteral("Shift+O"));
 
     m_snapLayout->addWidget(m_gridButton, 0, Qt::AlignCenter);
     m_snapLayout->addWidget(m_snapCanvasButton, 0, Qt::AlignCenter);

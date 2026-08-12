@@ -5,6 +5,7 @@
 #include <QBoxLayout>
 #include <QDrag>
 #include <QIcon>
+#include <QMap>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
@@ -36,6 +37,13 @@ QIcon createPlaceholderIcon(const QString &glyph)
 bool shouldUseVerticalControls(const QWidget *widget)
 {
     return widget && widget->height() > widget->width() * 1.15;
+}
+
+QString toolTipWithShortcut(const QString &text, const QString &shortcutText)
+{
+    if (shortcutText.isEmpty())
+        return text;
+    return QStringLiteral("%1 (%2)").arg(text, shortcutText);
 }
 
 class DraggableToolButton : public QToolButton
@@ -107,20 +115,27 @@ void ObjectLibraryPanel::createButtons()
     m_rowLayout->setAlignment(Qt::AlignCenter);
 
     QList<EditorObjectDescriptor> items;
+    QMap<QString, QString> shortcutsByType;
+    int shortcutIndex = 1;
     for (const auto &descriptor : FpgaSchemaRegistry::instance()->editorObjectCatalog()) {
-        if (descriptor.creatableInLibrary) {
-            items.append(descriptor);
+        if (descriptor.creatableInMenu) {
+            shortcutsByType.insert(descriptor.typeName, QStringLiteral("Alt+%1").arg(shortcutIndex));
+            ++shortcutIndex;
         }
+        if (descriptor.creatableInLibrary)
+            items.append(descriptor);
     }
 
     for (int i = 0; i < items.size(); ++i) {
         const auto &item = items[i];
         QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title);
+        card->setToolTip(toolTipWithShortcut(item.title, shortcutsByType.value(item.typeName)));
         m_libraryCards.append(card);
         m_rowLayout->addWidget(card, 0, Qt::AlignCenter);
     }
 
     QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
+    imageButton->setToolTip(toolTipWithShortcut(QStringLiteral("Добавить изображение"), QStringLiteral("Ctrl+I")));
     m_libraryCards.append(imageButton);
     m_rowLayout->addWidget(imageButton, 0, Qt::AlignCenter);
 }

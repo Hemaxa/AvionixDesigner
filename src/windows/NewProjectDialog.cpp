@@ -2,81 +2,105 @@
 
 #include <QColorDialog>
 #include <QDialogButtonBox>
-#include <QFileDialog>
-#include <QFormLayout>
-#include <QHBoxLayout>
+#include <QGridLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPainter>
+#include <QPen>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
+namespace {
+QLabel* createFormLabel(const QString &text, QWidget *parent)
+{
+    auto *label = new QLabel(text, parent);
+    label->setObjectName(QStringLiteral("DialogFieldLabel"));
+    label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    label->setMinimumWidth(92);
+    return label;
+}
+
+QIcon createColorSwatchIcon(const QColor &color)
+{
+    QPixmap pixmap(34, 22);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setBrush(color);
+    painter.setPen(QPen(QColor(230, 245, 255, 170), 1));
+    painter.drawRoundedRect(QRectF(1, 1, 32, 20), 5, 5);
+    return QIcon(pixmap);
+}
+}
+
 NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
 {
-    setWindowTitle("Создать проект");
+    setObjectName(QStringLiteral("NewProjectDialog"));
+    setWindowTitle(QStringLiteral("Создать проект"));
     setModal(true);
-    resize(440, 0);
+    setMinimumWidth(430);
 
     auto *mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(16, 16, 16, 16);
-    mainLayout->setSpacing(12);
+    mainLayout->setContentsMargins(22, 20, 22, 18);
+    mainLayout->setSpacing(14);
+
+    auto *titleLabel = new QLabel(QStringLiteral("Новый проект"), this);
+    titleLabel->setObjectName(QStringLiteral("DialogTitleLabel"));
+    mainLayout->addWidget(titleLabel);
 
     auto *description = new QLabel(
-        "Укажите параметры новой рабочей области. Проект сохраняется как редактируемый XML, а финальный кадр экспортируется отдельной командой.",
+        QStringLiteral("Задайте рабочую область. XML-файл можно сохранить после создания проекта."),
         this
     );
+    description->setObjectName(QStringLiteral("DialogDescriptionLabel"));
     description->setWordWrap(true);
     mainLayout->addWidget(description);
 
-    auto *formLayout = new QFormLayout();
-    formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    formLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    auto *formLayout = new QGridLayout();
+    formLayout->setContentsMargins(0, 2, 0, 0);
+    formLayout->setHorizontalSpacing(14);
+    formLayout->setVerticalSpacing(10);
 
-    m_nameEdit = new QLineEdit("Untitled", this);
-    formLayout->addRow("Имя проекта", m_nameEdit);
+    m_nameEdit = new QLineEdit(QStringLiteral("Untitled"), this);
+    m_nameEdit->setFixedHeight(32);
+    formLayout->addWidget(createFormLabel(QStringLiteral("Имя"), this), 0, 0);
+    formLayout->addWidget(m_nameEdit, 0, 1);
 
     m_widthSpin = new QSpinBox(this);
     m_widthSpin->setRange(64, 4095);
     m_widthSpin->setValue(640);
-    formLayout->addRow("Ширина", m_widthSpin);
+    m_widthSpin->setFixedHeight(32);
+    formLayout->addWidget(createFormLabel(QStringLiteral("Ширина"), this), 1, 0);
+    formLayout->addWidget(m_widthSpin, 1, 1);
 
     m_heightSpin = new QSpinBox(this);
     m_heightSpin->setRange(64, 4095);
     m_heightSpin->setValue(480);
-    formLayout->addRow("Высота", m_heightSpin);
+    m_heightSpin->setFixedHeight(32);
+    formLayout->addWidget(createFormLabel(QStringLiteral("Высота"), this), 2, 0);
+    formLayout->addWidget(m_heightSpin, 2, 1);
 
-    auto *colorRow = new QHBoxLayout();
-    colorRow->setSpacing(8);
-
-    m_colorPreview = new QLabel(this);
-    m_colorPreview->setFixedSize(28, 28);
-    m_colorPreview->setAutoFillBackground(true);
-    colorRow->addWidget(m_colorPreview);
-
-    m_colorButton = new QPushButton("Выбрать цвет", this);
-    colorRow->addWidget(m_colorButton);
-    colorRow->addStretch();
-    formLayout->addRow("Фон", colorRow);
-
-    auto *pathRow = new QHBoxLayout();
-    pathRow->setSpacing(8);
-    m_pathEdit = new QLineEdit(this);
-    m_pathEdit->setPlaceholderText("Необязательно, можно сохранить позже");
-    pathRow->addWidget(m_pathEdit);
-
-    auto *browseButton = new QPushButton("Обзор...", this);
-    pathRow->addWidget(browseButton);
-    formLayout->addRow("Файл проекта", pathRow);
+    m_colorButton = new QPushButton(QStringLiteral("Выбрать цвет"), this);
+    m_colorButton->setObjectName(QStringLiteral("ProjectColorButton"));
+    m_colorButton->setFixedHeight(32);
+    formLayout->addWidget(createFormLabel(QStringLiteral("Фон"), this), 3, 0);
+    formLayout->addWidget(m_colorButton, 3, 1);
+    formLayout->setColumnStretch(1, 1);
 
     mainLayout->addLayout(formLayout);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Создать"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Отмена"));
     mainLayout->addWidget(buttons);
 
     refreshColorPreview();
 
     connect(m_colorButton, &QPushButton::clicked, this, &NewProjectDialog::chooseBackgroundColor);
-    connect(browseButton, &QPushButton::clicked, this, &NewProjectDialog::chooseFilePath);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
@@ -101,14 +125,9 @@ QColor NewProjectDialog::backgroundColor() const
     return m_backgroundColor;
 }
 
-QString NewProjectDialog::filePath() const
-{
-    return m_pathEdit->text().trimmed();
-}
-
 void NewProjectDialog::chooseBackgroundColor()
 {
-    const QColor selectedColor = QColorDialog::getColor(m_backgroundColor, this, "Цвет фона");
+    const QColor selectedColor = QColorDialog::getColor(m_backgroundColor, this, QStringLiteral("Цвет фона"));
     if (!selectedColor.isValid())
         return;
 
@@ -116,23 +135,8 @@ void NewProjectDialog::chooseBackgroundColor()
     refreshColorPreview();
 }
 
-void NewProjectDialog::chooseFilePath()
-{
-    const QString fileName = QFileDialog::getSaveFileName(
-        this,
-        "Создать XML проект",
-        m_pathEdit->text().trimmed(),
-        "XML (*.xml)"
-    );
-
-    if (!fileName.isEmpty()) {
-        m_pathEdit->setText(fileName);
-    }
-}
-
 void NewProjectDialog::refreshColorPreview()
 {
-    QPalette palette = m_colorPreview->palette();
-    palette.setColor(QPalette::Window, m_backgroundColor);
-    m_colorPreview->setPalette(palette);
+    m_colorButton->setIcon(createColorSwatchIcon(m_backgroundColor));
+    m_colorButton->setText(m_backgroundColor.name(QColor::HexRgb).toUpper());
 }
