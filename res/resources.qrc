@@ -1,4 +1,7 @@
 <RCC>
+    <qresource prefix="/app">
+        <file alias="icon.png">../app-icons/icon.png</file>
+    </qresource>
     <qresource prefix="/themes">
         <file>themes/AvionixDesignerTheme.qss</file>
     </qresource>
