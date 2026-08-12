@@ -24,9 +24,15 @@ signals:
     void simulatorLaunchRequested();
     void simulationActiveChanged(bool active);
 
-private slots:
+public slots:
     void startStreaming();
     void stopStreaming();
+
+    void toggleBinMode();
+    void toggleSimulatorMode();
+    void toggleUartMode();
+
+private slots:
     void modeSelectionChanged();
     void transmitUartFrame();
 

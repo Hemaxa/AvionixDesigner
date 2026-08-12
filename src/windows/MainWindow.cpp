@@ -117,21 +117,14 @@ void MainWindow::onNewProject()
         return;
 
     const QString name = m_newProjectDialog->projectName();
-    const QString filePath = m_newProjectDialog->filePath();
 
     ProjectManager::instance()->createNewProject(
         name,
         m_newProjectDialog->canvasWidth(),
         m_newProjectDialog->canvasHeight(),
         m_newProjectDialog->backgroundColor(),
-        filePath
+        QString()
     );
-
-    if (!filePath.isEmpty()) {
-        ProjectManager::instance()->saveToFile(filePath);
-        QSettings settings("Avionix", "Designer");
-        settings.setValue("lastProject", filePath);
-    }
 
     m_objectList->refreshList();
     m_objectList->selectRows({});
@@ -315,7 +308,7 @@ void MainWindow::createWidgets()
     addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_fpgaStreamingDock);
-    
+
     splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
     splitDockWidget(m_objectLibraryDock, m_fpgaStreamingDock, Qt::Horizontal);
 
@@ -388,8 +381,29 @@ void MainWindow::createMenus()
     editMenu->addAction(createAction("Сгруппировать", QKeySequence("Ctrl+G"), this, SLOT(groupSelectedObjects())));
     editMenu->addAction(createAction("Разгруппировать", QKeySequence("Ctrl+Shift+G"), this, SLOT(ungroupSelectedObjects())));
     editMenu->addSeparator();
+
+    auto addAlignAction = [this, editMenu](const QString &title, const QKeySequence &shortcut, int actionId) {
+        QAction *action = editMenu->addAction(title);
+        action->setShortcut(shortcut);
+        action->setToolTip(QStringLiteral("%1 (%2)").arg(title, shortcut.toString(QKeySequence::NativeText)));
+        connect(action, &QAction::triggered, this, [this, actionId]() {
+            alignSelectedObject(actionId);
+        });
+        addAction(action);
+        return action;
+    };
+
+    addAlignAction(QStringLiteral("Выровнять по левому краю"), QKeySequence(QStringLiteral("Ctrl+Alt+Left")), SelectionToolStrip::AlignLeft);
+    addAlignAction(QStringLiteral("Выровнять по центру по горизонтали"), QKeySequence(QStringLiteral("Ctrl+Alt+H")), SelectionToolStrip::AlignHCenter);
+    addAlignAction(QStringLiteral("Выровнять по правому краю"), QKeySequence(QStringLiteral("Ctrl+Alt+Right")), SelectionToolStrip::AlignRight);
+    addAlignAction(QStringLiteral("Выровнять по верхнему краю"), QKeySequence(QStringLiteral("Ctrl+Alt+Up")), SelectionToolStrip::AlignTop);
+    addAlignAction(QStringLiteral("Выровнять по центру по вертикали"), QKeySequence(QStringLiteral("Ctrl+Alt+V")), SelectionToolStrip::AlignVCenter);
+    addAlignAction(QStringLiteral("Выровнять по нижнему краю"), QKeySequence(QStringLiteral("Ctrl+Alt+Down")), SelectionToolStrip::AlignBottom);
+    editMenu->addSeparator();
+
     QAction *frontAction = editMenu->addAction("На передний план");
     frontAction->setShortcut(QKeySequence("Ctrl+]"));
+    frontAction->setToolTip(QStringLiteral("На передний план (%1)").arg(frontAction->shortcut().toString(QKeySequence::NativeText)));
     connect(frontAction, &QAction::triggered, this, [this]() {
         alignSelectedObject(SelectionToolStrip::SendToFront);
     });
@@ -397,6 +411,7 @@ void MainWindow::createMenus()
 
     QAction *backAction = editMenu->addAction("На задний план");
     backAction->setShortcut(QKeySequence("Ctrl+["));
+    backAction->setToolTip(QStringLiteral("На задний план (%1)").arg(backAction->shortcut().toString(QKeySequence::NativeText)));
     connect(backAction, &QAction::triggered, this, [this]() {
         alignSelectedObject(SelectionToolStrip::SendToBack);
     });
@@ -430,30 +445,50 @@ void MainWindow::createMenus()
 
     QAction *resetViewAction = viewMenu->addAction("Сбросить масштаб");
     resetViewAction->setShortcut(QKeySequence("Ctrl+0"));
+    resetViewAction->setToolTip(QStringLiteral("Сбросить масштаб (%1)").arg(resetViewAction->shortcut().toString(QKeySequence::NativeText)));
     connect(resetViewAction, &QAction::triggered, m_viewport, &ViewportPanel::resetView);
+
+    QAction *showGridAction = viewMenu->addAction("Показать сетку (вкл/выкл)");
+    showGridAction->setShortcut(QKeySequence("Shift+V"));
+    showGridAction->setToolTip(QStringLiteral("Показать сетку (%1)").arg(showGridAction->shortcut().toString(QKeySequence::NativeText)));
+    connect(showGridAction, &QAction::triggered, this, []() {
+        ProjectManager::instance()->setShowGrid(!ProjectManager::instance()->showGrid());
+    });
 
     QAction *deleteAction = new QAction("Удалить объект", this);
     deleteAction->setShortcuts({QKeySequence::Delete, QKeySequence(Qt::Key_Backspace)});
+    deleteAction->setToolTip(QStringLiteral("Удалить объект (Delete / Backspace)"));
     connect(deleteAction, &QAction::triggered, this, &MainWindow::deleteSelectedObject);
     addAction(deleteAction);
-    
+
     QAction *snapGridAction = viewMenu->addAction("Привязка к сетке (вкл/выкл)");
     snapGridAction->setShortcut(QKeySequence("Shift+G"));
+    snapGridAction->setToolTip(QStringLiteral("Привязка к сетке (%1)").arg(snapGridAction->shortcut().toString(QKeySequence::NativeText)));
     connect(snapGridAction, &QAction::triggered, this, []() {
         ProjectManager::instance()->setSnapToGrid(!ProjectManager::instance()->snapToGrid());
     });
-    
+
     QAction *snapCanvasAction = viewMenu->addAction("Привязка к экрану (вкл/выкл)");
     snapCanvasAction->setShortcut(QKeySequence("Shift+C"));
+    snapCanvasAction->setToolTip(QStringLiteral("Привязка к экрану (%1)").arg(snapCanvasAction->shortcut().toString(QKeySequence::NativeText)));
     connect(snapCanvasAction, &QAction::triggered, this, []() {
         ProjectManager::instance()->setSnapToCanvas(!ProjectManager::instance()->snapToCanvas());
     });
-    
+
     QAction *snapObjectsAction = viewMenu->addAction("Привязка к объектам (вкл/выкл)");
     snapObjectsAction->setShortcut(QKeySequence("Shift+O"));
+    snapObjectsAction->setToolTip(QStringLiteral("Привязка к объектам (%1)").arg(snapObjectsAction->shortcut().toString(QKeySequence::NativeText)));
     connect(snapObjectsAction, &QAction::triggered, this, []() {
         ProjectManager::instance()->setSnapToObjects(!ProjectManager::instance()->snapToObjects());
     });
+
+    QMenu *fpgaMenu = menuBar()->addMenu("ПЛИС");
+    fpgaMenu->addAction(createAction("Запустить выбранные режимы", QKeySequence("Ctrl+Enter"), m_fpgaStreaming, SLOT(startStreaming())));
+    fpgaMenu->addAction(createAction("Остановить активные режимы", QKeySequence("Ctrl+Shift+Enter"), m_fpgaStreaming, SLOT(stopStreaming())));
+    fpgaMenu->addSeparator();
+    fpgaMenu->addAction(createAction("BIN dump (вкл/выкл)", QKeySequence("Ctrl+Alt+B"), m_fpgaStreaming, SLOT(toggleBinMode())));
+    fpgaMenu->addAction(createAction("Симулятор ПЛИС (вкл/выкл)", QKeySequence("Ctrl+Alt+F"), m_fpgaStreaming, SLOT(toggleSimulatorMode())));
+    fpgaMenu->addAction(createAction("UART (вкл/выкл)", QKeySequence("Ctrl+Alt+U"), m_fpgaStreaming, SLOT(toggleUartMode())));
 
     QMenu *settingsMenu = menuBar()->addMenu("Настройки");
     settingsMenu->addAction(createAction("Параметры...", QKeySequence("Ctrl+,"), this, SLOT(openSettings())));
@@ -1026,6 +1061,8 @@ QAction* MainWindow::createAction(const QString &text, const QKeySequence &short
 {
     QAction *action = new QAction(text, this);
     action->setShortcut(shortcut);
+    if (!shortcut.isEmpty())
+        action->setToolTip(QStringLiteral("%1 (%2)").arg(text, shortcut.toString(QKeySequence::NativeText)));
     connect(action, SIGNAL(triggered()), receiver, member);
     addAction(action);
     return action;

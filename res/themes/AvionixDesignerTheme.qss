@@ -459,20 +459,36 @@ QDialog#UartStreamingDialog {
     background-color: #0f141a;
 }
 
+QDialog#NewProjectDialog QLabel,
 QDialog#UartStreamingDialog QLabel {
     color: #9fb3c1;
 }
 
+QDialog#NewProjectDialog #DialogTitleLabel,
 QDialog#UartStreamingDialog #DialogTitleLabel {
     color: #edf7fb;
 }
 
-QDialog#UartStreamingDialog #UartHintLabel {
+QDialog#NewProjectDialog #DialogFieldLabel,
+QDialog#UartStreamingDialog #DialogFieldLabel {
     color: #9fb3c1;
-    background-color: #121922;
-    border: 1px solid #22303c;
-    border-radius: 8px;
-    padding: 10px 12px;
+    font-weight: 600;
+}
+
+QDialog#NewProjectDialog QLineEdit,
+QDialog#NewProjectDialog QSpinBox,
+QDialog#NewProjectDialog #ProjectColorButton,
+QDialog#UartStreamingDialog QComboBox,
+QDialog#UartStreamingDialog QSpinBox,
+QDialog#UartStreamingDialog QPushButton {
+    min-height: 30px;
+    max-height: 32px;
+    padding: 5px 10px;
+}
+
+QDialog#NewProjectDialog #ProjectColorButton {
+    text-align: left;
+    qproperty-iconSize: 34px 22px;
 }
 
 QDialog#UartStreamingDialog #SecondaryButton {

@@ -11,8 +11,8 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -29,17 +29,30 @@
 #include <QSizePolicy>
 
 namespace {
-constexpr int kDefaultUartBaudRate = 921600;
+constexpr int kDefaultUartBaudRate = 115200;
 constexpr int kDefaultUartIntervalMs = 2000;
 constexpr int kMinimumUartIntervalMs = 1000;
 constexpr int kMaximumUartIntervalMs = 60000;
 
-QToolButton* createIconButton(const QString &iconPath, const QString &toolTip, QWidget *parent, bool checkable = false)
+QString toolTipWithShortcut(const QString &text, const QKeySequence &shortcut = {})
+{
+    if (shortcut.isEmpty())
+        return text;
+    return QStringLiteral("%1 (%2)").arg(text, shortcut.toString(QKeySequence::NativeText));
+}
+
+QToolButton* createIconButton(
+    const QString &iconPath,
+    const QString &toolTip,
+    QWidget *parent,
+    bool checkable = false,
+    const QKeySequence &shortcut = {}
+)
 {
     auto *button = new QToolButton(parent);
     button->setObjectName(QStringLiteral("SettingsToolButton"));
     button->setIcon(QIcon(iconPath));
-    button->setToolTip(toolTip);
+    button->setToolTip(toolTipWithShortcut(toolTip, shortcut));
     button->setCheckable(checkable);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     return button;
@@ -71,7 +84,7 @@ public:
         setObjectName(QStringLiteral("UartStreamingDialog"));
         setWindowTitle(QStringLiteral("UART трансляция"));
         setModal(true);
-        setMinimumWidth(420);
+        setMinimumWidth(430);
 
         auto *titleLabel = new QLabel(QStringLiteral("UART трансляция"), this);
         titleLabel->setObjectName(QStringLiteral("DialogTitleLabel"));
@@ -85,9 +98,11 @@ public:
         m_portCombo = new QComboBox(this);
         m_portCombo->setObjectName(QStringLiteral("UartPortCombo"));
         m_portCombo->setEditable(true);
+        m_portCombo->setFixedHeight(32);
 
         auto *refreshButton = new QPushButton(QStringLiteral("Обновить"), this);
         refreshButton->setObjectName(QStringLiteral("SecondaryButton"));
+        refreshButton->setFixedHeight(32);
         connect(refreshButton, &QPushButton::clicked, this, [this]() {
             refreshPorts(m_portCombo->currentText());
         });
@@ -103,28 +118,24 @@ public:
         m_baudRateSpin->setObjectName(QStringLiteral("UartBaudRateSpin"));
         m_baudRateSpin->setRange(1200, 4000000);
         m_baudRateSpin->setSingleStep(9600);
+        m_baudRateSpin->setFixedHeight(32);
 
         m_intervalSpin = new QSpinBox(this);
         m_intervalSpin->setObjectName(QStringLiteral("UartIntervalSpin"));
         m_intervalSpin->setRange(kMinimumUartIntervalMs, kMaximumUartIntervalMs);
         m_intervalSpin->setSingleStep(250);
         m_intervalSpin->setSuffix(QStringLiteral(" мс"));
+        m_intervalSpin->setFixedHeight(32);
 
-        auto *form = new QFormLayout();
+        auto *form = new QGridLayout();
         form->setObjectName(QStringLiteral("UartStreamingForm"));
-        form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        form->setFormAlignment(Qt::AlignTop);
-        form->setHorizontalSpacing(12);
-        form->setVerticalSpacing(12);
-        form->addRow(QStringLiteral("Порт"), portRow);
-        form->addRow(QStringLiteral("Скорость"), m_baudRateSpin);
-        form->addRow(QStringLiteral("Интервал"), m_intervalSpin);
-
-        auto *hintLabel = new QLabel(
-            QStringLiteral("Минимальный интервал ограничен 1000 мс, чтобы не перегружать приёмник.")
-        , this);
-        hintLabel->setObjectName(QStringLiteral("UartHintLabel"));
-        hintLabel->setWordWrap(true);
+        form->setContentsMargins(0, 0, 0, 0);
+        form->setHorizontalSpacing(14);
+        form->setVerticalSpacing(10);
+        addFormRow(form, 0, QStringLiteral("Порт"), portRow);
+        addFormRow(form, 1, QStringLiteral("Скорость"), m_baudRateSpin);
+        addFormRow(form, 2, QStringLiteral("Интервал"), m_intervalSpin);
+        form->setColumnStretch(1, 1);
 
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Запустить"));
@@ -139,8 +150,6 @@ public:
         layout->addWidget(descriptionLabel);
         layout->addSpacing(2);
         layout->addLayout(form);
-        layout->addWidget(hintLabel);
-        layout->addSpacing(2);
         layout->addWidget(buttons);
     }
 
@@ -157,6 +166,16 @@ public:
     int intervalMs() const { return m_intervalSpin->value(); }
 
 private:
+    void addFormRow(QGridLayout *form, int row, const QString &labelText, QWidget *field)
+    {
+        auto *label = new QLabel(labelText, this);
+        label->setObjectName(QStringLiteral("DialogFieldLabel"));
+        label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        label->setMinimumWidth(82);
+        form->addWidget(label, row, 0, Qt::AlignRight | Qt::AlignVCenter);
+        form->addWidget(field, row, 1);
+    }
+
     void refreshPorts(const QString &preferredPort)
     {
         const QString current = preferredPort.trimmed().isEmpty() ? m_portCombo->currentText().trimmed() : preferredPort.trimmed();
@@ -181,11 +200,11 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
 {
     setPanelName(QStringLiteral("FpgaStreamingPanel"));
 
-    m_binButton = createIconButton(QStringLiteral(":/icons/icons/fpga/bin.svg"), QStringLiteral("BIN dump"), this, true);
-    m_simulatorButton = createIconButton(QStringLiteral(":/icons/icons/fpga/simulator.svg"), QStringLiteral("Симулятор ПЛИС"), this, true);
-    m_uartButton = createIconButton(QStringLiteral(":/icons/icons/fpga/uart.svg"), QStringLiteral("UART"), this, true);
-    m_startButton = createIconButton(QStringLiteral(":/icons/icons/fpga/play.svg"), QStringLiteral("Запустить выбранные режимы"), this);
-    m_stopButton = createIconButton(QStringLiteral(":/icons/icons/fpga/stop.svg"), QStringLiteral("Остановить активные режимы"), this);
+    m_binButton = createIconButton(QStringLiteral(":/icons/icons/fpga/bin.svg"), QStringLiteral("BIN dump"), this, true, QKeySequence(QStringLiteral("Ctrl+Alt+B")));
+    m_simulatorButton = createIconButton(QStringLiteral(":/icons/icons/fpga/simulator.svg"), QStringLiteral("Симулятор ПЛИС"), this, true, QKeySequence(QStringLiteral("Ctrl+Alt+F")));
+    m_uartButton = createIconButton(QStringLiteral(":/icons/icons/fpga/uart.svg"), QStringLiteral("UART"), this, true, QKeySequence(QStringLiteral("Ctrl+Alt+U")));
+    m_startButton = createIconButton(QStringLiteral(":/icons/icons/fpga/play.svg"), QStringLiteral("Запустить выбранные режимы"), this, false, QKeySequence(QStringLiteral("Ctrl+Enter")));
+    m_stopButton = createIconButton(QStringLiteral(":/icons/icons/fpga/stop.svg"), QStringLiteral("Остановить активные режимы"), this, false, QKeySequence(QStringLiteral("Ctrl+Shift+Enter")));
     m_stopButton->setEnabled(false);
     m_simulatorButton->setChecked(true);
 
@@ -299,6 +318,21 @@ void FpgaStreamingPanel::stopStreaming()
 {
     stopUartStreaming();
     setRunning(false);
+}
+
+void FpgaStreamingPanel::toggleBinMode()
+{
+    m_binButton->setChecked(!m_binButton->isChecked());
+}
+
+void FpgaStreamingPanel::toggleSimulatorMode()
+{
+    m_simulatorButton->setChecked(!m_simulatorButton->isChecked());
+}
+
+void FpgaStreamingPanel::toggleUartMode()
+{
+    m_uartButton->setChecked(!m_uartButton->isChecked());
 }
 
 void FpgaStreamingPanel::modeSelectionChanged()
