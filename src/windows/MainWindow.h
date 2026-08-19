@@ -86,6 +86,8 @@ private:
     void connectSignals();
     //задаёт начальные размеры dock-панелей
     void setupDockSizes();
+    //задаёт стандартные размеры плавающих служебных панелей
+    void applyDefaultFloatingDockSizes();
     //создаёт QAction с текстом, shortcut и receiver/member
     QAction* createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member);
     //сохраняет геометрию и состояние dock-панелей

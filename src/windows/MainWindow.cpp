@@ -31,16 +31,34 @@
 #include <QPointF>
 #include <QSet>
 #include <QSettings>
+#include <QScreen>
 #include <QTimer>
 
 #include <algorithm>
 #include <functional>
 
 namespace {
-constexpr int kLayoutStateVersion = 2;
+constexpr int kDefaultFpgaSimulatorDockWidth = 620;
+constexpr int kDefaultFpgaSimulatorDockHeight = 420;
+constexpr int kDefaultAircraftPositionDockWidth = 930;
+constexpr int kMinimumAircraftPositionDockWidth = 850;
+constexpr int kDefaultAircraftPositionDockHeight = 460;
 
 QString fontExportKey(const QString &family, int pixelSize) {
   return family + QLatin1Char('\n') + QString::number(pixelSize);
+}
+
+QPoint clampedDockPosition(const QRect &availableGeometry, const QSize &dockSize,
+                           QPoint position) {
+  const int maxX =
+      std::max(availableGeometry.left(),
+               availableGeometry.right() - dockSize.width());
+  const int maxY =
+      std::max(availableGeometry.top(),
+               availableGeometry.bottom() - dockSize.height());
+  position.setX(std::clamp(position.x(), availableGeometry.left(), maxX));
+  position.setY(std::clamp(position.y(), availableGeometry.top(), maxY));
+  return position;
 }
 
 QStringList detectedAlphabetGroups(const QString &characters) {
@@ -78,10 +96,11 @@ QStringList detectedAlphabetGroups(const QString &characters) {
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   setWindowTitle("Avionix Designer");
   setObjectName("MainWindow");
-  setDockNestingEnabled(true);
+  setDockNestingEnabled(false);
   setAnimated(true);
-  setDockOptions(dockOptions() | QMainWindow::AllowTabbedDocks |
-                 QMainWindow::GroupedDragging);
+  setDockOptions(dockOptions() & ~QMainWindow::AllowNestedDocks &
+                 ~QMainWindow::AllowTabbedDocks &
+                 ~QMainWindow::GroupedDragging);
 
   QSettings settings("Avionix", "Designer");
   AppearanceManager::instance()->applyAvionixTheme();
@@ -310,13 +329,14 @@ void MainWindow::createWidgets() {
   splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
   splitDockWidget(m_objectLibraryDock, m_fpgaStreamingDock, Qt::Horizontal);
 
+  addDockWidget(Qt::BottomDockWidgetArea, m_fpgaSimulatorDock);
   m_fpgaSimulatorDock->setFloating(true);
   m_fpgaSimulatorDock->hide();
 
   addDockWidget(Qt::BottomDockWidgetArea, m_aircraftPositionDock);
   m_aircraftPositionDock->setFloating(true);
-  m_aircraftPositionDock->resize(930, 460);
   m_aircraftPositionDock->hide();
+  applyDefaultFloatingDockSizes();
 }
 
 void MainWindow::showEvent(QShowEvent *event) {
@@ -351,16 +371,39 @@ void MainWindow::setupDockSizes() {
        static_cast<int>(windowW * 0.26)},
       Qt::Horizontal);
 
+  applyDefaultFloatingDockSizes();
+}
+
+void MainWindow::applyDefaultFloatingDockSizes() {
+  const QRect availableGeometry = screen() ? screen()->availableGeometry()
+                                           : QRect(0, 0, 1920, 1080);
+  const QPoint anchor = frameGeometry().topLeft() + QPoint(80, 90);
+  const QSize simulatorSize(kDefaultFpgaSimulatorDockWidth,
+                            kDefaultFpgaSimulatorDockHeight);
+  const QSize aircraftSize(qMax(kDefaultAircraftPositionDockWidth,
+                                kMinimumAircraftPositionDockWidth),
+                           kDefaultAircraftPositionDockHeight);
+  const QPoint aircraftPosition =
+      clampedDockPosition(availableGeometry, aircraftSize, anchor);
+  QPoint simulatorPosition =
+      aircraftPosition + QPoint(aircraftSize.width() + 28, 0);
+  if (simulatorPosition.x() + simulatorSize.width() > availableGeometry.right()) {
+    simulatorPosition = aircraftPosition + QPoint(48, 48);
+  }
+  simulatorPosition =
+      clampedDockPosition(availableGeometry, simulatorSize, simulatorPosition);
+
   if (m_fpgaSimulatorDock) {
     m_fpgaSimulatorDock->setFloating(true);
-    m_fpgaSimulatorDock->resize(qMax(420, static_cast<int>(windowW * 0.36)),
-                                qMax(320, static_cast<int>(windowH * 0.38)));
+    m_fpgaSimulatorDock->resize(simulatorSize);
+    m_fpgaSimulatorDock->move(simulatorPosition);
     m_fpgaSimulatorDock->hide();
   }
+
   if (m_aircraftPositionDock) {
     m_aircraftPositionDock->setFloating(true);
-    m_aircraftPositionDock->resize(qMax(850, static_cast<int>(windowW * 0.46)),
-                                   qMax(410, static_cast<int>(windowH * 0.42)));
+    m_aircraftPositionDock->resize(aircraftSize);
+    m_aircraftPositionDock->move(aircraftPosition);
     m_aircraftPositionDock->hide();
   }
 }
@@ -655,15 +698,14 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 void MainWindow::saveLayoutSettings() {
   QSettings settings("Avionix", "Designer");
   settings.setValue("windowGeometry", saveGeometry());
-  settings.setValue("windowState", saveState(kLayoutStateVersion));
+  settings.setValue("windowState", saveState());
 }
 
 void MainWindow::restoreLayoutSettings() {
   QSettings settings("Avionix", "Designer");
   if (settings.contains("windowGeometry")) {
     restoreGeometry(settings.value("windowGeometry").toByteArray());
-    if (!restoreState(settings.value("windowState").toByteArray(),
-                      kLayoutStateVersion)) {
+    if (!restoreState(settings.value("windowState").toByteArray())) {
       settings.remove("windowGeometry");
       settings.remove("windowState");
     }
@@ -684,16 +726,16 @@ void MainWindow::resetToDefaultLayout() {
   addDockWidget(Qt::BottomDockWidgetArea, m_fpgaStreamingDock);
   splitDockWidget(m_viewportSettingsDock, m_objectLibraryDock, Qt::Horizontal);
   splitDockWidget(m_objectLibraryDock, m_fpgaStreamingDock, Qt::Horizontal);
+  m_fpgaSimulatorDock->setFloating(false);
+  addDockWidget(Qt::BottomDockWidgetArea, m_fpgaSimulatorDock);
+  m_aircraftPositionDock->setFloating(false);
+  addDockWidget(Qt::BottomDockWidgetArea, m_aircraftPositionDock);
 
   m_objectListDock->show();
   m_objectPropertiesDock->show();
   m_viewportSettingsDock->show();
   m_objectLibraryDock->show();
   m_fpgaStreamingDock->show();
-  m_fpgaSimulatorDock->setFloating(true);
-  m_fpgaSimulatorDock->hide();
-  m_aircraftPositionDock->setFloating(true);
-  m_aircraftPositionDock->hide();
 
   showMaximized();
   setupDockSizes();
