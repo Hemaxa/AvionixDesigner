@@ -667,7 +667,6 @@ QSpinBox *AircraftPositionPanel::createValueSpin(const QString &objectName,
                                                  const QString &suffix) {
   auto *spin = new QSpinBox(this);
   spin->setObjectName(objectName);
-  spin->setProperty("aircraftPositionField", true);
   spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
   spin->setAlignment(Qt::AlignCenter);
   spin->setRange(min, max);

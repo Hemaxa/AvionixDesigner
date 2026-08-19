@@ -11,7 +11,6 @@
 #include "ObjectLibraryPanel.h"
 #include "ObjectListPanel.h"
 #include "ObjectPropertiesPanel.h"
-#include "PanelsManager.h"
 #include "ProjectManager.h"
 #include "SelectionToolStrip.h"
 #include "SettingsWindow.h"
@@ -24,7 +23,6 @@
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
-#include <QIcon>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -35,7 +33,6 @@
 #include <QTimer>
 
 #include <algorithm>
-#include <functional>
 
 namespace {
 constexpr int kDefaultFpgaSimulatorDockWidth = 620;
