@@ -213,10 +213,10 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
 
     m_modeLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_modeLayout->setSpacing(6);
-    m_modeLayout->setAlignment(Qt::AlignCenter);
-    m_modeLayout->addWidget(m_binButton, 0, Qt::AlignCenter);
-    m_modeLayout->addWidget(m_simulatorButton, 0, Qt::AlignCenter);
-    m_modeLayout->addWidget(m_uartButton, 0, Qt::AlignCenter);
+    m_modeLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_modeLayout->addWidget(m_binButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_modeLayout->addWidget(m_simulatorButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_modeLayout->addWidget(m_uartButton, 0, Qt::AlignLeft | Qt::AlignTop);
 
     m_separator = new QFrame(this);
     m_separator->setFrameShape(QFrame::VLine);
@@ -224,16 +224,16 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
 
     m_buttonLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_buttonLayout->setSpacing(6);
-    m_buttonLayout->setAlignment(Qt::AlignCenter);
-    m_buttonLayout->addWidget(m_startButton, 0, Qt::AlignCenter);
-    m_buttonLayout->addWidget(m_stopButton, 0, Qt::AlignCenter);
+    m_buttonLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_buttonLayout->addWidget(m_startButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_buttonLayout->addWidget(m_stopButton, 0, Qt::AlignLeft | Qt::AlignTop);
 
     m_layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
     m_layout->setContentsMargins(10, 8, 10, 8);
     m_layout->setSpacing(12);
-    m_layout->setAlignment(Qt::AlignCenter);
+    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_layout->addLayout(m_modeLayout);
-    m_layout->addWidget(m_separator, 0, Qt::AlignCenter);
+    m_layout->addWidget(m_separator, 0, Qt::AlignLeft | Qt::AlignTop);
     m_layout->addLayout(m_buttonLayout);
     m_layout->addStretch(1);
 
@@ -477,8 +477,8 @@ void FpgaStreamingPanel::updateAdaptiveLayout()
     m_modeLayout->setDirection(direction);
     m_buttonLayout->setDirection(direction);
     m_separator->setFrameShape(vertical ? QFrame::HLine : QFrame::VLine);
-    m_layout->setAlignment(Qt::AlignCenter);
-    m_modeLayout->setAlignment(Qt::AlignCenter);
-    m_buttonLayout->setAlignment(Qt::AlignCenter);
+    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_modeLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_buttonLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     updateGeometry();
 }

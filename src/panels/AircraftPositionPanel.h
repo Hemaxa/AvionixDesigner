@@ -11,6 +11,7 @@ class QResizeEvent;
 class QSpinBox;
 class QTimer;
 class QToolButton;
+class QWidget;
 
 class AircraftPositionPanel : public BasePanel
 {
@@ -45,6 +46,8 @@ private:
     QSpinBox *m_courseSpin = nullptr;
     QToolButton *m_autopilotButton = nullptr;
     QTimer *m_autopilotTimer = nullptr;
+    QWidget *m_courseControlArea = nullptr;
+    QWidget *m_altitudeControlArea = nullptr;
     QHBoxLayout *m_mainLayout = nullptr;
     QGridLayout *m_controlsLayout = nullptr;
 

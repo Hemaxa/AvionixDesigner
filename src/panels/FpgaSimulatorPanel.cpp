@@ -14,8 +14,8 @@ FpgaSimulatorPanel::FpgaSimulatorPanel(QWidget *parent)
 
     m_screenWidget = new FpgaScreenWidget(this);
     m_warningsLabel = new QLabel(this);
+    m_warningsLabel->setObjectName(QStringLiteral("FpgaSimulatorWarningsLabel"));
     m_warningsLabel->setWordWrap(true);
-    m_warningsLabel->setStyleSheet(QStringLiteral("QLabel { color: #f05050; }"));
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(10, 10, 10, 10);
