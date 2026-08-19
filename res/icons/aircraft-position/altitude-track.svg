@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 533">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #9fb3c1;
+      }
+
+      .cls-2 {
+        fill: #0e141b;
+      }
+
+      .cls-3 {
+        fill: #22303c;
+      }
+    </style>
+  </defs>
+  <g id="_Шкала" data-name="Шкала">
+    <g>
+      <path class="cls-1" d="M43,1C20.39258,1,2,19.39258,2,42v450c0,22.60742,18.39258,41,41,41s41-18.39258,41-41V42C84,19.39258,65.60742,1,43,1Z"/>
+      <g>
+        <path class="cls-3" d="M41,532c-22.60742,0-41-18.39258-41-41V41C0,18.39258,18.39258,0,41,0s41,18.39258,41,41v450c0,22.60742-18.39258,41-41,41Z"/>
+        <rect class="cls-2" x="25.99984" y="25.99987" width="30" height="480" rx="14.99999" ry="14.99999"/>
+      </g>
+    </g>
+  </g>
+</svg>

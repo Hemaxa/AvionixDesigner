@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 506 506">
+  <defs>
+    <style>
+      .cls-1, .cls-2 {
+        fill: none;
+        stroke: #9fb3c1;
+        stroke-miterlimit: 5.33333;
+        stroke-width: 3px;
+      }
+
+      .cls-2 {
+        stroke-dasharray: 5.33333 5.33333;
+      }
+
+      .cls-3 {
+        fill: #22303c;
+      }
+    </style>
+  </defs>
+  <g id="_Экран" data-name="Экран">
+    <rect class="cls-3" width="506" height="506"/>
+    <g>
+      <line class="cls-2" x1="252.94055" x2="252.94055" y2="506"/>
+      <line class="cls-2" y1="253" x2="506" y2="253"/>
+      <circle class="cls-1" cx="252.97027" cy="253" r="99.26232"/>
+      <circle class="cls-1" cx="252.97027" cy="253" r="198.52463"/>
+    </g>
+  </g>
+</svg>

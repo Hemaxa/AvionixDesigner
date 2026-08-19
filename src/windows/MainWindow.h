@@ -22,6 +22,7 @@ class ViewportPanel;
 class ViewportSettingsPanel;
 class FpgaStreamingPanel;
 class FpgaSimulatorPanel;
+class AircraftPositionPanel;
 
 class MainWindow : public QMainWindow
 {
@@ -113,6 +114,7 @@ private:
     ViewportSettingsPanel *m_viewportSettings = nullptr;
     FpgaStreamingPanel *m_fpgaStreaming = nullptr;
     FpgaSimulatorPanel *m_fpgaSimulator = nullptr;
+    AircraftPositionPanel *m_aircraftPosition = nullptr;
 
     QDockWidget *m_objectListDock = nullptr;
     QDockWidget *m_objectPropertiesDock = nullptr;
@@ -120,6 +122,7 @@ private:
     QDockWidget *m_viewportSettingsDock = nullptr;
     QDockWidget *m_fpgaStreamingDock = nullptr;
     QDockWidget *m_fpgaSimulatorDock = nullptr;
+    QDockWidget *m_aircraftPositionDock = nullptr;
     QTimer *m_fpgaSimulatorUpdateTimer = nullptr;
 
     SettingsWindow *m_settingsWindow = nullptr;

@@ -71,6 +71,8 @@ qt_add_executable(AvionixDesigner
     src/panels/FpgaStreamingPanel.cpp
     src/panels/FpgaSimulatorPanel.h
     src/panels/FpgaSimulatorPanel.cpp
+    src/panels/AircraftPositionPanel.h
+    src/panels/AircraftPositionPanel.cpp
     
     # Объекты
     src/objects/RectangleObject.h

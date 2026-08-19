@@ -23,6 +23,15 @@
         <file>icons/fpga/uart.svg</file>
         <file>icons/fpga/play.svg</file>
         <file>icons/fpga/stop.svg</file>
+        <file>icons/aircraft-position/input-field.svg</file>
+        <file>icons/aircraft-position/slider-thumb.svg</file>
+        <file>icons/aircraft-position/altitude-track.svg</file>
+        <file>icons/aircraft-position/course-pointer.svg</file>
+        <file>icons/aircraft-position/course-base.svg</file>
+        <file>icons/aircraft-position/autopilot-button-off.svg</file>
+        <file>icons/aircraft-position/autopilot-button-on.svg</file>
+        <file>icons/aircraft-position/aircraft.svg</file>
+        <file>icons/aircraft-position/screen.svg</file>
         <file>icons/selection/align-top.svg</file>
         <file>icons/selection/align-vcenter.svg</file>
         <file>icons/selection/align-bottom.svg</file>

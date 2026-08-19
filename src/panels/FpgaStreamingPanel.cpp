@@ -30,8 +30,8 @@
 
 namespace {
 constexpr int kDefaultUartBaudRate = 115200;
-constexpr int kDefaultUartIntervalMs = 2000;
-constexpr int kMinimumUartIntervalMs = 1000;
+constexpr int kDefaultUartIntervalMs = 500;
+constexpr int kMinimumUartIntervalMs = 100;
 constexpr int kMaximumUartIntervalMs = 60000;
 
 QString toolTipWithShortcut(const QString &text, const QKeySequence &shortcut = {})
@@ -123,7 +123,7 @@ public:
         m_intervalSpin = new QSpinBox(this);
         m_intervalSpin->setObjectName(QStringLiteral("UartIntervalSpin"));
         m_intervalSpin->setRange(kMinimumUartIntervalMs, kMaximumUartIntervalMs);
-        m_intervalSpin->setSingleStep(250);
+        m_intervalSpin->setSingleStep(50);
         m_intervalSpin->setSuffix(QStringLiteral(" мс"));
         m_intervalSpin->setFixedHeight(32);
 
@@ -374,7 +374,7 @@ bool FpgaStreamingPanel::configureUartStreaming()
     m_uartConfig.portName = dialog.portName();
     m_uartConfig.baudRate = dialog.baudRate();
     m_uartConfig.writeInitialZero = true;
-    m_uartConfig.writeTimeoutMs = qMin(1000, qMax(250, dialog.intervalMs() / 2));
+    m_uartConfig.writeTimeoutMs = qMin(1000, qMax(50, dialog.intervalMs() / 2));
     m_uartIntervalMs = dialog.intervalMs();
 
     settings.setValue(QStringLiteral("fpga/uartPort"), m_uartConfig.portName);

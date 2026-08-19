@@ -39,6 +39,7 @@ QWidget {
 #ObjectPropertiesPanel,
 #ObjectLibraryPanel,
 #ViewportSettingsPanel,
+#AircraftPositionPanel,
 #SettingsCard,
 #PropertiesTableCard,
 #PropertiesEmptyState,
@@ -378,6 +379,31 @@ QPushButton#SettingsColorButton {
 QToolButton#SelectionToolButton,
 QToolButton#SettingsToolButton {
     qproperty-iconSize: 32px 32px;
+}
+
+#AircraftPositionPanel {
+    background-color: #05080b;
+}
+
+#AircraftPositionScreen {
+    background-color: #05080b;
+    border: none;
+}
+
+#AircraftPositionCaption {
+    color: #edf7fb;
+    font-weight: 700;
+}
+
+QToolButton#AircraftAutopilotButton {
+    background-color: transparent;
+    border: none;
+    padding: 0;
+}
+
+QToolButton#AircraftAutopilotButton:hover {
+    background-color: transparent;
+    border: none;
 }
 
 QPushButton#SettingsColorButton {

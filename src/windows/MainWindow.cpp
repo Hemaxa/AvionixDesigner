@@ -17,6 +17,7 @@
 #include "PanelsManager.h"
 #include "FpgaStreamingPanel.h"
 #include "FpgaSimulatorPanel.h"
+#include "AircraftPositionPanel.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 
 #include <QAction>
@@ -261,6 +262,7 @@ void MainWindow::createWidgets()
     m_viewportSettings = new ViewportSettingsPanel(this);
     m_fpgaStreaming = new FpgaStreamingPanel(this);
     m_fpgaSimulator = new FpgaSimulatorPanel(this);
+    m_aircraftPosition = new AircraftPositionPanel(this);
     m_fpgaSimulatorUpdateTimer = new QTimer(this);
     m_fpgaSimulatorUpdateTimer->setSingleShot(true);
     m_fpgaSimulatorUpdateTimer->setInterval(180);
@@ -305,6 +307,12 @@ void MainWindow::createWidgets()
     m_fpgaSimulatorDock->setAllowedAreas(Qt::AllDockWidgetAreas);
     m_fpgaSimulatorDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
 
+    m_aircraftPositionDock = new QDockWidget("Позиционирование самолета", this);
+    m_aircraftPositionDock->setObjectName("AircraftPositionDock");
+    m_aircraftPositionDock->setWidget(m_aircraftPosition);
+    m_aircraftPositionDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    m_aircraftPositionDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+
     addDockWidget(Qt::BottomDockWidgetArea, m_viewportSettingsDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_objectLibraryDock);
     addDockWidget(Qt::BottomDockWidgetArea, m_fpgaStreamingDock);
@@ -314,6 +322,11 @@ void MainWindow::createWidgets()
 
     m_fpgaSimulatorDock->setFloating(true);
     m_fpgaSimulatorDock->hide();
+
+    addDockWidget(Qt::BottomDockWidgetArea, m_aircraftPositionDock);
+    m_aircraftPositionDock->setFloating(true);
+    m_aircraftPositionDock->resize(1260, 800);
+    m_aircraftPositionDock->hide();
 }
 
 void MainWindow::showEvent(QShowEvent *event)
@@ -357,6 +370,11 @@ void MainWindow::setupDockSizes()
         m_fpgaSimulatorDock->setFloating(true);
         m_fpgaSimulatorDock->resize(qMax(420, static_cast<int>(windowW * 0.36)), qMax(320, static_cast<int>(windowH * 0.38)));
         m_fpgaSimulatorDock->hide();
+    }
+    if (m_aircraftPositionDock) {
+        m_aircraftPositionDock->setFloating(true);
+        m_aircraftPositionDock->resize(qMax(1080, static_cast<int>(windowW * 0.66)), qMax(760, static_cast<int>(windowH * 0.72)));
+        m_aircraftPositionDock->hide();
     }
 }
 
@@ -441,6 +459,7 @@ void MainWindow::createMenus()
     viewMenu->addAction(m_viewportSettingsDock->toggleViewAction());
     viewMenu->addAction(m_fpgaStreamingDock->toggleViewAction());
     viewMenu->addAction(m_fpgaSimulatorDock->toggleViewAction());
+    viewMenu->addAction(m_aircraftPositionDock->toggleViewAction());
     viewMenu->addSeparator();
 
     QAction *resetViewAction = viewMenu->addAction("Сбросить масштаб");
@@ -614,6 +633,8 @@ void MainWindow::resetToDefaultLayout()
     m_fpgaStreamingDock->show();
     m_fpgaSimulatorDock->setFloating(true);
     m_fpgaSimulatorDock->hide();
+    m_aircraftPositionDock->setFloating(true);
+    m_aircraftPositionDock->hide();
 
     showMaximized();
     setupDockSizes();

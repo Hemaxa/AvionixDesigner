@@ -33,6 +33,37 @@ constexpr int kFallbackStaticGroupMaxDimension = 4095;
 constexpr int kFallbackStaticGroupAddressablePixels = 65536;
 constexpr int kFallbackRotationObjectAddressableTiles = 2048;
 
+void moveObjectInsideCanvas(BaseObject *object, int canvasW, int canvasH)
+{
+    if (!object || canvasW <= 0 || canvasH <= 0)
+        return;
+
+    const QRectF bounds = object->getBoundingRect();
+    double dx = 0.0;
+    double dy = 0.0;
+
+    if (bounds.width() <= canvasW) {
+        if (bounds.left() < 0.0)
+            dx = -bounds.left();
+        else if (bounds.right() > canvasW)
+            dx = canvasW - bounds.right();
+    } else {
+        dx = -bounds.left();
+    }
+
+    if (bounds.height() <= canvasH) {
+        if (bounds.top() < 0.0)
+            dy = -bounds.top();
+        else if (bounds.bottom() > canvasH)
+            dy = canvasH - bounds.bottom();
+    } else {
+        dy = -bounds.top();
+    }
+
+    if (!qFuzzyIsNull(dx) || !qFuzzyIsNull(dy))
+        object->moveBy(dx, dy);
+}
+
 QString compactEncodingName(const QString &encoding)
 {
     QString result = encoding.trimmed().toLower();
@@ -2195,6 +2226,7 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
     const double dx = x - bounds.center().x();
     const double dy = y - bounds.center().y();
     obj->moveBy(dx, dy);
+    moveObjectInsideCanvas(obj.data(), m_document->canvasWidth(), m_document->canvasHeight());
 
     emit projectChanged();
     return index;
@@ -2628,6 +2660,7 @@ QList<int> ProjectManager::pasteObjects()
         if (!clone)
             continue;
         clone->moveBy(24.0, 24.0);
+        moveObjectInsideCanvas(clone.data(), m_document->canvasWidth(), m_document->canvasHeight());
         m_objects.prepend(clone);
         m_objectTags.prepend(i < m_clipboardTags.size() ? m_clipboardTags[i] : QString());
     }
@@ -2768,6 +2801,7 @@ bool ProjectManager::setObjectProperty(BaseObject *object, const QString &proper
     const ProjectSnapshot before = captureSnapshot();
     if (!object->setObjectProperty(propertyName, value))
         return false;
+    moveObjectInsideCanvas(object, m_document->canvasWidth(), m_document->canvasHeight());
 
     m_undoStack.append(before);
     m_redoStack.clear();
