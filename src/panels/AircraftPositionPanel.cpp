@@ -328,7 +328,7 @@ protected:
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     const QPointF center = rect().center();
-    const double baseSize = height() * 0.64;
+    const double baseSize = height() * 0.6;
     const double knobSize = height() * 0.46;
     const QRectF baseRect(center.x() - baseSize * 0.5,
                           center.y() - baseSize * 0.5, baseSize, baseSize);
@@ -339,7 +339,7 @@ protected:
     painter.save();
     painter.translate(knobRect.center());
     painter.rotate(m_course);
-    const double pointerSize = knobRect.width() * 0.84;
+    const double pointerSize = knobRect.width() * 0.95;
     drawSvg(&painter, m_pointerRenderer,
             QRectF(-pointerSize * 0.5, -pointerSize * 0.5, pointerSize,
                    pointerSize));
