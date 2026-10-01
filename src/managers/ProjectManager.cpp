@@ -22,6 +22,7 @@
 #include "StaticGroupObject.h"
 #include "ImageObject.h"
 #include "AviaHorizonObject.h"
+#include "ThreeDViewObject.h"
 #include "TextObject.h"
 #include "BitParser.h"
 
@@ -623,6 +624,8 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->sinVal = horizon->sinVal;
         clone->cosVal = horizon->cosVal;
         rawClone = clone;
+    } else if (dynamic_cast<ThreeDViewObject*>(source.data())) {
+        rawClone = new ThreeDViewObject();
     } else if (auto text = dynamic_cast<TextObject*>(source.data())) {
         auto *clone = new TextObject();
         clone->states = text->states;
@@ -1590,6 +1593,16 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     const ParamSchema fontSchema = registry->buildSchema(QStringLiteral("font"));
     const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
 
+    const ParamSchema layer3dSchema = schemas.value(
+        QStringLiteral("layer3d"), registry->buildSchema(QStringLiteral("layer3d")));
+    for (const auto &obj : objects) {
+        if (dynamic_cast<ThreeDViewObject*>(obj.data()) && obj->isExportEnabled()) {
+            objectsEl.appendChild(createObjectElement(
+                doc, QStringLiteral("layer3d"), layer3dSchema, obj));
+            break;
+        }
+    }
+
     QMap<ExportFontKey, QList<TextObject*>> textByFont;
     for (const auto &obj : objects) {
         if (auto text = dynamic_cast<TextObject*>(obj.data())) {
@@ -1646,6 +1659,9 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     for (int objIdx = objects.size() - 1; objIdx >= 0; --objIdx) {
         const auto &obj = objects[objIdx];
         if (!obj->isExportEnabled())
+            continue;
+
+        if (dynamic_cast<ThreeDViewObject*>(obj.data()))
             continue;
 
         if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
@@ -1846,6 +1862,13 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 image->setColorLayers(layers);
             m_objects.append(QSharedPointer<BaseObject>(image));
             m_objectTags.append(QStringLiteral("image"));
+        }
+        else if (tagName == QStringLiteral("three_d_view")) {
+            auto *threeDView = new ThreeDViewObject();
+            threeDView->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
+            threeDView->setExportEnabled(true);
+            m_objects.append(QSharedPointer<BaseObject>(threeDView));
+            m_objectTags.append(QStringLiteral("three_d_view"));
         }
         else if (tagName == QStringLiteral("text")) {
             const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
@@ -2082,6 +2105,8 @@ void ProjectManager::registerStandardTypes()
     om->registerType("image", []() { return new ImageObject(); });
     om->registerType("aviagorizont", []() { return new AviaHorizonObject(); });
     om->registerType("aviahorizont", []() { return new AviaHorizonObject(); });
+    om->registerType("three_d_view", []() { return new ThreeDViewObject(); });
+    om->registerType("layer3d", []() { return new ThreeDViewObject(); });
     om->registerType("text", []() { return new TextObject(); });
 }
 
@@ -2092,6 +2117,15 @@ int ProjectManager::addObject(const QString &typeName)
     if (!m_document->hasCanvas()) {
         emit logMessage(tr("Сначала откройте или создайте проект"));
         return -1;
+    }
+
+    if (typeName.trimmed().toLower() == QStringLiteral("three_d_view")) {
+        for (int i = 0; i < m_objects.size(); ++i) {
+            if (dynamic_cast<ThreeDViewObject*>(m_objects[i].data())) {
+                emit logMessage(tr("3D-вид уже добавлен в сцену"));
+                return i;
+            }
+        }
     }
 
     BaseObject *rawObject = ObjectsManager::instance()->createObject(typeName);
@@ -2146,6 +2180,10 @@ int ProjectManager::addObject(const QString &typeName)
         horizon->horizonLineColor = QColor("#C0FFFF");
         horizon->sinVal = 0.0;
         horizon->cosVal = 65536.0;
+    }
+    else if (auto threeDView = dynamic_cast<ThreeDViewObject*>(rawObject)) {
+        threeDView->setViewVisible(true);
+        threeDView->setExportEnabled(true);
     }
     else if (auto rotation = dynamic_cast<RotationObject*>(rawObject)) {
         const int size = 36;
@@ -2216,7 +2254,7 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
         return index;
 
     auto obj = m_objects[index];
-    if (dynamic_cast<AviaHorizonObject*>(obj.data())) {
+    if (dynamic_cast<AviaHorizonObject*>(obj.data()) || dynamic_cast<ThreeDViewObject*>(obj.data())) {
         emit projectChanged();
         return index;
     }
@@ -2949,6 +2987,14 @@ QColor ProjectManager::getBackgroundColor() const { return m_document->backgroun
 QString ProjectManager::getFilePath() const { return m_filePath; }
 const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }
 QList<ProjectManager::ObjectGroup> ProjectManager::objectGroups() const { return m_groups; }
+bool ProjectManager::hasThreeDViewObject() const
+{
+    for (const auto &object : m_objects) {
+        if (dynamic_cast<ThreeDViewObject*>(object.data()))
+            return true;
+    }
+    return false;
+}
 bool ProjectManager::showGrid() const { return m_showGrid; }
 bool ProjectManager::snapToCanvas() const { return m_snapToCanvas; }
 bool ProjectManager::snapToGrid() const { return m_snapToGrid; }
@@ -2963,7 +3009,7 @@ QColor ProjectManager::snapObjectGuideColor() const { return m_snapObjectGuideCo
 void ProjectManager::reloadGlobalSettings()
 {
     QSettings settings("Avionix", "Designer");
-    m_gridStep = settings.value("gridStep", 10).toInt();
+    m_gridStep = qBound(1, settings.value("gridStep", 10).toInt(), 1000);
     
     QString colorStr = settings.value("gridColor", "#3778b4c8").toString();
     m_gridColor = QColor(colorStr);

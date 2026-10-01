@@ -91,6 +91,23 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaCompiledDocument &documen
     for (int objectIndex = 0; objectIndex < document.objects.size(); ++objectIndex) {
         const FpgaCompiledObject &object = document.objects[objectIndex];
 
+        if (object.type == QStringLiteral("layer3d")) {
+            for (int paramIndex = 0; paramIndex < object.iparams.size(); ++paramIndex) {
+                const QByteArray data = hexToBytes(object.iparams[paramIndex]);
+                quint32 fcs = 0;
+                FpgaPacket packet;
+                packet.type = FpgaPacketType::Layer3d;
+                packet.objectType = object.type;
+                packet.objectIndex = objectIndex;
+                packet.parameterIndex = paramIndex;
+                packet.payloadSize = data.size();
+                packet.bytes = framePacket(packet.type, layer3dPayload(data), &fcs);
+                packet.fcs = fcs;
+                bundle.packets.append(packet);
+            }
+            continue;
+        }
+
         for (int paramIndex = 0; paramIndex < object.iparams.size(); ++paramIndex) {
             const int objId = object.startParamIndex + paramIndex;
             const QByteArray paramBytes = hexToBytes(object.iparams[paramIndex]);
@@ -241,4 +258,3 @@ QByteArray FpgaPacketCompiler::encodeStaticMaskData(const QString &data, QString
         bytes.append(static_cast<char>(qBound(0, value, 7)));
     return bytes;
 }
-

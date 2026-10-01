@@ -75,7 +75,7 @@ void SettingsWindow::createWidgets()
     formLayout->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
 
     m_gridStepSpin = new QSpinBox(this);
-    m_gridStepSpin->setRange(1, 100);
+    m_gridStepSpin->setRange(1, 1000);
     m_gridStepSpin->setMinimumWidth(160);
     formLayout->addRow("Шаг сетки:", m_gridStepSpin);
 
@@ -230,7 +230,7 @@ void SettingsWindow::loadSettings()
     QSettings settings("Avionix", "Designer");
     m_autoLoadCheck->setChecked(settings.value("autoLoad", false).toBool());
 
-    m_gridStepSpin->setValue(settings.value("gridStep", 10).toInt());
+    m_gridStepSpin->setValue(qBound(1, settings.value("gridStep", 10).toInt(), 1000));
     m_currentGridColor = QColor(settings.value("gridColor", "#3778b4c8").toString());
     m_currentSnapCanvasColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
     m_currentSnapGridColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());

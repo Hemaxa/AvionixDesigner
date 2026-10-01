@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='windows-1251'?>
+<project bgcolor="#0" height="1080" name="Untitled" width="1920">
+    <parameters>
+        <layer3d>
+            <enb offset="0" size="1"/>
+            <x0 offset="1" size="12"/>
+            <y0 offset="13" size="12"/>
+            <padding offset="25" size="125"/>
+        </layer3d>
+    </parameters>
+    <objects>
+        <layer3d>
+            <init>00000000000000000000000000000000000691</init>
+        </layer3d>
+    </objects>
+</project>

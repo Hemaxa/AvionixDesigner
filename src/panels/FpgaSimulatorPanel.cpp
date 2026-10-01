@@ -39,3 +39,9 @@ void FpgaSimulatorPanel::loadBundle(const FpgaPacketBundle &bundle)
         m_warningsLabel->show();
     }
 }
+
+void FpgaSimulatorPanel::setSimulationActive(bool active)
+{
+    if (m_screenWidget)
+        m_screenWidget->setSimulationActive(active);
+}

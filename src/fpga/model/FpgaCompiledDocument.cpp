@@ -139,7 +139,8 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
             childEl = childEl.nextSiblingElement();
         }
 
-        object.paramCount = object.iparams.size();
+        const bool isLayer3d = object.type == QStringLiteral("layer3d");
+        object.paramCount = isLayer3d ? 0 : object.iparams.size();
         object.startParamIndex = nextParamIndex;
         nextParamIndex += object.paramCount;
 
@@ -149,7 +150,7 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
             ++nextMemoryId;
         }
 
-        if (object.paramCount == 0) {
+        if (object.iparams.isEmpty()) {
             compiled.warnings.append(QStringLiteral("Object <%1> has no <init> parameters and was kept without parameter packets.")
                 .arg(object.type));
         }

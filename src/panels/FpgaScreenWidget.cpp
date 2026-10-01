@@ -6,6 +6,7 @@
 #include <QPainterPath>
 #include <QPaintEvent>
 #include <QSizePolicy>
+#include <QFontMetrics>
 
 FpgaScreenWidget::FpgaScreenWidget(QWidget *parent)
     : QWidget(parent)
@@ -17,6 +18,14 @@ FpgaScreenWidget::FpgaScreenWidget(QWidget *parent)
 void FpgaScreenWidget::setFrameImage(const QImage &image)
 {
     m_image = image;
+    update();
+}
+
+void FpgaScreenWidget::setSimulationActive(bool active)
+{
+    if (m_simulationActive == active)
+        return;
+    m_simulationActive = active;
     update();
 }
 
@@ -37,20 +46,55 @@ void FpgaScreenWidget::paintEvent(QPaintEvent *event)
     if (m_image.isNull()) {
         painter.setBrush(QColor(8, 12, 16));
         painter.drawRoundedRect(backing.adjusted(1, 1, -1, -1), 10, 10);
-        return;
+    } else {
+        QPainterPath clipPath;
+        clipPath.addRoundedRect(backing, 12, 12);
+        painter.save();
+        painter.setClipPath(clipPath);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        painter.drawImage(backing, m_image);
+        painter.restore();
+
+        painter.setPen(QPen(QColor(255, 255, 255, 20), 1));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(backing.adjusted(0.5, 0.5, -0.5, -0.5), 12, 12);
     }
 
-    QPainterPath clipPath;
-    clipPath.addRoundedRect(backing, 12, 12);
-    painter.save();
-    painter.setClipPath(clipPath);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-    painter.drawImage(backing, m_image);
-    painter.restore();
+    if (!m_simulationActive) {
+        painter.save();
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(5, 8, 11, 215));
+        painter.drawRoundedRect(backing.adjusted(1, 1, -1, -1), 10, 10);
 
-    painter.setPen(QPen(QColor(255, 255, 255, 20), 1));
-    painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(backing.adjusted(0.5, 0.5, -0.5, -0.5), 12, 12);
+        const QRect messageRect = backing.adjusted(22, 18, -22, -18).toAlignedRect();
+        QFont titleFont = painter.font();
+        titleFont.setBold(true);
+        titleFont.setPixelSize(messageRect.height() < 100 ? 17 : 20);
+        QFont descriptionFont = painter.font();
+        descriptionFont.setPixelSize(messageRect.height() < 100 ? 12 : 14);
+
+        const QString title = QStringLiteral("Симулятор неактивен");
+        const QString description = QStringLiteral("Для включения запустите симуляцию.");
+        const int titleHeight = QFontMetrics(titleFont).height();
+        const QRect descriptionBounds = QFontMetrics(descriptionFont).boundingRect(
+            QRect(0, 0, messageRect.width(), messageRect.height()),
+            Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, description);
+        const int spacing = 8;
+        const int contentHeight = titleHeight + spacing + descriptionBounds.height();
+        const int contentTop = messageRect.center().y() - contentHeight / 2;
+
+        painter.setFont(titleFont);
+        painter.setPen(QColor(QStringLiteral("#edf7fb")));
+        painter.drawText(QRect(messageRect.left(), contentTop, messageRect.width(), titleHeight),
+                         Qt::AlignCenter, title);
+        painter.setFont(descriptionFont);
+        painter.setPen(QColor(QStringLiteral("#9fb3c1")));
+        painter.drawText(QRect(messageRect.left(), contentTop + titleHeight + spacing,
+                               messageRect.width(), descriptionBounds.height()),
+                         Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, description);
+        painter.restore();
+    }
 }
 
 QRectF FpgaScreenWidget::backingRect() const

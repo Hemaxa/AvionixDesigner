@@ -7,6 +7,7 @@
 class QGridLayout;
 class QHBoxLayout;
 class QLabel;
+class QFrame;
 class QResizeEvent;
 class QSpinBox;
 class QTimer;
@@ -19,6 +20,7 @@ class AircraftPositionPanel : public BasePanel
 
 public:
     explicit AircraftPositionPanel(QWidget *parent = nullptr);
+    void setThreeDViewAvailable(bool available);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -35,6 +37,7 @@ private:
     void syncScreen();
     void syncAutopilotButtons();
     void applyControlScale();
+    void updateAvailabilityOverlay();
     QSpinBox* createValueSpin(const QString &objectName, int min, int max, int value, const QString &suffix = QString());
 
     ScreenWidget *m_screenWidget = nullptr;
@@ -48,6 +51,7 @@ private:
     QTimer *m_autopilotTimer = nullptr;
     QWidget *m_courseControlArea = nullptr;
     QWidget *m_altitudeControlArea = nullptr;
+    QFrame *m_unavailableOverlay = nullptr;
     QHBoxLayout *m_mainLayout = nullptr;
     QGridLayout *m_controlsLayout = nullptr;
 
@@ -56,4 +60,5 @@ private:
     double m_appliedControlScale = 0.0;
     bool m_autopilotEnabled = false;
     bool m_updatingControls = false;
+    bool m_threeDViewAvailable = false;
 };

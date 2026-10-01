@@ -106,6 +106,8 @@ private:
     void scheduleFpgaSimulatorUpdate();
     //пересобирает пакеты и обновляет панель live-симулятора
     void updateFpgaSimulatorNow();
+    //обновляет доступность панели позиционирования самолета
+    void updateAircraftPositionAvailability();
 
     EditorWorkspacePanel *m_workspacePanel = nullptr;
     ViewportPanel *m_viewport = nullptr;

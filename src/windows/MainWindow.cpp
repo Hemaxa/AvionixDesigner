@@ -607,6 +607,7 @@ void MainWindow::connectSignals() {
             m_objectList->selectRows({});
             setSelectionState(false);
             updateCommandState();
+            updateAircraftPositionAvailability();
           });
   connect(ProjectManager::instance(), &ProjectManager::projectChanged,
           m_objectList, &ObjectListPanel::refreshList);
@@ -614,6 +615,8 @@ void MainWindow::connectSignals() {
           m_viewport, QOverload<>::of(&QWidget::update));
   connect(ProjectManager::instance(), &ProjectManager::projectChanged, this,
           &MainWindow::updateCommandState);
+  connect(ProjectManager::instance(), &ProjectManager::projectChanged, this,
+          &MainWindow::updateAircraftPositionAvailability);
 
   connect(m_objectProperties, &ObjectPropertiesPanel::propertyChanged,
           m_viewport, QOverload<>::of(&QWidget::update));
@@ -673,6 +676,8 @@ void MainWindow::connectSignals() {
   connect(m_fpgaStreaming, &FpgaStreamingPanel::simulationActiveChanged, this,
           [this](bool active) {
             m_fpgaSimulatorLiveActive = active;
+            if (m_fpgaSimulator)
+              m_fpgaSimulator->setSimulationActive(active);
             if (!active) {
               m_fpgaSimulatorUpdateTimer->stop();
               return;
@@ -685,6 +690,8 @@ void MainWindow::connectSignals() {
           &MainWindow::scheduleFpgaSimulatorUpdate);
   connect(m_viewport, &ViewportPanel::objectChanged, this,
           &MainWindow::scheduleFpgaSimulatorUpdate);
+
+  updateAircraftPositionAvailability();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
@@ -758,13 +765,21 @@ void MainWindow::updateFpgaSimulatorNow() {
     m_fpgaSimulator->loadBundle(bundle);
 }
 
+void MainWindow::updateAircraftPositionAvailability() {
+  if (!m_aircraftPosition)
+    return;
+
+  m_aircraftPosition->setThreeDViewAvailable(
+      ProjectManager::instance()->hasThreeDViewObject());
+}
+
 void MainWindow::createObjectOfType(const QString &typeName) {
   const int groupId = selectedGroupId();
   auto *project = ProjectManager::instance();
   const int index = project->addObject(typeName);
   if (index < 0)
     return;
-  if (groupId >= 0)
+  if (groupId >= 0 && typeName != QStringLiteral("three_d_view"))
     project->addObjectToGroup(groupId, index, false);
 
   m_objectList->refreshList();
@@ -782,7 +797,7 @@ void MainWindow::createObjectAtPosition(const QString &typeName,
   const int index = project->addObject(typeName, pos.x(), pos.y());
   if (index < 0)
     return;
-  if (groupId >= 0)
+  if (groupId >= 0 && typeName != QStringLiteral("three_d_view"))
     project->addObjectToGroup(groupId, index, false);
 
   m_objectList->refreshList();

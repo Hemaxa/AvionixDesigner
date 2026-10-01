@@ -1,6 +1,16 @@
 #include "FpgaSchemaRegistry.h"
 
 namespace {
+QList<FpgaSchemaField> layer3dFields()
+{
+    return {
+        {"enb", 0, 1},
+        {"x0", 1, 12},
+        {"y0", 13, 12},
+        {"padding", 25, 125}
+    };
+}
+
 QList<FpgaSchemaField> rectangleFields()
 {
     return {
@@ -167,6 +177,8 @@ QString FpgaSchemaRegistry::canonicalSchemaName(const QString &typeName) const
         return QStringLiteral("rotationobject");
     if (normalized == "static_group")
         return QStringLiteral("staticgroup");
+    if (normalized == "three_d_view")
+        return QStringLiteral("layer3d");
     return typeName;
 }
 
@@ -183,11 +195,15 @@ QString FpgaSchemaRegistry::canonicalObjectTag(const QString &typeName) const
         return QStringLiteral("rotationobject");
     if (normalized == "static_group")
         return QStringLiteral("staticgroup");
+    if (normalized == "three_d_view")
+        return QStringLiteral("layer3d");
     return typeName;
 }
 
 QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schemaName) const
 {
+    if (schemaName == "layer3d")
+        return layer3dFields();
     if (schemaName == "rectangle")
         return rectangleFields();
     if (schemaName == "rectangle_a")
@@ -221,7 +237,7 @@ ParamSchema FpgaSchemaRegistry::buildSchema(const QString &schemaName) const
 
 QStringList FpgaSchemaRegistry::orderedSchemaNames() const
 {
-    return {"rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviagorizont", "dashed_line", "RibonScale", "font", "text"};
+    return {"layer3d", "rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviagorizont", "dashed_line", "RibonScale", "font", "text"};
 }
 
 QStringList FpgaSchemaRegistry::defaultSchemaNames() const
@@ -235,7 +251,8 @@ QMap<QString, QString> FpgaSchemaRegistry::defaultSchemaAliases() const
         {"aviahorizont", "aviagorizont"},
         {"ribonscale", "RibonScale"},
         {"rotation_object", "rotationobject"},
-        {"static_group", "staticgroup"}
+        {"static_group", "staticgroup"},
+        {"three_d_view", "layer3d"}
     };
 }
 
@@ -246,6 +263,7 @@ QList<EditorObjectDescriptor> FpgaSchemaRegistry::editorObjectCatalog() const
         {"dashed_line", QStringLiteral("Штриховая линия"), QStringLiteral(":/icons/icons/library/dashedline.svg"), true, true},
         {"ribonscale", QStringLiteral("Ленточная шкала"), QStringLiteral(":/icons/icons/library/ribonscale.svg"), true, true},
         {"aviagorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
+        {"three_d_view", QStringLiteral("3D вид"), QStringLiteral(":/icons/icons/library/three-d-view.svg"), true, true},
         {"text", QStringLiteral("Текст"), QStringLiteral(":/icons/icons/library/text.svg"), true, true},
         {"staticgroup", QStringLiteral("static_group"), QStringLiteral(":/icons/icons/library/staticgroup.svg"), false, false},
         {"rotationobject", QStringLiteral("rotation_object"), QStringLiteral(":/icons/icons/library/rotationgroup.svg"), false, false}

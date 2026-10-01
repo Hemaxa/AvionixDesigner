@@ -3,6 +3,7 @@
 #include "AircraftPositionPanel.h"
 
 #include <QAbstractSpinBox>
+#include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -541,6 +542,24 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   m_mainLayout->addWidget(m_screenWidget, 1);
   m_mainLayout->addLayout(m_controlsLayout, 0);
 
+  m_unavailableOverlay = new QFrame(this);
+  m_unavailableOverlay->setObjectName(QStringLiteral("AircraftPositionUnavailableOverlay"));
+  auto *overlayLayout = new QVBoxLayout(m_unavailableOverlay);
+  overlayLayout->setContentsMargins(28, 26, 28, 26);
+  overlayLayout->setSpacing(8);
+  overlayLayout->addStretch(1);
+  auto *overlayTitle = new QLabel(QStringLiteral("Панель недоступна"), m_unavailableOverlay);
+  overlayTitle->setObjectName(QStringLiteral("AircraftPositionUnavailableTitle"));
+  overlayTitle->setAlignment(Qt::AlignCenter);
+  auto *overlayText = new QLabel(QStringLiteral("Добавьте объект \"3D вид\" в библиотеке объектов, чтобы включить позиционирование самолета."), m_unavailableOverlay);
+  overlayText->setObjectName(QStringLiteral("AircraftPositionUnavailableText"));
+  overlayText->setAlignment(Qt::AlignCenter);
+  overlayText->setWordWrap(true);
+  overlayLayout->addWidget(overlayTitle);
+  overlayLayout->addWidget(overlayText);
+  overlayLayout->addStretch(1);
+  m_unavailableOverlay->hide();
+
   connect(m_xSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
           [this](int value) {
             if (!m_updatingControls)
@@ -582,11 +601,23 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   syncAutopilotButtons();
   syncScreen();
   applyControlScale();
+  updateAvailabilityOverlay();
 }
 
 void AircraftPositionPanel::resizeEvent(QResizeEvent *event) {
   BasePanel::resizeEvent(event);
   applyControlScale();
+  updateAvailabilityOverlay();
+}
+
+void AircraftPositionPanel::setThreeDViewAvailable(bool available) {
+  if (m_threeDViewAvailable == available)
+    return;
+
+  m_threeDViewAvailable = available;
+  if (!m_threeDViewAvailable)
+    setAutopilotEnabled(false);
+  updateAvailabilityOverlay();
 }
 
 void AircraftPositionPanel::applyControlScale() {
@@ -726,4 +757,23 @@ void AircraftPositionPanel::syncScreen() {
   m_screenWidget->setState(m_xSpin->value(), m_ySpin->value(),
                            m_altitudeSpin->value(), m_courseSpin->value(),
                            m_autopilotEnabled);
+}
+
+void AircraftPositionPanel::updateAvailabilityOverlay() {
+  const bool available = m_threeDViewAvailable;
+  const QList<QWidget *> controls = {
+      m_xSpin, m_ySpin, m_altitudeSpin, m_courseSpin, m_altitudeSlider,
+      m_courseKnob, m_autopilotButton, m_courseControlArea, m_altitudeControlArea};
+  for (QWidget *control : controls) {
+    if (control)
+      control->setEnabled(available);
+  }
+
+  if (!m_unavailableOverlay)
+    return;
+
+  m_unavailableOverlay->setGeometry(rect().adjusted(14, 14, -14, -14));
+  m_unavailableOverlay->setVisible(!available);
+  if (!available)
+    m_unavailableOverlay->raise();
 }

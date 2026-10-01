@@ -89,6 +89,8 @@ qt_add_executable(AvionixDesigner
     src/objects/ImageObject.cpp
     src/objects/AviaHorizonObject.h
     src/objects/AviaHorizonObject.cpp
+    src/objects/ThreeDViewObject.h
+    src/objects/ThreeDViewObject.cpp
     src/objects/TextObject.h
     src/objects/TextObject.cpp
     

@@ -395,6 +395,23 @@ QToolButton#SettingsToolButton {
     font-weight: 700;
 }
 
+#AircraftPositionUnavailableOverlay {
+    background-color: rgba(5, 8, 11, 225);
+    border: 1px solid #22303c;
+    border-radius: 8px;
+}
+
+#AircraftPositionUnavailableTitle {
+    color: #edf7fb;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+#AircraftPositionUnavailableText {
+    color: #9fb3c1;
+    font-size: 14px;
+}
+
 #FpgaSimulatorWarningsLabel {
     color: #f05050;
 }

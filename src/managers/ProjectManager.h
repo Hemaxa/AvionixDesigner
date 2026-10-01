@@ -126,6 +126,8 @@ public:
     };
     //возвращает список редакторских групп
     QList<ObjectGroup> objectGroups() const;
+    //проверяет, добавлен ли в сцену редакторский объект 3D-вида
+    bool hasThreeDViewObject() const;
 
     //возвращает имя проекта
     QString getProjectName() const;
