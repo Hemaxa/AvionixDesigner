@@ -159,8 +159,8 @@ protected:
         Qt::ElideRight, width() - 28.0);
     const QRectF label(8, 8, metrics.horizontalAdvance(caption) + 12.0,
                        metrics.height() + 8.0);
-    painter.setPen(QPen(QColor(QStringLiteral("#2d5667")), 1));
-    painter.setBrush(QColor(QStringLiteral("#142c37")));
+    painter.setPen(QPen(QColor(QStringLiteral("#22303c")), 1));
+    painter.setBrush(QColor(QStringLiteral("#17212b")));
     painter.drawRoundedRect(label, 4, 4);
     painter.setPen(QColor(QStringLiteral("#edf7fb")));
     painter.drawText(label, Qt::AlignCenter, caption);
@@ -246,7 +246,7 @@ protected:
                          static_cast<double>(kMaxAltitude - kMinAltitude);
     const double thumbY = valueRange.bottom() - ratio * valueRange.height();
     painter.setPen(
-        QPen(QColor(9, 17, 22, 150), 2, Qt::SolidLine, Qt::RoundCap));
+        QPen(QColor(6, 17, 22, 150), 2, Qt::SolidLine, Qt::RoundCap));
     painter.drawLine(QPointF(trackRect.center().x(), trackRect.top() + 25),
                      QPointF(trackRect.center().x(), trackRect.bottom() - 25));
 
@@ -693,7 +693,7 @@ void AircraftPositionPanel::applyControlScale() {
   m_appliedControlScale = scale;
 
   const int compactFieldHeight = qRound(std::max(30.0, 32.0 * scale));
-  const QSize coordinateFieldSize(qRound(std::max(112.0, 116.0 * scale)),
+  const QSize coordinateFieldSize(qRound(std::max(124.0, 128.0 * scale)),
                                   compactFieldHeight);
   const QSize courseFieldSize(qRound(std::max(78.0, 84.0 * scale)),
                               compactFieldHeight);

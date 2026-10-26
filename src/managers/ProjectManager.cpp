@@ -628,6 +628,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
     } else if (auto threeDView = dynamic_cast<ThreeDViewObject*>(source.data())) {
         auto *clone = new ThreeDViewObject();
         clone->parse(threeDView->serializeInit(), FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d")));
+        clone->setLeftAnchored(threeDView->isLeftAnchored());
         rawClone = clone;
     } else if (auto text = dynamic_cast<TextObject*>(source.data())) {
         auto *clone = new TextObject();
@@ -780,6 +781,9 @@ QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const
         QDomElement initEl = doc.createElement("init");
         initEl.appendChild(doc.createTextNode(threeDView->serializeInit()));
         objEl.appendChild(initEl);
+        // Editor-only placement does not occupy bits or add hardware fields.
+        if (threeDView->isLeftAnchored())
+            objEl.appendChild(doc.createComment(QStringLiteral("AvionixDesigner: 3D view left")));
         return objEl;
     }
 
@@ -1875,6 +1879,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
         else if (tagName == QStringLiteral("three_d_view")) {
             auto *threeDView = new ThreeDViewObject();
             threeDView->parse(objEl.firstChildElement("init").text(), m_schemas.value(QStringLiteral("layer3d")));
+            threeDView->parseExtraData(objEl);
             threeDView->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
             threeDView->setExportEnabled(true);
             m_objects.append(QSharedPointer<BaseObject>(threeDView));

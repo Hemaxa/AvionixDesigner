@@ -5,15 +5,16 @@
 #include <QString>
 #include <QtGlobal>
 #include <cmath>
+#include "fpga/model/Layer3dFormat.h"
 
 namespace AircraftPositionMapping {
-// Coordinates in layer3d are signed 17-bit values. Tiles are a display
+// Coordinates in layer3d are signed 19-bit values. Tiles are a display
 // convention only: crossing a tile boundary must not reset these values.
-constexpr int minPosition = -65536;
-constexpr int maxPosition = 65535;
+constexpr int minPosition = Layer3dFormat::minPosition;
+constexpr int maxPosition = Layer3dFormat::maxPosition;
 constexpr int defaultCellSize = 2000;
 constexpr int minCellSize = 1;
-constexpr int maxCellSize = 131072;
+constexpr int maxCellSize = maxPosition - minPosition + 1;
 
 inline int boundedCellSize(int size)
 {

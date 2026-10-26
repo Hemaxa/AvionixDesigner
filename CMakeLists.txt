@@ -97,6 +97,7 @@ qt_add_executable(AvionixDesigner
     # FPGA Подсистема
     src/fpga/model/FpgaCompiledDocument.h
     src/fpga/model/FpgaCompiledDocument.cpp
+    src/fpga/model/Layer3dFormat.h
     src/fpga/packets/FpgaPacket.h
     src/fpga/packets/FpgaPacket.cpp
     src/fpga/packets/FpgaPacketCompiler.h

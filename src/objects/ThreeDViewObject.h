@@ -4,6 +4,7 @@
 
 #include "BaseObject.h"
 #include <QSvgRenderer>
+#include "fpga/model/Layer3dFormat.h"
 
 class ThreeDViewObject : public BaseObject
 {
@@ -13,6 +14,7 @@ public:
     explicit ThreeDViewObject(QObject *parent = nullptr);
 
     void parse(const QString &hexInit, const ParamSchema &schema) override;
+    void parseExtraData(const QDomElement &element) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
     QString getDisplayName() const override;
@@ -32,6 +34,8 @@ public:
     bool setAircraftState(int x, int y, int altitude, int course);
     QString serializeInit() const;
     QRectF aircraftMarkerRect() const;
+    bool isLeftAnchored() const { return m_leftAnchored; }
+    void setLeftAnchored(bool left) { m_leftAnchored = left; }
 
 private:
     QRectF viewRect() const;
@@ -39,6 +43,7 @@ private:
 
     // Keep raw fields (including fractional course/height and reserved bits)
     // intact until the corresponding control is changed.
-    QString m_initHex = QString(38, QLatin1Char('0'));
+    QString m_initHex = QString(Layer3dFormat::hexLength, QLatin1Char('0'));
     QSvgRenderer m_markerRenderer;
+    bool m_leftAnchored = false;
 };

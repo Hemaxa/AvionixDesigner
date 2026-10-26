@@ -382,11 +382,11 @@ QToolButton#SettingsToolButton {
 }
 
 #AircraftPositionPanel {
-    background-color: #05080b;
+    background-color: #0f141a;
 }
 
 #AircraftPositionScreen {
-    background-color: #05080b;
+    background-color: #0f141a;
     border: none;
 }
 
@@ -396,7 +396,7 @@ QToolButton#SettingsToolButton {
 }
 
 #AircraftPositionUnavailableOverlay {
-    background-color: rgba(5, 8, 11, 225);
+    background-color: rgba(15, 20, 26, 225);
     border: 1px solid #22303c;
     border-radius: 8px;
 }
@@ -519,6 +519,33 @@ QDialog QToolButton {
 
 QDialogButtonBox QPushButton {
     min-width: 84px;
+}
+
+/* Equal settings rows without the generic dialog's extra vertical padding. */
+QDialog#SettingsWindow QSpinBox,
+QDialog#SettingsWindow QCheckBox,
+QDialog#SettingsWindow QPushButton,
+QDialog#SettingsWindow QToolButton {
+    min-height: 36px;
+    max-height: 36px;
+    padding-top: 0;
+    padding-bottom: 0;
+    font-size: 14px;
+}
+
+QDialog#SettingsWindow QCheckBox {
+    border: 1px solid transparent;
+}
+
+QDialog#SettingsWindow QGroupBox QLabel {
+    min-height: 38px;
+    max-height: 38px;
+}
+
+QDialog#SettingsWindow QPushButton#ColorSwatchButton {
+    min-width: 36px;
+    max-width: 36px;
+    padding: 0;
 }
 
 QDialog#FontExportDialog QTableWidget {

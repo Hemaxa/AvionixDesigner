@@ -2,6 +2,7 @@
 
 #include "BaseObject.h"
 #include "ProjectManager.h"
+#include "ThreeDViewObject.h"
 
 #include <QColorDialog>
 #include <QComboBox>
@@ -32,6 +33,11 @@ public:
         }
 
         const QString propertyName = index.siblingAtColumn(0).data().toString();
+        if (propertyName == QStringLiteral("Положение")) {
+            auto *combo = new QComboBox(parent);
+            combo->addItems({QStringLiteral("Справа"), QStringLiteral("Слева")});
+            return combo;
+        }
         if (propertyName == QStringLiteral("Шрифт")) {
             auto *combo = new QComboBox(parent);
             combo->addItem(QStringLiteral("Arial"));
@@ -370,5 +376,7 @@ bool ObjectPropertiesPanel::isBooleanProperty(const QString &name) const
 
 bool ObjectPropertiesPanel::isReadOnlyProperty(const QString &name) const
 {
+    if (dynamic_cast<ThreeDViewObject*>(m_currentObject.data()))
+        return name != QStringLiteral("Положение");
     return name == QStringLiteral("XML экспорт");
 }

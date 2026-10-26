@@ -88,13 +88,13 @@ void SettingsWindow::createWidgets()
     formLayout->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
 
     m_gridStepSpin = new QSpinBox(this);
+    m_gridStepSpin->setObjectName(QStringLiteral("GridStepSpin"));
     m_gridStepSpin->setRange(1, 1000);
     m_gridStepSpin->setMinimumWidth(160);
     formLayout->addRow("Шаг сетки:", m_gridStepSpin);
 
     m_gridColorButton = new QPushButton(this);
     m_gridColorButton->setObjectName("ColorSwatchButton");
-    m_gridColorButton->setFixedSize(44, 34);
     connect(m_gridColorButton, &QPushButton::clicked, this, [this]() {
         chooseColor(&m_currentGridColor, m_gridColorButton, QStringLiteral("Цвет сетки"));
     });
@@ -102,7 +102,6 @@ void SettingsWindow::createWidgets()
 
     m_snapCanvasColorButton = new QPushButton(this);
     m_snapCanvasColorButton->setObjectName("ColorSwatchButton");
-    m_snapCanvasColorButton->setFixedSize(44, 34);
     connect(m_snapCanvasColorButton, &QPushButton::clicked, this, [this]() {
         chooseColor(&m_currentSnapCanvasColor, m_snapCanvasColorButton, QStringLiteral("Цвет привязки к границам"));
     });
@@ -110,7 +109,6 @@ void SettingsWindow::createWidgets()
 
     m_snapGridColorButton = new QPushButton(this);
     m_snapGridColorButton->setObjectName("ColorSwatchButton");
-    m_snapGridColorButton->setFixedSize(44, 34);
     connect(m_snapGridColorButton, &QPushButton::clicked, this, [this]() {
         chooseColor(&m_currentSnapGridColor, m_snapGridColorButton, QStringLiteral("Цвет привязки к сетке"));
     });
@@ -118,7 +116,6 @@ void SettingsWindow::createWidgets()
 
     m_snapObjectColorButton = new QPushButton(this);
     m_snapObjectColorButton->setObjectName("ColorSwatchButton");
-    m_snapObjectColorButton->setFixedSize(44, 34);
     connect(m_snapObjectColorButton, &QPushButton::clicked, this, [this]() {
         chooseColor(&m_currentSnapObjectColor, m_snapObjectColorButton, QStringLiteral("Цвет привязки к объектам"));
     });
@@ -236,6 +233,7 @@ void SettingsWindow::updateColorButtonIcon(QPushButton *button, const QColor &co
     painter.drawRoundedRect(QRectF(1, 1, 28, 20), 4, 4);
     painter.end();
     button->setIcon(QIcon(pixmap));
+    button->setIconSize(pixmap.size());
 }
 
 void SettingsWindow::loadSettings()

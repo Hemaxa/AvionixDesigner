@@ -19,17 +19,49 @@ ThreeDViewObject::ThreeDViewObject(QObject *parent)
       m_markerRenderer(QStringLiteral(":/icons/icons/objects/aircraft-position-dot.svg"))
 {
     setExportEnabled(true);
-    setEditRestrictionHint(QStringLiteral("3D-вид закреплен у правой границы рабочей области."));
+    setEditRestrictionHint(QStringLiteral("3D-вид закреплен у границы холста. Сторона выбирается в параметре «Положение»."));
 }
 
 void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
     if (schema.contains(QStringLiteral("course")) && schema.contains(QStringLiteral("height"))) {
-        m_initHex = hexInit.simplified().remove(QLatin1Char(' ')).rightJustified(38, QLatin1Char('0')).right(38).toUpper();
+        m_initHex = hexInit.simplified().remove(QLatin1Char(' '))
+            .rightJustified(Layer3dFormat::hexLength, QLatin1Char('0'))
+            .right(Layer3dFormat::hexLength).toUpper();
+        const ParamSchema current = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d"));
+        const QString source = m_initHex;
+        for (const QString &name : {QStringLiteral("x"), QStringLiteral("y"),
+                                   QStringLiteral("course"), QStringLiteral("height")}) {
+            const ParamInfo target = current.value(name);
+            const ParamInfo original = schema.value(name, target);
+            if (name == QStringLiteral("course")) {
+                BitParser::inject(m_initHex, target.offset, target.size,
+                                  BitParser::extract(source, original.offset, original.size));
+            } else {
+                int value = BitParser::extractSigned(source, original.offset, original.size);
+                if (name == QStringLiteral("height")) {
+                    const int clamped = qBound(Layer3dFormat::minHeightRaw, value, Layer3dFormat::maxHeightRaw);
+                    if (clamped != value)
+                        emit ProjectManager::instance()->logMessage(QStringLiteral(
+                            "Высота из старого XML ограничена диапазоном нового 17-битного поля layer3d."));
+                    value = clamped;
+                }
+                BitParser::inject(m_initHex, target.offset, target.size, static_cast<quint32>(value));
+            }
+        }
     } else if (schema.contains(QStringLiteral("enb"))) {
         // Older XML describes only the on-screen layer origin, not the aircraft.
         const ParamInfo field = schema.value(QStringLiteral("enb"));
         setViewVisible(BitParser::extract(hexInit, field.offset, field.size) != 0);
+    }
+}
+
+void ThreeDViewObject::parseExtraData(const QDomElement &element)
+{
+    m_leftAnchored = false;
+    for (QDomNode node = element.firstChild(); !node.isNull(); node = node.nextSibling()) {
+        if (node.isComment() && node.nodeValue().trimmed() == QStringLiteral("AvionixDesigner: 3D view left"))
+            m_leftAnchored = true;
     }
 }
 
@@ -46,8 +78,8 @@ void ThreeDViewObject::draw(QPainter &painter)
     painter.scale(scale, scale);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    painter.setPen(QPen(QColor(QStringLiteral("#2d5667")), 1.5));
-    painter.setBrush(QColor(QStringLiteral("#0d2029")));
+    painter.setPen(QPen(QColor(QStringLiteral("#22303c")), 1.5));
+    painter.setBrush(QColor(QStringLiteral("#121922")));
     painter.drawRect(rect.adjusted(0.6, 0.6, -0.6, -0.6));
 
     painter.setClipRect(rect, Qt::IntersectClip);
@@ -68,8 +100,8 @@ void ThreeDViewObject::draw(QPainter &painter)
     const double left = qBound(rect.left() + 8.0, marker.center().x() - labelWidth * 0.5,
                                rect.right() - 8.0 - labelWidth);
     const QRectF label(left, marker.top() - labelHeight - 4.0, labelWidth, labelHeight);
-    painter.setPen(QPen(QColor(QStringLiteral("#2d5667")), 1));
-    painter.setBrush(QColor(QStringLiteral("#142c37")));
+    painter.setPen(QPen(QColor(QStringLiteral("#22303c")), 1));
+    painter.setBrush(QColor(QStringLiteral("#17212b")));
     painter.drawRoundedRect(label, 4, 4);
     painter.setPen(QColor(QStringLiteral("#edf7fb")));
     painter.drawText(label, Qt::AlignCenter, coordinates);
@@ -98,12 +130,11 @@ QList<QPair<QString, QString>> ThreeDViewObject::getProperties() const
 {
     const QRectF rect = viewRect();
     return {
-        {QStringLiteral("Положение"), QStringLiteral("правая граница")},
+        {QStringLiteral("Положение"), m_leftAnchored ? QStringLiteral("Слева") : QStringLiteral("Справа")},
         {QStringLiteral("X"), QString::number(rect.x(), 'f', 1)},
         {QStringLiteral("Y"), QString::number(rect.y(), 'f', 1)},
         {QStringLiteral("Ширина"), QString::number(rect.width(), 'f', 1)},
-        {QStringLiteral("Высота"), QString::number(rect.height(), 'f', 1)},
-        {QStringLiteral("Экспорт"), QStringLiteral("layer3d")}
+        {QStringLiteral("Высота"), QString::number(rect.height(), 'f', 1)}
     };
 }
 
@@ -133,9 +164,15 @@ void ThreeDViewObject::resizeBy(int edgeFlags, double dx, double dy)
 
 bool ThreeDViewObject::setObjectProperty(const QString &name, const QString &value)
 {
-    Q_UNUSED(name);
-    Q_UNUSED(value);
-    setValidationMessage(QStringLiteral("3D-вид закреплен у правой границы и не редактируется вручную."));
+    if (name == QStringLiteral("Положение")) {
+        if (value == QStringLiteral("Слева") || value == QStringLiteral("Справа")) {
+            m_leftAnchored = value == QStringLiteral("Слева");
+            return true;
+        }
+        setValidationMessage(QStringLiteral("Выберите положение «Слева» или «Справа»."));
+        return false;
+    }
+    setValidationMessage(QStringLiteral("Размеры 3D-вида определяются размером холста."));
     return false;
 }
 
@@ -153,41 +190,45 @@ QMap<QString, quint32> ThreeDViewObject::serializeParams() const
 
 int ThreeDViewObject::aircraftX() const
 {
-    return BitParser::extractSigned(m_initHex, 17, 17);
+    return BitParser::extractSigned(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits);
 }
 
 int ThreeDViewObject::aircraftY() const
 {
-    return BitParser::extractSigned(m_initHex, 0, 17);
+    return BitParser::extractSigned(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits);
 }
 
 int ThreeDViewObject::aircraftAltitude() const
 {
-    return qRound(BitParser::extractSigned(m_initHex, 53, 18) / 4.0);
+    return qRound(BitParser::extractSigned(m_initHex, Layer3dFormat::heightOffset, Layer3dFormat::heightBits)
+                  / double(Layer3dFormat::heightUnitsPerMeter));
 }
 
 int ThreeDViewObject::aircraftCourse() const
 {
-    return qRound(BitParser::extract(m_initHex, 34, 19) * 360.0 / 524288.0) % 360;
+    return qRound(BitParser::extract(m_initHex, Layer3dFormat::courseOffset, Layer3dFormat::courseBits)
+                  * 360.0 / Layer3dFormat::courseTurn) % 360;
 }
 
 bool ThreeDViewObject::setAircraftState(int x, int y, int altitude, int course)
 {
-    x = qBound(-65536, x, 65535);
-    y = qBound(-65536, y, 65535);
+    x = qBound(Layer3dFormat::minPosition, x, Layer3dFormat::maxPosition);
+    y = qBound(Layer3dFormat::minPosition, y, Layer3dFormat::maxPosition);
     course = (course % 360 + 360) % 360;
     const QString previous = m_initHex;
     if (x != aircraftX())
-        BitParser::inject(m_initHex, 17, 17, static_cast<quint32>(x));
+        BitParser::inject(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits, static_cast<quint32>(x));
     if (y != aircraftY())
-        BitParser::inject(m_initHex, 0, 17, static_cast<quint32>(y));
+        BitParser::inject(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits, static_cast<quint32>(y));
     if (altitude != aircraftAltitude()) {
-        // Match meters_to_height_raw, including its positive limit of 65535.
-        const int rawHeight = qMin(65535, qBound(-32768, altitude, 16384) * 4);
-        BitParser::inject(m_initHex, 53, 18, static_cast<quint32>(rawHeight));
+        const int rawHeight = qBound(Layer3dFormat::minHeightRaw,
+            qBound(-16384, altitude, 16384) * Layer3dFormat::heightUnitsPerMeter,
+            Layer3dFormat::maxHeightRaw);
+        BitParser::inject(m_initHex, Layer3dFormat::heightOffset, Layer3dFormat::heightBits, static_cast<quint32>(rawHeight));
     }
     if (course != aircraftCourse())
-        BitParser::inject(m_initHex, 34, 19, qRound(course * 524288.0 / 360.0) % 524288);
+        BitParser::inject(m_initHex, Layer3dFormat::courseOffset, Layer3dFormat::courseBits,
+                          qRound(course * double(Layer3dFormat::courseTurn) / 360.0) % Layer3dFormat::courseTurn);
     return previous != m_initHex;
 }
 
@@ -227,5 +268,5 @@ QRectF ThreeDViewObject::viewRect() const
     const double canvasW = qMax(1, project->getCanvasWidth());
     const double canvasH = qMax(1, project->getCanvasHeight());
     const double side = qMin(canvasW, canvasH);
-    return QRectF(canvasW - side, 0.0, side, canvasH);
+    return QRectF(m_leftAnchored ? 0.0 : canvasW - side, 0.0, side, canvasH);
 }

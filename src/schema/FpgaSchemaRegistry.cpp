@@ -1,16 +1,15 @@
 #include "FpgaSchemaRegistry.h"
+#include "fpga/model/Layer3dFormat.h"
 
 namespace {
 QList<FpgaSchemaField> layer3dFields()
 {
     return {
-        // FrameGUI/sending.py: pack_150bit(x_send, y_send, ...).
-        // Its argument order is (y_raw, x_raw), so Y occupies the low bits.
-        {"y", 0, 17},
-        {"x", 17, 17},
-        {"course", 34, 19},
-        {"height", 53, 18},
-        {"padding", 71, 79}
+        {"x", Layer3dFormat::xOffset, Layer3dFormat::coordinateBits},
+        {"y", Layer3dFormat::yOffset, Layer3dFormat::coordinateBits},
+        {"course", Layer3dFormat::courseOffset, Layer3dFormat::courseBits},
+        {"height", Layer3dFormat::heightOffset, Layer3dFormat::heightBits},
+        {"padding", Layer3dFormat::paddingOffset, Layer3dFormat::paddingBits}
     };
 }
 
