@@ -624,8 +624,10 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->sinVal = horizon->sinVal;
         clone->cosVal = horizon->cosVal;
         rawClone = clone;
-    } else if (dynamic_cast<ThreeDViewObject*>(source.data())) {
-        rawClone = new ThreeDViewObject();
+    } else if (auto threeDView = dynamic_cast<ThreeDViewObject*>(source.data())) {
+        auto *clone = new ThreeDViewObject();
+        clone->parse(threeDView->serializeInit(), FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d")));
+        rawClone = clone;
     } else if (auto text = dynamic_cast<TextObject*>(source.data())) {
         auto *clone = new TextObject();
         clone->states = text->states;
@@ -772,6 +774,13 @@ QString serializeStaticGroupData(const StaticGroupObject *group)
 QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const ParamSchema &schema, const QSharedPointer<BaseObject> &obj)
 {
     QDomElement objEl = doc.createElement(tagName);
+
+    if (auto threeDView = dynamic_cast<ThreeDViewObject*>(obj.data())) {
+        QDomElement initEl = doc.createElement("init");
+        initEl.appendChild(doc.createTextNode(threeDView->serializeInit()));
+        objEl.appendChild(initEl);
+        return objEl;
+    }
 
     if (auto staticGroup = dynamic_cast<StaticGroupObject*>(obj.data())) {
         objEl.setAttribute("nomber", staticGroup->groupNumber > 0 ? staticGroup->groupNumber : staticGroup->states.size());
@@ -1593,8 +1602,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     const ParamSchema fontSchema = registry->buildSchema(QStringLiteral("font"));
     const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
 
-    const ParamSchema layer3dSchema = schemas.value(
-        QStringLiteral("layer3d"), registry->buildSchema(QStringLiteral("layer3d")));
+    const ParamSchema layer3dSchema = registry->buildSchema(QStringLiteral("layer3d"));
     for (const auto &obj : objects) {
         if (dynamic_cast<ThreeDViewObject*>(obj.data()) && obj->isExportEnabled()) {
             objectsEl.appendChild(createObjectElement(
@@ -1865,6 +1873,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
         }
         else if (tagName == QStringLiteral("three_d_view")) {
             auto *threeDView = new ThreeDViewObject();
+            threeDView->parse(objEl.firstChildElement("init").text(), m_schemas.value(QStringLiteral("layer3d")));
             threeDView->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
             threeDView->setExportEnabled(true);
             m_objects.append(QSharedPointer<BaseObject>(threeDView));
@@ -2989,11 +2998,30 @@ const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { re
 QList<ProjectManager::ObjectGroup> ProjectManager::objectGroups() const { return m_groups; }
 bool ProjectManager::hasThreeDViewObject() const
 {
+    return threeDViewObject() != nullptr;
+}
+
+ThreeDViewObject *ProjectManager::threeDViewObject() const
+{
     for (const auto &object : m_objects) {
-        if (dynamic_cast<ThreeDViewObject*>(object.data()))
-            return true;
+        if (auto threeDView = dynamic_cast<ThreeDViewObject*>(object.data()))
+            return threeDView;
     }
-    return false;
+    return nullptr;
+}
+
+bool ProjectManager::setAircraftState(int x, int y, int altitude, int course, bool recordChange)
+{
+    auto *object = threeDViewObject();
+    if (!object || (object->aircraftX() == x && object->aircraftY() == y
+                   && object->aircraftAltitude() == altitude && object->aircraftCourse() == course))
+        return false;
+    if (recordChange)
+        recordHistory();
+    if (!object->setAircraftState(x, y, altitude, course))
+        return false;
+    emit projectChanged();
+    return true;
 }
 bool ProjectManager::showGrid() const { return m_showGrid; }
 bool ProjectManager::snapToCanvas() const { return m_snapToCanvas; }

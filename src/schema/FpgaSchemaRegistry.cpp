@@ -4,10 +4,13 @@ namespace {
 QList<FpgaSchemaField> layer3dFields()
 {
     return {
-        {"enb", 0, 1},
-        {"x0", 1, 12},
-        {"y0", 13, 12},
-        {"padding", 25, 125}
+        // FrameGUI/sending.py: pack_150bit(x_send, y_send, ...).
+        // Its argument order is (y_raw, x_raw), so Y occupies the low bits.
+        {"y", 0, 17},
+        {"x", 17, 17},
+        {"course", 34, 19},
+        {"height", 53, 18},
+        {"padding", 71, 79}
     };
 }
 

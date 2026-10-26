@@ -13,6 +13,7 @@
 #include "TextObject.h"
 
 class EditorProjectDocument;
+class ThreeDViewObject;
 
 enum class ObjectAlignment
 {
@@ -128,6 +129,8 @@ public:
     QList<ObjectGroup> objectGroups() const;
     //проверяет, добавлен ли в сцену редакторский объект 3D-вида
     bool hasThreeDViewObject() const;
+    ThreeDViewObject *threeDViewObject() const;
+    bool setAircraftState(int x, int y, int altitude, int course, bool recordChange = true);
 
     //возвращает имя проекта
     QString getProjectName() const;

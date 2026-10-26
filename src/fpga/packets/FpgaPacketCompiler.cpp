@@ -6,6 +6,7 @@
 #include "fpga/packets/FpgaPacketFramer.h"
 
 #include <QtGlobal>
+#include <algorithm>
 
 namespace {
 void appendUint16(QByteArray *data, quint16 value)
@@ -184,7 +185,11 @@ QByteArray FpgaPacketCompiler::memoryPayload(int memId, int address, const QByte
 
 QByteArray FpgaPacketCompiler::layer3dPayload(const QByteArray &data)
 {
-    return data;
+    // XML stores an integer in the usual hex order; pack_150bit in FrameGUI
+    // sends its 19 bytes little-endian. Other parameter packets stay unchanged.
+    QByteArray payload = data;
+    std::reverse(payload.begin(), payload.end());
+    return payload;
 }
 
 QList<QByteArray> FpgaPacketCompiler::encodeRotationTiles(const FpgaCompiledDocument &document,

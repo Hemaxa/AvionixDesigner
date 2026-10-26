@@ -35,6 +35,7 @@ private:
     class CourseKnobWidget;
 
     void syncScreen();
+    void syncFromProject();
     void syncAutopilotButtons();
     void applyControlScale();
     void updateAvailabilityOverlay();
@@ -60,5 +61,6 @@ private:
     double m_appliedControlScale = 0.0;
     bool m_autopilotEnabled = false;
     bool m_updatingControls = false;
+    bool m_syncingFromProject = false;
     bool m_threeDViewAvailable = false;
 };

@@ -126,6 +126,7 @@ qt_add_executable(AvionixDesigner
     src/utils/BitParser.h
     src/utils/XmlReader.h
     src/utils/ProportionalResize.h
+    src/utils/AircraftPositionMapping.h
     
     # Ресурсы
     res/resources.qrc

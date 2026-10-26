@@ -1,4 +1,4 @@
-//ThreeDViewObject - редакторская заглушка области 3D-вида
+//ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС
 
 #pragma once
 
@@ -25,8 +25,19 @@ public:
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;
 
+    int aircraftX() const;
+    int aircraftY() const;
+    int aircraftAltitude() const;
+    int aircraftCourse() const;
+    bool setAircraftState(int x, int y, int altitude, int course);
+    QString serializeInit() const;
+    QRectF aircraftMarkerRect() const;
+
 private:
     QRectF viewRect() const;
 
-    QSvgRenderer m_placeholderRenderer;
+    // Keep raw fields (including fractional course/height and reserved bits)
+    // intact until the corresponding control is changed.
+    QString m_initHex = QString(38, QLatin1Char('0'));
+    QSvgRenderer m_markerRenderer;
 };

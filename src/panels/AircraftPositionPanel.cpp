@@ -1,6 +1,9 @@
 // AircraftPositionPanel - панель позиционирования самолета в пространстве
 
 #include "AircraftPositionPanel.h"
+#include "AircraftPositionMapping.h"
+#include "ProjectManager.h"
+#include "ThreeDViewObject.h"
 
 #include <QAbstractSpinBox>
 #include <QFrame>
@@ -24,8 +27,8 @@
 #include <functional>
 
 namespace {
-constexpr int kMinPosition = -1000;
-constexpr int kMaxPosition = 1000;
+constexpr int kMinPosition = AircraftPositionMapping::minPosition;
+constexpr int kMaxPosition = AircraftPositionMapping::maxPosition;
 constexpr int kMinAltitude = 0;
 constexpr int kMaxAltitude = 10000;
 constexpr int kDefaultAutopilotIntervalMs = 90;
@@ -119,15 +122,7 @@ protected:
         fittedRect(rect().adjusted(12, 12, -12, -12), QSizeF(1.0, 1.0));
     drawSvg(&painter, m_screenRenderer, screenRect);
 
-    const double normX =
-        std::clamp(static_cast<double>(m_x) / static_cast<double>(kMaxPosition),
-                   -1.0, 1.0);
-    const double normY =
-        std::clamp(static_cast<double>(m_y) / static_cast<double>(kMaxPosition),
-                   -1.0, 1.0);
-    const QPointF aircraftCenter(
-        screenRect.center().x() + normX * screenRect.width() * 0.38,
-        screenRect.center().y() - normY * screenRect.height() * 0.38);
+    const QPointF aircraftCenter = AircraftPositionMapping::center(screenRect, m_x, m_y);
 
     const double aircraftHeight =
         screenRect.height() *
@@ -599,7 +594,15 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   };
 
   syncAutopilotButtons();
-  syncScreen();
+  connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, [this]() {
+    m_syncingFromProject = true;
+    setAutopilotEnabled(false);
+    m_syncingFromProject = false;
+    syncFromProject();
+  });
+  connect(ProjectManager::instance(), &ProjectManager::projectChanged,
+          this, &AircraftPositionPanel::syncFromProject);
+  syncFromProject();
   applyControlScale();
   updateAvailabilityOverlay();
 }
@@ -714,6 +717,7 @@ void AircraftPositionPanel::setAutopilotEnabled(bool enabled) {
 
   m_autopilotEnabled = enabled;
   if (m_autopilotEnabled) {
+    ProjectManager::instance()->recordObjectEdit();
     m_preciseX = m_xSpin->value();
     m_preciseY = m_ySpin->value();
     m_autopilotTimer->start();
@@ -740,6 +744,8 @@ void AircraftPositionPanel::advanceAutopilot() {
     m_preciseY = kMaxPosition;
 
   m_updatingControls = true;
+  const QSignalBlocker xBlocker(m_xSpin);
+  const QSignalBlocker yBlocker(m_ySpin);
   m_xSpin->setValue(static_cast<int>(std::round(m_preciseX)));
   m_ySpin->setValue(static_cast<int>(std::round(m_preciseY)));
   m_updatingControls = false;
@@ -757,6 +763,42 @@ void AircraftPositionPanel::syncScreen() {
   m_screenWidget->setState(m_xSpin->value(), m_ySpin->value(),
                            m_altitudeSpin->value(), m_courseSpin->value(),
                            m_autopilotEnabled);
+  if (!m_syncingFromProject && ProjectManager::instance()->hasThreeDViewObject())
+    ProjectManager::instance()->setAircraftState(m_xSpin->value(), m_ySpin->value(),
+                                                m_altitudeSpin->value(), m_courseSpin->value(),
+                                                !m_autopilotEnabled);
+}
+
+void AircraftPositionPanel::syncFromProject() {
+  if (m_syncingFromProject)
+    return;
+  m_syncingFromProject = true;
+  auto *object = ProjectManager::instance()->threeDViewObject();
+  setThreeDViewAvailable(object != nullptr);
+  const QSignalBlocker xBlocker(m_xSpin);
+  const QSignalBlocker yBlocker(m_ySpin);
+  const QSignalBlocker altitudeBlocker(m_altitudeSpin);
+  const QSignalBlocker courseBlocker(m_courseSpin);
+  const int x = object ? object->aircraftX() : 0;
+  const int y = object ? object->aircraftY() : 0;
+  const int altitude = object ? object->aircraftAltitude() : 0;
+  // Imported raw coordinates may exceed the panel's normal movement range.
+  // Display them without silently changing the stored position.
+  m_xSpin->setRange(qMin(kMinPosition, x), qMax(kMaxPosition, x));
+  m_ySpin->setRange(qMin(kMinPosition, y), qMax(kMaxPosition, y));
+  m_altitudeSpin->setRange(qMin(kMinAltitude, altitude), qMax(kMaxAltitude, altitude));
+  m_xSpin->setValue(x);
+  m_ySpin->setValue(y);
+  m_altitudeSpin->setValue(altitude);
+  m_courseSpin->setValue(object ? object->aircraftCourse() : 0);
+  if (!m_autopilotEnabled) {
+    m_preciseX = x;
+    m_preciseY = y;
+  }
+  m_altitudeSlider->setValue(altitude);
+  m_courseKnob->setCourse(m_courseSpin->value());
+  syncScreen();
+  m_syncingFromProject = false;
 }
 
 void AircraftPositionPanel::updateAvailabilityOverlay() {
