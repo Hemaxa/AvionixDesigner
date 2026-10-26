@@ -7,6 +7,7 @@
 
 #include <QAbstractSpinBox>
 #include <QFrame>
+#include <QFontMetricsF>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -98,16 +99,18 @@ public:
     setObjectName(QStringLiteral("AircraftPositionScreen"));
     m_screenRenderer.setAspectRatioMode(Qt::KeepAspectRatio);
     m_aircraftRenderer.setAspectRatioMode(Qt::KeepAspectRatio);
-    setMinimumSize(340, 340);
+    setMinimumSize(240, 240);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   }
 
-  void setState(int x, int y, int altitude, int course, bool autopilotEnabled) {
+  void setState(int x, int y, int altitude, int course, int cellSize) {
     m_x = x;
     m_y = y;
     m_altitude = altitude;
     m_course = course;
-    m_autopilotEnabled = autopilotEnabled;
+    m_cellSize = cellSize;
+    setToolTip(AircraftPositionMapping::cellLabel(x, y, cellSize) + QLatin1Char('\n')
+               + AircraftPositionMapping::coordinateLabel(x, y));
     update();
   }
 
@@ -116,22 +119,26 @@ protected:
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    painter.fillRect(rect(), QColor(6, 10, 13));
+    // Match the SVG background across the full widget, including any space
+    // beside the square radar when the panel has a different aspect ratio.
+    painter.fillRect(rect(), QColor(QStringLiteral("#22303c")));
 
     const QRectF screenRect =
-        fittedRect(rect().adjusted(12, 12, -12, -12), QSizeF(1.0, 1.0));
+        fittedRect(rect(), QSizeF(1.0, 1.0));
     drawSvg(&painter, m_screenRenderer, screenRect);
 
-    const QPointF aircraftCenter = AircraftPositionMapping::center(screenRect, m_x, m_y);
+    const QPointF aircraftCenter = AircraftPositionMapping::center(screenRect, m_x, m_y, 0, m_cellSize);
 
     const double aircraftHeight =
         screenRect.height() *
-        (0.16 + 0.04 * m_altitude / static_cast<double>(kMaxAltitude));
+        (0.16 + 0.04 * qBound(kMinAltitude, m_altitude, kMaxAltitude)
+                           / static_cast<double>(kMaxAltitude));
     const double aircraftWidth = aircraftHeight * 0.48;
     const QRectF aircraftRect(-aircraftWidth * 0.5, -aircraftHeight * 0.54,
                               aircraftWidth, aircraftHeight);
 
     painter.save();
+    painter.setClipRect(screenRect);
     painter.translate(aircraftCenter);
     painter.rotate(m_course);
     drawSvg(&painter, m_aircraftRenderer, aircraftRect);
@@ -141,6 +148,22 @@ protected:
     painter.setPen(QPen(QColor(0, 200, 240, 180), 1));
     painter.drawEllipse(aircraftCenter, 4, 4);
     painter.restore();
+
+    QFont captionFont = font();
+    captionFont.setPixelSize(13);
+    captionFont.setWeight(QFont::DemiBold);
+    painter.setFont(captionFont);
+    const QFontMetricsF metrics(captionFont);
+    const QString caption = metrics.elidedText(
+        AircraftPositionMapping::cellLabel(m_x, m_y, m_cellSize),
+        Qt::ElideRight, width() - 28.0);
+    const QRectF label(8, 8, metrics.horizontalAdvance(caption) + 12.0,
+                       metrics.height() + 8.0);
+    painter.setPen(QPen(QColor(QStringLiteral("#2d5667")), 1));
+    painter.setBrush(QColor(QStringLiteral("#142c37")));
+    painter.drawRoundedRect(label, 4, 4);
+    painter.setPen(QColor(QStringLiteral("#edf7fb")));
+    painter.drawText(label, Qt::AlignCenter, caption);
   }
 
 private:
@@ -150,7 +173,7 @@ private:
   int m_y = 0;
   int m_altitude = 0;
   int m_course = 0;
-  bool m_autopilotEnabled = false;
+  int m_cellSize = AircraftPositionMapping::defaultCellSize;
 };
 
 class AircraftPositionPanel::AltitudeSliderWidget : public QWidget {
@@ -362,8 +385,10 @@ protected:
     }
 
     painter.setPen(QColor(237, 247, 251));
-    painter.setFont(QFont(painter.font().family(),
-                          qMax(10, qRound(height() * 0.045)), QFont::DemiBold));
+    QFont cardinalFont = painter.font();
+    cardinalFont.setPixelSize(qBound(9, qRound(height() * 0.05), 12));
+    cardinalFont.setWeight(QFont::DemiBold);
+    painter.setFont(cardinalFont);
     drawCardinalLabel(&painter, baseRect, QStringLiteral("С 0°"), 0);
     drawCardinalLabel(&painter, baseRect, QStringLiteral("В 90°"), 90);
     drawCardinalLabel(&painter, baseRect, QStringLiteral("Ю 180°"), 180);
@@ -448,6 +473,10 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
                             kMaxPosition, 0);
   m_ySpin = createValueSpin(QStringLiteral("AircraftYSpin"), kMinPosition,
                             kMaxPosition, 0);
+  m_xSpin->setPrefix(QStringLiteral("X: "));
+  m_ySpin->setPrefix(QStringLiteral("Y: "));
+  m_xSpin->setToolTip(QStringLiteral("Координата X самолета в метрах; увеличивается вправо"));
+  m_ySpin->setToolTip(QStringLiteral("Координата Y самолета в метрах; увеличивается вверх"));
   m_altitudeSpin =
       createValueSpin(QStringLiteral("AircraftAltitudeSpin"), kMinAltitude,
                       kMaxAltitude, 0, QStringLiteral(" м"));
@@ -664,7 +693,7 @@ void AircraftPositionPanel::applyControlScale() {
   m_appliedControlScale = scale;
 
   const int compactFieldHeight = qRound(std::max(30.0, 32.0 * scale));
-  const QSize coordinateFieldSize(qRound(std::max(76.0, 84.0 * scale)),
+  const QSize coordinateFieldSize(qRound(std::max(112.0, 116.0 * scale)),
                                   compactFieldHeight);
   const QSize courseFieldSize(qRound(std::max(78.0, 84.0 * scale)),
                               compactFieldHeight);
@@ -729,19 +758,16 @@ void AircraftPositionPanel::setAutopilotEnabled(bool enabled) {
 }
 
 void AircraftPositionPanel::advanceAutopilot() {
+  if (!m_autopilotEnabled || !m_threeDViewAvailable)
+    return;
   const double radians =
       qDegreesToRadians(static_cast<double>(m_courseSpin->value()));
-  m_preciseX += std::sin(radians) * kAutopilotStep;
-  m_preciseY += std::cos(radians) * kAutopilotStep;
-
-  if (m_preciseX > kMaxPosition)
-    m_preciseX = kMinPosition;
-  if (m_preciseX < kMinPosition)
-    m_preciseX = kMaxPosition;
-  if (m_preciseY > kMaxPosition)
-    m_preciseY = kMinPosition;
-  if (m_preciseY < kMinPosition)
-    m_preciseY = kMaxPosition;
+  const double nextX = m_preciseX + std::sin(radians) * kAutopilotStep;
+  const double nextY = m_preciseY + std::cos(radians) * kAutopilotStep;
+  const bool reachedLimit = nextX < kMinPosition || nextX > kMaxPosition
+      || nextY < kMinPosition || nextY > kMaxPosition;
+  m_preciseX = std::clamp(nextX, double(kMinPosition), double(kMaxPosition));
+  m_preciseY = std::clamp(nextY, double(kMinPosition), double(kMaxPosition));
 
   m_updatingControls = true;
   const QSignalBlocker xBlocker(m_xSpin);
@@ -750,6 +776,11 @@ void AircraftPositionPanel::advanceAutopilot() {
   m_ySpin->setValue(static_cast<int>(std::round(m_preciseY)));
   m_updatingControls = false;
   syncScreen();
+  if (reachedLimit) {
+    setAutopilotEnabled(false);
+    emit ProjectManager::instance()->logMessage(QStringLiteral(
+        "Автопилот остановлен: достигнута граница диапазона координат 3D-вида."));
+  }
 }
 
 void AircraftPositionPanel::syncAutopilotButtons() {
@@ -762,7 +793,7 @@ void AircraftPositionPanel::syncAutopilotButtons() {
 void AircraftPositionPanel::syncScreen() {
   m_screenWidget->setState(m_xSpin->value(), m_ySpin->value(),
                            m_altitudeSpin->value(), m_courseSpin->value(),
-                           m_autopilotEnabled);
+                           ProjectManager::instance()->aircraftMapCellSize());
   if (!m_syncingFromProject && ProjectManager::instance()->hasThreeDViewObject())
     ProjectManager::instance()->setAircraftState(m_xSpin->value(), m_ySpin->value(),
                                                 m_altitudeSpin->value(), m_courseSpin->value(),
@@ -782,8 +813,11 @@ void AircraftPositionPanel::syncFromProject() {
   const int x = object ? object->aircraftX() : 0;
   const int y = object ? object->aircraftY() : 0;
   const int altitude = object ? object->aircraftAltitude() : 0;
-  // Imported raw coordinates may exceed the panel's normal movement range.
-  // Display them without silently changing the stored position.
+  // Undo, redo or loading another state must not be overwritten by the next
+  // timer tick using stale fractional coordinates from the previous flight.
+  if (m_autopilotEnabled && (x != m_xSpin->value() || y != m_ySpin->value()))
+    setAutopilotEnabled(false);
+  // Keep imported height values without changing their raw representation.
   m_xSpin->setRange(qMin(kMinPosition, x), qMax(kMaxPosition, x));
   m_ySpin->setRange(qMin(kMinPosition, y), qMax(kMaxPosition, y));
   m_altitudeSpin->setRange(qMin(kMinAltitude, altitude), qMax(kMaxAltitude, altitude));

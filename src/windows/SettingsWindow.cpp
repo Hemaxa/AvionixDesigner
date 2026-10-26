@@ -1,4 +1,5 @@
 #include "SettingsWindow.h"
+#include "AircraftPositionMapping.h"
 #include "AppearanceManager.h"
 #include "ProjectManager.h"
 
@@ -63,6 +64,18 @@ void SettingsWindow::createWidgets()
 
     m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
     generalLayout->addRow(m_autoLoadCheck);
+    m_aircraftMapCellSizeSpin = new QSpinBox(this);
+    m_aircraftMapCellSizeSpin->setObjectName(QStringLiteral("AircraftMapCellSizeSpin"));
+    m_aircraftMapCellSizeSpin->setRange(AircraftPositionMapping::minCellSize,
+                                      AircraftPositionMapping::maxCellSize);
+    m_aircraftMapCellSizeSpin->setSingleStep(100);
+    m_aircraftMapCellSizeSpin->setSuffix(QStringLiteral(" м"));
+    m_aircraftMapCellSizeSpin->setToolTip(QStringLiteral(
+        "Сторона квадрата карты 3D-вида в метрах.\n"
+        "Квадрат [0; 0] расположен вокруг начала координат.\n"
+        "Индексы квадрата: [X; Y]; вправо и вверх — положительные направления.\n"
+        "Изменение масштаба карты не меняет координаты самолета."));
+    generalLayout->addRow(QStringLiteral("Сторона квадрата 3D-карты:"), m_aircraftMapCellSizeSpin);
     settingsLayout->addWidget(generalGroup);
 
     auto *snapGroup = new QGroupBox(QStringLiteral("Сетка и привязки"), this);
@@ -229,6 +242,7 @@ void SettingsWindow::loadSettings()
 {
     QSettings settings("Avionix", "Designer");
     m_autoLoadCheck->setChecked(settings.value("autoLoad", false).toBool());
+    m_aircraftMapCellSizeSpin->setValue(ProjectManager::instance()->aircraftMapCellSize());
 
     m_gridStepSpin->setValue(qBound(1, settings.value("gridStep", 10).toInt(), 1000));
     m_currentGridColor = QColor(settings.value("gridColor", "#3778b4c8").toString());
@@ -245,6 +259,7 @@ void SettingsWindow::saveSettings()
 {
     QSettings settings("Avionix", "Designer");
     settings.setValue("autoLoad", m_autoLoadCheck->isChecked());
+    settings.setValue("aircraftMapCellSize", m_aircraftMapCellSizeSpin->value());
     settings.setValue("gridStep", m_gridStepSpin->value());
     settings.setValue("gridColor", m_currentGridColor.name(QColor::HexArgb));
     settings.setValue("snapCanvasGuideColor", m_currentSnapCanvasColor.name(QColor::HexArgb));

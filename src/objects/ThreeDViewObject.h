@@ -35,6 +35,7 @@ public:
 
 private:
     QRectF viewRect() const;
+    QFont annotationFont() const;
 
     // Keep raw fields (including fractional course/height and reserved bits)
     // intact until the corresponding control is changed.

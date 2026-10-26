@@ -5,7 +5,14 @@
 #include "FpgaSchemaRegistry.h"
 #include "ProjectManager.h"
 
+#include <QFontMetricsF>
 #include <QtMath>
+
+namespace {
+// Draw in a fixed design space, then scale the entire view together. This
+// avoids a minimum font size becoming oversized when a small canvas is zoomed.
+constexpr double kReferenceSide = 768.0;
+}
 
 ThreeDViewObject::ThreeDViewObject(QObject *parent)
     : BaseObject(parent),
@@ -28,11 +35,15 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
 
 void ThreeDViewObject::draw(QPainter &painter)
 {
-    const QRectF rect = viewRect();
-    if (rect.isEmpty())
+    const QRectF view = viewRect();
+    if (view.isEmpty())
         return;
 
+    const double scale = view.width() / kReferenceSide;
+    const QRectF rect(QPointF(0, 0), view.size() / scale);
     painter.save();
+    painter.translate(view.topLeft());
+    painter.scale(scale, scale);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
     painter.setPen(QPen(QColor(QStringLiteral("#2d5667")), 1.5));
@@ -40,8 +51,35 @@ void ThreeDViewObject::draw(QPainter &painter)
     painter.drawRect(rect.adjusted(0.6, 0.6, -0.6, -0.6));
 
     painter.setClipRect(rect, Qt::IntersectClip);
+    const QRectF worldMarker = aircraftMarkerRect();
+    const QRectF marker((worldMarker.topLeft() - view.topLeft()) / scale,
+                         worldMarker.size() / scale);
     if (m_markerRenderer.isValid())
-        m_markerRenderer.render(&painter, aircraftMarkerRect());
+        m_markerRenderer.render(&painter, marker);
+
+    painter.setFont(annotationFont());
+    const QFontMetricsF metrics(painter.font());
+    const double availableWidth = rect.width() - 16.0;
+    const QString coordinates = metrics.elidedText(
+        AircraftPositionMapping::coordinateLabel(aircraftX(), aircraftY()),
+        Qt::ElideRight, availableWidth - 12.0);
+    const double labelWidth = qMin(availableWidth, metrics.horizontalAdvance(coordinates) + 12.0);
+    const double labelHeight = metrics.height() + 8.0;
+    const double left = qBound(rect.left() + 8.0, marker.center().x() - labelWidth * 0.5,
+                               rect.right() - 8.0 - labelWidth);
+    const QRectF label(left, marker.top() - labelHeight - 4.0, labelWidth, labelHeight);
+    painter.setPen(QPen(QColor(QStringLiteral("#2d5667")), 1));
+    painter.setBrush(QColor(QStringLiteral("#142c37")));
+    painter.drawRoundedRect(label, 4, 4);
+    painter.setPen(QColor(QStringLiteral("#edf7fb")));
+    painter.drawText(label, Qt::AlignCenter, coordinates);
+
+    painter.setPen(QColor(QStringLiteral("#9fb3c1")));
+    painter.drawText(QRectF(rect.left() + 8.0, rect.bottom() - labelHeight - 4.0,
+                            availableWidth, labelHeight), Qt::AlignLeft | Qt::AlignVCenter,
+                     metrics.elidedText(AircraftPositionMapping::cellLabel(
+                         aircraftX(), aircraftY(), ProjectManager::instance()->aircraftMapCellSize()),
+                         Qt::ElideRight, availableWidth));
 
     painter.restore();
 }
@@ -160,12 +198,27 @@ QString ThreeDViewObject::serializeInit() const
 
 QRectF ThreeDViewObject::aircraftMarkerRect() const
 {
-    const QRectF rect = viewRect();
-    const double inset = qMin(2.0, qMin(rect.width(), rect.height()) * 0.25);
-    const QRectF inner = rect.adjusted(inset, inset, -inset, -inset);
-    const double size = qMin(24.0, qMin(inner.width(), inner.height()));
-    const QPointF center = AircraftPositionMapping::center(inner, aircraftX(), aircraftY(), size);
-    return QRectF(center.x() - size * 0.5, center.y() - size * 0.5, size, size);
+    const QRectF view = viewRect();
+    const double scale = view.width() / kReferenceSide;
+    const QRectF rect(QPointF(0, 0), view.size() / scale);
+    // Reserve proportional space above the marker and below the map so
+    // neither label overlaps the dot, even at the four corners of a tile.
+    const double textHeight = QFontMetricsF(annotationFont()).height();
+    const QRectF inner = rect.adjusted(2, 2 + textHeight + 20.0,
+                                      -2, -2 - textHeight - 16.0);
+    const double size = 24.0;
+    const QPointF center = AircraftPositionMapping::center(inner, aircraftX(), aircraftY(), size,
+                                                          ProjectManager::instance()->aircraftMapCellSize());
+    return QRectF(view.topLeft() + (center - QPointF(size * 0.5, size * 0.5)) * scale,
+                  QSizeF(size * scale, size * scale));
+}
+
+QFont ThreeDViewObject::annotationFont() const
+{
+    QFont font;
+    font.setPixelSize(20);
+    font.setWeight(QFont::DemiBold);
+    return font;
 }
 
 QRectF ThreeDViewObject::viewRect() const

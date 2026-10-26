@@ -153,6 +153,7 @@ public:
 
     //возвращает шаг сетки в пикселях
     int gridStep() const;
+    int aircraftMapCellSize() const;
     //возвращает цвет сетки
     QColor gridColor() const;
     //возвращает цвет направляющих привязки к экрану
@@ -223,6 +224,7 @@ private:
     bool m_snapToObjects = false;
     
     int m_gridStep = 10;
+    int m_aircraftMapCellSize = 2000;
     QColor m_gridColor = QColor(120, 180, 200, 55);
     QColor m_snapCanvasGuideColor = QColor(255, 92, 122, 210);
     QColor m_snapGridGuideColor = QColor(86, 211, 255, 210);
