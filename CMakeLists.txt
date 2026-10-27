@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 1.0.5 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.6 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg SerialPort)
 
@@ -171,6 +171,12 @@ set_target_properties(AvionixDesigner PROPERTIES
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
 )
+
+option(AVIONIX_BUILD_TESTS "Build protocol and UART integration checks" OFF)
+if(AVIONIX_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests/protocol)
+endif()
 
 file(COPY ${CMAKE_SOURCE_DIR}/res DESTINATION ${CMAKE_BINARY_DIR})
 

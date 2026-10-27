@@ -118,6 +118,10 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
     while (!objectEl.isNull()) {
         FpgaCompiledObject object;
         object.type = canonicalCompiledName(objectEl.tagName());
+        for (QDomNode node = objectEl.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            if (node.isComment() && node.nodeValue().trimmed() == QStringLiteral("AvionixDesigner: 3D view left"))
+                object.leftAnchored = true;
+        }
 
         QDomElement childEl = objectEl.firstChildElement();
         while (!childEl.isNull()) {

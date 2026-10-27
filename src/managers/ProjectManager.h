@@ -130,7 +130,9 @@ public:
     //проверяет, добавлен ли в сцену редакторский объект 3D-вида
     bool hasThreeDViewObject() const;
     ThreeDViewObject *threeDViewObject() const;
-    bool setAircraftState(int x, int y, double altitude, int course, int pitch, bool recordChange = true);
+    bool isAircraftStateChange() const { return m_aircraftStateChange; }
+    quint64 sceneRevision() const { return m_sceneRevision; }
+    bool setAircraftState(double x, double y, double altitude, double course, int screenY, bool recordChange = true);
 
     //возвращает имя проекта
     QString getProjectName() const;
@@ -217,6 +219,8 @@ private:
     QList<QSharedPointer<BaseObject>> m_clipboardObjects;
     QStringList m_clipboardTags;
     QList<ObjectGroup> m_clipboardGroups;
+    quint64 m_sceneRevision = 0;
+    bool m_aircraftStateChange = false;
     bool m_showGrid = false;
     bool m_snapToCanvas = true;
     bool m_snapToGrid = false;

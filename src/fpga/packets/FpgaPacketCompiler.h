@@ -15,6 +15,8 @@ public:
     static QByteArray parameterPayload(int objId, const QByteArray &data);
     static QByteArray memoryPayload(int memId, int address, const QByteArray &data);
     static QByteArray layer3dPayload(const QByteArray &data);
+    static FpgaPacket layer3dSidePacket(bool left);
+    static FpgaPacket layer3dPositionPacket(const QString &initHex);
 
 private:
     QList<QByteArray> encodeRotationTiles(const FpgaCompiledDocument &document,

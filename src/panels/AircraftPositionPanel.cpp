@@ -33,9 +33,9 @@ namespace {
 constexpr int kMinPosition = AircraftPositionMapping::minPosition;
 constexpr int kMaxPosition = AircraftPositionMapping::maxPosition;
 constexpr double kMinAltitude = 0.0;
-constexpr double kMaxAltitude = 10000.0;
-constexpr int kDefaultAutopilotIntervalMs = 90;
-constexpr double kAutopilotStep = 2.5;
+constexpr double kMaxAltitude = Layer3dFormat::maxHeight;
+constexpr int kDefaultAutopilotIntervalMs = 16;
+constexpr double kAutopilotSpeedKmh = 1400.0;
 constexpr double kMinimumPanelScale = 0.60;
 constexpr double kMaximumPanelScale = 1.0;
 
@@ -56,13 +56,7 @@ const QString kAutopilotOffIcon =
 const QString kAutopilotOnIcon =
     QStringLiteral(":/icons/icons/aircraft-position/autopilot-button-on.svg");
 
-double normalizedCourse(double value) {
-  while (value < 0.0)
-    value += 360.0;
-  while (value >= 360.0)
-    value -= 360.0;
-  return value;
-}
+double normalizedCourse(double value) { return Layer3dFormat::normalizedCourse(value); }
 
 QRectF fittedRect(const QRectF &bounds, const QSizeF &aspect) {
   if (bounds.isEmpty() || aspect.isEmpty())
@@ -85,6 +79,20 @@ void drawSvg(QPainter *painter, QSvgRenderer &renderer, const QRectF &target) {
     renderer.render(painter, target);
 }
 
+class AircraftValueSpin : public QDoubleSpinBox {
+public:
+  explicit AircraftValueSpin(QWidget *parent) : QDoubleSpinBox(parent) {}
+protected:
+  QString textFromValue(double value) const override {
+    QLocale displayLocale = locale();
+    displayLocale.setNumberOptions(displayLocale.numberOptions() | QLocale::OmitGroupSeparator);
+    QString text = displayLocale.toString(value, 'f', decimals());
+    while (text.endsWith(QLatin1Char('0')) && text.contains(locale().decimalPoint())) text.chop(1);
+    if (text.endsWith(locale().decimalPoint())) text.chop(locale().decimalPoint().size());
+    return text;
+  }
+};
+
 QLabel *createCaption(const QString &text, QWidget *parent) {
   auto *label = new QLabel(text, parent);
   label->setObjectName(QStringLiteral("AircraftPositionCaption"));
@@ -105,7 +113,7 @@ public:
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   }
 
-  void setState(int x, int y, double altitude, int course) {
+  void setState(double x, double y, double altitude, double course) {
     m_x = x;
     m_y = y;
     m_altitude = altitude;
@@ -135,14 +143,14 @@ protected:
     const QRectF aircraftRect(-aircraftWidth * 0.5, -aircraftHeight * 0.54,
                               aircraftWidth, aircraftHeight);
     // Fit the rotated aircraft exactly against the corresponding map edges.
-    const QRectF rotatedBounds = QTransform().rotate(m_course).mapRect(aircraftRect);
+    const QRectF rotatedBounds = QTransform().rotate(90.0 - m_course).mapRect(aircraftRect);
     const QPointF aircraftCenter = AircraftPositionMapping::center(
         screenRect, m_x, m_y, rotatedBounds.size()) - rotatedBounds.center();
 
     painter.save();
     painter.setClipRect(screenRect);
     painter.translate(aircraftCenter);
-    painter.rotate(m_course);
+    painter.rotate(90.0 - m_course);
     drawSvg(&painter, m_aircraftRenderer, aircraftRect);
     painter.restore();
 
@@ -155,10 +163,10 @@ protected:
 private:
   QSvgRenderer m_screenRenderer;
   QSvgRenderer m_aircraftRenderer;
-  int m_x = 0;
-  int m_y = 0;
+  double m_x = 0;
+  double m_y = 0;
   double m_altitude = 0.0;
-  int m_course = 0;
+  double m_course = 0;
 };
 
 class AircraftPositionPanel::AltitudeSliderWidget : public QWidget {
@@ -218,12 +226,14 @@ protected:
     }
 
     painter.setPen(QColor(237, 247, 251));
-    painter.setFont(QFont(painter.font().family(),
-                          qMax(10, qRound(width() * 0.056)), QFont::DemiBold));
+    QFont valueFont = painter.font();
+    valueFont.setPixelSize(qMax(7, qRound(width() * 0.055)));
+    valueFont.setWeight(QFont::DemiBold);
+    painter.setFont(valueFont);
     const double labelX = tickX + width() * 0.15;
     painter.drawText(
         QRectF(labelX, valueRange.top() - 14, width() - labelX, 28),
-        Qt::AlignLeft | Qt::AlignVCenter, QString::number(kMaxAltitude));
+        Qt::AlignLeft | Qt::AlignVCenter, QString::number(kMaxAltitude, 'f', 2));
     painter.drawText(
         QRectF(labelX, valueRange.bottom() - 14, width() - labelX, 28),
         Qt::AlignLeft | Qt::AlignVCenter, QString::number(kMinAltitude));
@@ -318,21 +328,20 @@ public:
     setFocusPolicy(Qt::StrongFocus);
   }
 
-  void setCourse(int course) {
-    const int nextCourse =
-        static_cast<int>(std::round(normalizedCourse(course)));
+  void setCourse(double course) {
+    const double nextCourse = normalizedCourse(course);
     if (m_course == nextCourse)
       return;
     m_course = nextCourse;
     update();
   }
 
-  int course() const { return m_course; }
+  double course() const { return m_course; }
   void setControlScale(double scale) {
     setFixedSize(qRound(260 * scale), qRound(224 * scale));
     update();
   }
-  std::function<void(int)> courseChanged;
+  std::function<void(double)> courseChanged;
 
 protected:
   void paintEvent(QPaintEvent *) override {
@@ -351,7 +360,7 @@ protected:
 
     painter.save();
     painter.translate(knobRect.center());
-    painter.rotate(m_course);
+    painter.rotate(90.0 - m_course);
     const double pointerSize = knobRect.width() * 0.95;
     drawSvg(&painter, m_pointerRenderer,
             QRectF(-pointerSize * 0.5, -pointerSize * 0.5, pointerSize,
@@ -383,14 +392,14 @@ protected:
     cardinalFont.setPixelSize(qBound(9, qRound(height() * 0.05), 12));
     cardinalFont.setWeight(QFont::DemiBold);
     painter.setFont(cardinalFont);
-    drawCardinalLabel(&painter, baseRect, QStringLiteral("С 0°"), 0);
-    drawCardinalLabel(&painter, baseRect, QStringLiteral("В 90°"), 90);
-    drawCardinalLabel(&painter, baseRect, QStringLiteral("Ю 180°"), 180);
-    drawCardinalLabel(&painter, baseRect, QStringLiteral("З 270°"), 270);
+    drawCardinalLabel(&painter, baseRect, QStringLiteral("С 90°"), 0);
+    drawCardinalLabel(&painter, baseRect, QStringLiteral("В 0°"), 90);
+    drawCardinalLabel(&painter, baseRect, QStringLiteral("Ю 270°"), 180);
+    drawCardinalLabel(&painter, baseRect, QStringLiteral("З 180°"), 270);
   }
 
   void mousePressEvent(QMouseEvent *event) override {
-    updateFromPosition(event->position());
+    if (event->button() == Qt::LeftButton) updateFromPosition(event->position());
   }
 
   void mouseMoveEvent(QMouseEvent *event) override {
@@ -399,7 +408,8 @@ protected:
   }
 
   void wheelEvent(QWheelEvent *event) override {
-    const int direction = event->angleDelta().y() >= 0 ? 1 : -1;
+    if (!event->angleDelta().y()) return;
+    const int direction = event->angleDelta().y() > 0 ? 1 : -1;
     updateCourse(m_course +
                  direction * (event->modifiers() & Qt::ShiftModifier ? 10 : 1));
   }
@@ -437,13 +447,11 @@ private:
   void updateFromPosition(const QPointF &position) {
     const QPointF center = rect().center();
     const QPointF delta = position - center;
-    updateCourse(static_cast<int>(std::round(normalizedCourse(
-        qRadiansToDegrees(std::atan2(delta.x(), -delta.y()))))));
+    updateCourse(qRound(normalizedCourse(qRadiansToDegrees(std::atan2(-delta.y(), delta.x()))) * 20.0) / 20.0);
   }
 
-  void updateCourse(int course) {
-    const int nextCourse =
-        static_cast<int>(std::round(normalizedCourse(course)));
+  void updateCourse(double course) {
+    const double nextCourse = normalizedCourse(course);
     if (nextCourse == m_course)
       return;
     m_course = nextCourse;
@@ -454,7 +462,7 @@ private:
 
   QSvgRenderer m_baseRenderer;
   QSvgRenderer m_pointerRenderer;
-  int m_course = 0;
+  double m_course = 0;
 };
 
 AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
@@ -463,14 +471,24 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   setMinimumSize(800, 360);
 
   m_screenWidget = new ScreenWidget(this);
-  m_xSpin = createValueSpin(QStringLiteral("AircraftXSpin"), kMinPosition,
-                            kMaxPosition, 0);
-  m_ySpin = createValueSpin(QStringLiteral("AircraftYSpin"), kMinPosition,
-                            kMaxPosition, 0);
+  auto createFractionalSpin = [this](const QString &name, double min, double max, double step) {
+    auto *spin = new AircraftValueSpin(this);
+    spin->setObjectName(name);
+    spin->setDecimals(6);
+    spin->setRange(min, max);
+    spin->setSingleStep(step);
+    spin->setKeyboardTracking(false);
+    spin->setGroupSeparatorShown(false);
+    spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spin->setAlignment(Qt::AlignCenter);
+    return spin;
+  };
+  m_xSpin = createFractionalSpin(QStringLiteral("AircraftXSpin"), kMinPosition, kMaxPosition, 1.0 / 64);
+  m_ySpin = createFractionalSpin(QStringLiteral("AircraftYSpin"), kMinPosition, kMaxPosition, 1.0 / 64);
   m_xSpin->setPrefix(QStringLiteral("X: "));
   m_ySpin->setPrefix(QStringLiteral("Y: "));
-  m_xSpin->setToolTip(QStringLiteral("Координата X самолета в метрах; увеличивается вправо"));
-  m_ySpin->setToolTip(QStringLiteral("Координата Y самолета в метрах; увеличивается вверх"));
+  m_xSpin->setToolTip(QStringLiteral("X в точках карты: 1 точка = 32 м; шаг 1/64 точки"));
+  m_ySpin->setToolTip(QStringLiteral("Y в точках карты: 1 точка = 32 м; увеличивается вверх"));
   m_altitudeSpin = new QDoubleSpinBox(this);
   m_altitudeSpin->setObjectName(QStringLiteral("AircraftAltitudeSpin"));
   m_altitudeSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
@@ -481,30 +499,31 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   m_altitudeSpin->setSingleStep(Layer3dFormat::heightStep);
   m_altitudeSpin->setSuffix(QStringLiteral(" м"));
   m_altitudeSpin->setToolTip(QStringLiteral("Высота самолета с шагом 0,25 м"));
-  m_courseSpin = createValueSpin(QStringLiteral("AircraftCourseSpin"), 0, 359,
-                                 0, QStringLiteral("°"));
-  m_pitchSpin = createValueSpin(QStringLiteral("AircraftPitchSpin"),
-                                Layer3dFormat::minPitch, Layer3dFormat::maxPitch,
-                                0, QStringLiteral("°"));
-  m_pitchSpin->setToolTip(QStringLiteral("Тангаж самолета в целых градусах (−512…511°)"));
-  auto createPitchButton = [this](const QString &direction, const QString &tooltip) {
+  m_courseSpin = createFractionalSpin(QStringLiteral("AircraftCourseSpin"), 0, 359.999313, 0.05);
+  m_courseSpin->setSuffix(QStringLiteral("°"));
+  m_courseSpin->setWrapping(true);
+  m_courseSpin->setToolTip(QStringLiteral("Курс ПЛИС: 0° = +X, 90° = +Y"));
+  m_screenYSpin = createValueSpin(QStringLiteral("AircraftScreenYSpin"),
+      Layer3dFormat::minScreenY, Layer3dFormat::maxScreenY, Layer3dFormat::defaultScreenY);
+  m_screenYSpin->setToolTip(QStringLiteral("Вертикальная координата экрана: 0…1023"));
+  auto createScreenYButton = [this](const QString &direction, const QString &tooltip) {
     auto *button = new QToolButton(this);
-    button->setObjectName(QStringLiteral("AircraftPitchButton"));
+    button->setObjectName(QStringLiteral("AircraftScreenYButton"));
     button->setAccessibleName(tooltip);
     button->setToolTip(tooltip);
     button->setAutoRaise(true);
     button->setAutoRepeat(true);
     button->setAutoRepeatDelay(350);
     button->setAutoRepeatInterval(90);
-    const QString normal = QStringLiteral(":/icons/icons/aircraft-position/pitch-%1.svg").arg(direction);
-    const QString pressed = QStringLiteral(":/icons/icons/aircraft-position/pitch-%1-pressed.svg").arg(direction);
+    const QString normal = QStringLiteral(":/icons/icons/aircraft-position/screen-y-%1.svg").arg(direction);
+    const QString pressed = QStringLiteral(":/icons/icons/aircraft-position/screen-y-%1-pressed.svg").arg(direction);
     button->setIcon(QIcon(normal));
     connect(button, &QToolButton::pressed, this, [button, pressed]() { button->setIcon(QIcon(pressed)); });
     connect(button, &QToolButton::released, this, [button, normal]() { button->setIcon(QIcon(normal)); });
     return button;
   };
-  m_pitchUpButton = createPitchButton(QStringLiteral("up"), QStringLiteral("Увеличить тангаж"));
-  m_pitchDownButton = createPitchButton(QStringLiteral("down"), QStringLiteral("Уменьшить тангаж"));
+  m_screenYUpButton = createScreenYButton(QStringLiteral("up"), QStringLiteral("Увеличить Y экрана"));
+  m_screenYDownButton = createScreenYButton(QStringLiteral("down"), QStringLiteral("Уменьшить Y экрана"));
   m_altitudeSlider = new AltitudeSliderWidget(this);
   m_altitudeSlider->setToolTip(QStringLiteral("Шаг 0,25 м: стрелки ↑/↓ или колесо мыши.\n"
                                            "Шаг 100 м: Page Up/Page Down или Shift + колесо."));
@@ -514,13 +533,14 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   m_autopilotButton = new QToolButton(this);
   m_autopilotTimer = new QTimer(this);
   m_autopilotTimer->setInterval(kDefaultAutopilotIntervalMs);
+  m_autopilotTimer->setTimerType(Qt::PreciseTimer);
 
   m_autopilotButton->setObjectName(QStringLiteral("AircraftAutopilotButton"));
   m_autopilotButton->setCheckable(true);
   m_autopilotButton->setAutoRaise(true);
   m_autopilotButton->setFixedSize(92, 54);
   m_autopilotButton->setIconSize(QSize(92, 54));
-  m_autopilotButton->setToolTip(QStringLiteral("Автопилот"));
+  m_autopilotButton->setToolTip(QStringLiteral("Автопилот: 1400 км/ч; 0° = +X, 90° = +Y"));
 
   auto *coordinateLayout = new QGridLayout();
   coordinateLayout->setContentsMargins(0, 0, 0, 0);
@@ -529,14 +549,14 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   coordinateLayout->addWidget(m_xSpin, 0, 0, Qt::AlignCenter);
   coordinateLayout->addWidget(m_ySpin, 1, 0, Qt::AlignCenter);
 
-  m_pitchControlArea = new QWidget(this);
-  auto *pitchLayout = new QGridLayout(m_pitchControlArea);
-  pitchLayout->setContentsMargins(0, 0, 0, 0);
-  pitchLayout->setHorizontalSpacing(8);
-  pitchLayout->setVerticalSpacing(6);
-  pitchLayout->addWidget(m_pitchSpin, 0, 0, 2, 1, Qt::AlignCenter);
-  pitchLayout->addWidget(m_pitchUpButton, 0, 1, Qt::AlignCenter);
-  pitchLayout->addWidget(m_pitchDownButton, 1, 1, Qt::AlignCenter);
+  m_screenYControlArea = new QWidget(this);
+  auto *screenYLayout = new QGridLayout(m_screenYControlArea);
+  screenYLayout->setContentsMargins(0, 0, 0, 0);
+  screenYLayout->setHorizontalSpacing(8);
+  screenYLayout->setVerticalSpacing(6);
+  screenYLayout->addWidget(m_screenYSpin, 0, 0, 2, 1, Qt::AlignCenter);
+  screenYLayout->addWidget(m_screenYUpButton, 0, 1, Qt::AlignCenter);
+  screenYLayout->addWidget(m_screenYDownButton, 1, 1, Qt::AlignCenter);
 
   auto *courseControlLayout = new QVBoxLayout(m_courseControlArea);
   courseControlLayout->setContentsMargins(0, 0, 0, 0);
@@ -577,10 +597,10 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   topRow->setHorizontalSpacing(20);
   topRow->setVerticalSpacing(6);
   topRow->addWidget(createCaption(QStringLiteral("Координаты"), this), 0, 0);
-  topRow->addWidget(createCaption(QStringLiteral("Тангаж"), this), 0, 1);
+  topRow->addWidget(createCaption(QStringLiteral("Y экрана"), this), 0, 1);
   topRow->addWidget(createCaption(QStringLiteral("Автопилот"), this), 0, 2);
   topRow->addLayout(coordinateLayout, 1, 0, Qt::AlignCenter);
-  topRow->addWidget(m_pitchControlArea, 1, 1, Qt::AlignCenter);
+  topRow->addWidget(m_screenYControlArea, 1, 1, Qt::AlignCenter);
   topRow->addWidget(m_autopilotButton, 1, 2, Qt::AlignCenter);
   auto *bottomRow = new QHBoxLayout();
   bottomRow->setSpacing(10);
@@ -613,35 +633,35 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   overlayLayout->addStretch(1);
   m_unavailableOverlay->hide();
 
-  connect(m_xSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
-          [this](int value) {
+  connect(m_xSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [this](double value) {
             if (!m_updatingControls)
               m_preciseX = value;
             syncScreen();
           });
-  connect(m_ySpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
-          [this](int value) {
+  connect(m_ySpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [this](double value) {
             if (!m_updatingControls)
               m_preciseY = value;
             syncScreen();
           });
   connect(m_altitudeSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
           [this](double value) {
-            const double snapped = qRound(value * Layer3dFormat::heightUnitsPerMeter) * Layer3dFormat::heightStep;
+            const double snapped = Layer3dFormat::roundRaw(value * Layer3dFormat::heightUnitsPerMeter) * Layer3dFormat::heightStep;
             const QSignalBlocker blocker(m_altitudeSpin);
             m_altitudeSpin->setValue(snapped);
             m_altitudeSlider->setValue(snapped);
             syncScreen();
           });
-  connect(m_courseSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
-          [this](int value) {
+  connect(m_courseSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [this](double value) {
             m_courseKnob->setCourse(value);
             syncScreen();
           });
-  connect(m_pitchSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+  connect(m_screenYSpin, QOverload<int>::of(&QSpinBox::valueChanged),
           this, [this]() { syncScreen(); });
-  connect(m_pitchUpButton, &QToolButton::pressed, m_pitchSpin, &QSpinBox::stepUp);
-  connect(m_pitchDownButton, &QToolButton::pressed, m_pitchSpin, &QSpinBox::stepDown);
+  connect(m_screenYUpButton, &QToolButton::pressed, m_screenYSpin, &QSpinBox::stepUp);
+  connect(m_screenYDownButton, &QToolButton::pressed, m_screenYSpin, &QSpinBox::stepDown);
   connect(m_autopilotButton, &QToolButton::clicked, this,
           [this](bool checked) { setAutopilotEnabled(checked); });
   connect(m_autopilotTimer, &QTimer::timeout, this,
@@ -652,7 +672,7 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
     m_altitudeSpin->setValue(value);
     syncScreen();
   };
-  m_courseKnob->courseChanged = [this](int course) {
+  m_courseKnob->courseChanged = [this](double course) {
     QSignalBlocker blocker(m_courseSpin);
     m_courseSpin->setValue(course);
     syncScreen();
@@ -735,17 +755,17 @@ void AircraftPositionPanel::applyControlScale() {
   }
   m_appliedControlScale = scale;
 
-  const int compactFieldHeight = qRound(std::max(30.0, 32.0 * scale));
-  const QSize coordinateFieldSize(qRound(std::max(124.0, 128.0 * scale)),
+  const int compactFieldHeight = qRound(std::max(34.0, 34.0 * scale));
+  const QSize coordinateFieldSize(qRound(std::max(178.0, 178.0 * scale)),
                                   compactFieldHeight);
-  const QSize courseFieldSize(qRound(std::max(78.0, 84.0 * scale)),
+  const QSize courseFieldSize(qRound(std::max(128.0, 128.0 * scale)),
                               compactFieldHeight);
   const QSize altitudeFieldSize(qRound(std::max(140.0, 148.0 * scale)),
                                 compactFieldHeight);
   m_xSpin->setFixedSize(coordinateFieldSize);
   m_ySpin->setFixedSize(coordinateFieldSize);
   m_courseSpin->setFixedSize(courseFieldSize);
-  m_pitchSpin->setFixedSize(courseFieldSize.expandedTo(QSize(92, compactFieldHeight)));
+  m_screenYSpin->setFixedSize(92, compactFieldHeight);
   m_altitudeSpin->setFixedSize(altitudeFieldSize);
 
   m_courseKnob->setControlScale(scale);
@@ -756,13 +776,13 @@ void AircraftPositionPanel::applyControlScale() {
   const QSize autopilotSize(qRound(92 * scale), qRound(54 * scale));
   m_autopilotButton->setFixedSize(autopilotSize);
   m_autopilotButton->setIconSize(autopilotSize);
-  const QSize pitchButtonSize(qRound(48 * scale), qRound(std::max(30.0, 40.0 * scale)));
-  for (QToolButton *button : {m_pitchUpButton, m_pitchDownButton}) {
-    button->setFixedSize(pitchButtonSize);
-    button->setIconSize(pitchButtonSize);
+  const QSize screenYButtonSize(qRound(48 * scale), qRound(std::max(30.0, 40.0 * scale)));
+  for (QToolButton *button : {m_screenYUpButton, m_screenYDownButton}) {
+    button->setFixedSize(screenYButtonSize);
+    button->setIconSize(screenYButtonSize);
   }
-  m_pitchControlArea->setFixedSize(m_pitchSpin->width() + 8 + pitchButtonSize.width(),
-                                   2 * pitchButtonSize.height() + 6);
+  m_screenYControlArea->setFixedSize(m_screenYSpin->width() + 8 + screenYButtonSize.width(),
+                                   2 * screenYButtonSize.height() + 6);
 
   const int captionSize = qRound(15 * scale);
   const QList<QLabel *> labels =
@@ -801,6 +821,8 @@ void AircraftPositionPanel::setAutopilotEnabled(bool enabled) {
     ProjectManager::instance()->recordObjectEdit();
     m_preciseX = m_xSpin->value();
     m_preciseY = m_ySpin->value();
+    m_flightSceneRevision = ProjectManager::instance()->sceneRevision();
+    m_flightClock.start();
     m_autopilotTimer->start();
   } else {
     m_autopilotTimer->stop();
@@ -814,8 +836,13 @@ void AircraftPositionPanel::advanceAutopilot() {
     return;
   const double radians =
       qDegreesToRadians(static_cast<double>(m_courseSpin->value()));
-  const double nextX = m_preciseX + std::sin(radians) * kAutopilotStep;
-  const double nextY = m_preciseY + std::cos(radians) * kAutopilotStep;
+  const double seconds = m_flightClock.nsecsElapsed() / 1e9;
+  m_flightClock.restart();
+  const double step = Layer3dFormat::movementInPoints(kAutopilotSpeedKmh, seconds);
+  const double dx = std::abs(std::cos(radians)) < 1e-12 ? 0 : std::cos(radians);
+  const double dy = std::abs(std::sin(radians)) < 1e-12 ? 0 : std::sin(radians);
+  const double nextX = m_preciseX + dx * step;
+  const double nextY = m_preciseY + dy * step;
   const bool reachedLimit = nextX < kMinPosition || nextX > kMaxPosition
       || nextY < kMinPosition || nextY > kMaxPosition;
   m_preciseX = std::clamp(nextX, double(kMinPosition), double(kMaxPosition));
@@ -824,8 +851,8 @@ void AircraftPositionPanel::advanceAutopilot() {
   m_updatingControls = true;
   const QSignalBlocker xBlocker(m_xSpin);
   const QSignalBlocker yBlocker(m_ySpin);
-  m_xSpin->setValue(static_cast<int>(std::round(m_preciseX)));
-  m_ySpin->setValue(static_cast<int>(std::round(m_preciseY)));
+  m_xSpin->setValue(m_preciseX);
+  m_ySpin->setValue(m_preciseY);
   m_updatingControls = false;
   syncScreen();
   if (reachedLimit) {
@@ -848,7 +875,7 @@ void AircraftPositionPanel::syncScreen() {
   if (!m_syncingFromProject && ProjectManager::instance()->hasThreeDViewObject())
     ProjectManager::instance()->setAircraftState(m_xSpin->value(), m_ySpin->value(),
                                                 m_altitudeSpin->value(), m_courseSpin->value(),
-                                                m_pitchSpin->value(), !m_autopilotEnabled);
+                                                m_screenYSpin->value(), !m_autopilotEnabled);
 }
 
 void AircraftPositionPanel::syncFromProject() {
@@ -861,13 +888,15 @@ void AircraftPositionPanel::syncFromProject() {
   const QSignalBlocker yBlocker(m_ySpin);
   const QSignalBlocker altitudeBlocker(m_altitudeSpin);
   const QSignalBlocker courseBlocker(m_courseSpin);
-  const QSignalBlocker pitchBlocker(m_pitchSpin);
-  const int x = object ? object->aircraftX() : 0;
-  const int y = object ? object->aircraftY() : 0;
+  const QSignalBlocker screenYBlocker(m_screenYSpin);
+  const double x = object ? object->aircraftX() : 0;
+  const double y = object ? object->aircraftY() : 0;
   const double altitude = object ? object->aircraftAltitude() : 0.0;
   // Undo, redo or loading another state must not be overwritten by the next
   // timer tick using stale fractional coordinates from the previous flight.
-  if (m_autopilotEnabled && (x != m_xSpin->value() || y != m_ySpin->value()))
+  if (m_autopilotEnabled && (ProjectManager::instance()->sceneRevision() != m_flightSceneRevision
+                           || std::abs(x - m_xSpin->value()) > 1.0 / 64
+                           || std::abs(y - m_ySpin->value()) > 1.0 / 64))
     setAutopilotEnabled(false);
   // Keep imported height values without changing their raw representation.
   m_altitudeSpin->setRange(qMin(kMinAltitude, altitude), qMax(kMaxAltitude, altitude));
@@ -875,7 +904,7 @@ void AircraftPositionPanel::syncFromProject() {
   m_ySpin->setValue(y);
   m_altitudeSpin->setValue(altitude);
   m_courseSpin->setValue(object ? object->aircraftCourse() : 0);
-  m_pitchSpin->setValue(object ? object->aircraftPitch() : 0);
+  m_screenYSpin->setValue(object ? object->aircraftScreenY() : Layer3dFormat::defaultScreenY);
   if (!m_autopilotEnabled) {
     m_preciseX = x;
     m_preciseY = y;
@@ -891,7 +920,7 @@ void AircraftPositionPanel::updateAvailabilityOverlay() {
   const QList<QWidget *> controls = {
       m_xSpin, m_ySpin, m_altitudeSpin, m_courseSpin, m_altitudeSlider,
       m_courseKnob, m_autopilotButton, m_courseControlArea, m_altitudeControlArea,
-      m_pitchSpin, m_pitchUpButton, m_pitchDownButton};
+      m_screenYSpin, m_screenYUpButton, m_screenYDownButton};
   for (QWidget *control : controls) {
     if (control)
       control->setEnabled(available);

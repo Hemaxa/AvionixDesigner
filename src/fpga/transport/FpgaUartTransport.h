@@ -1,21 +1,51 @@
-//FpgaUartTransport - отправка сформированных пакетов ПЛИС через UART
-
 #pragma once
 
 #include "fpga/packets/FpgaPacket.h"
-
-#include <QString>
+#include <QMutex>
+#include <QThread>
+#include <QWaitCondition>
 
 struct FpgaUartConfig
 {
     QString portName;
-    qint32 baudRate = 921600;
+    qint32 loadBaudRate = 921600;
+    qint32 baudRate = 115200;
+    int intervalMs = 20; // start-to-start; zero means no extra pause
     bool writeInitialZero = true;
     int writeTimeoutMs = 5000;
 };
 
-class FpgaUartTransport
+// One port per session, exclusively owned by the worker thread. Only one
+// pending scene and one latest pose are retained; stale poses never accumulate.
+class FpgaUartTransport : public QThread
 {
+    Q_OBJECT
 public:
-    static bool writeBundle(const FpgaPacketBundle &bundle, const FpgaUartConfig &config, QString *errorMessage = nullptr);
+    explicit FpgaUartTransport(QObject *parent = nullptr);
+    ~FpgaUartTransport() override;
+    bool startStreaming(const FpgaPacketBundle &bundle, const FpgaUartConfig &config, QString *error = nullptr);
+    void stopStreaming();
+    void updateScene(const FpgaPacketBundle &bundle);
+    void updatePosition(const QByteArray &packet);
+    static QByteArray sceneBytes(const FpgaPacketBundle &bundle);
+
+signals:
+    void positionRequested();
+    void failed(const QString &message);
+    void setupComplete();
+
+protected:
+    void run() override;
+
+private:
+    bool stopping();
+    QMutex m_mutex;
+    QWaitCondition m_changed;
+    FpgaUartConfig m_config;
+    QByteArray m_scene;
+    QByteArray m_lastScene;
+    QByteArray m_lastOrdinary;
+    bool m_pendingFullScene = false;
+    QByteArray m_position;
+    bool m_stop = false;
 };

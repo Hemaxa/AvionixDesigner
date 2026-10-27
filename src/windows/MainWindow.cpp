@@ -614,8 +614,9 @@ void MainWindow::connectSignals() {
             updateCommandState();
             updateAircraftPositionAvailability();
           });
-  connect(ProjectManager::instance(), &ProjectManager::projectChanged,
-          m_objectList, &ObjectListPanel::refreshList);
+  connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, [this]() {
+    if (!ProjectManager::instance()->isAircraftStateChange()) m_objectList->refreshList();
+  });
   connect(ProjectManager::instance(), &ProjectManager::projectChanged,
           m_viewport, QOverload<>::of(&QWidget::update));
   connect(ProjectManager::instance(), &ProjectManager::projectChanged, this,
@@ -751,6 +752,8 @@ void MainWindow::resetToDefaultLayout() {
 }
 
 void MainWindow::scheduleFpgaSimulatorUpdate() {
+  // The software simulator does not render the FPGA terrain layer.
+  if (ProjectManager::instance()->isAircraftStateChange()) return;
   if (!m_fpgaSimulatorLiveActive || !m_fpgaSimulatorDock ||
       !m_fpgaSimulatorDock->isVisible())
     return;

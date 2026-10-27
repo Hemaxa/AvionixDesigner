@@ -92,22 +92,8 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaCompiledDocument &documen
     for (int objectIndex = 0; objectIndex < document.objects.size(); ++objectIndex) {
         const FpgaCompiledObject &object = document.objects[objectIndex];
 
-        if (object.type == QStringLiteral("layer3d")) {
-            for (int paramIndex = 0; paramIndex < object.iparams.size(); ++paramIndex) {
-                const QByteArray data = hexToBytes(object.iparams[paramIndex]);
-                quint32 fcs = 0;
-                FpgaPacket packet;
-                packet.type = FpgaPacketType::Layer3d;
-                packet.objectType = object.type;
-                packet.objectIndex = objectIndex;
-                packet.parameterIndex = paramIndex;
-                packet.payloadSize = data.size();
-                packet.bytes = framePacket(packet.type, layer3dPayload(data), &fcs);
-                packet.fcs = fcs;
-                bundle.packets.append(packet);
-            }
+        if (object.type == QStringLiteral("layer3d"))
             continue;
-        }
 
         for (int paramIndex = 0; paramIndex < object.iparams.size(); ++paramIndex) {
             const int objId = object.startParamIndex + paramIndex;
@@ -159,6 +145,18 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaCompiledDocument &documen
         }
     }
 
+    // Initial scene upload precedes the 3D side command and first pose.
+    for (int i = 0; i < document.objects.size(); ++i) {
+        const auto &object = document.objects[i];
+        if (object.type != QStringLiteral("layer3d") || object.iparams.isEmpty()) continue;
+        auto side = layer3dSidePacket(object.leftAnchored);
+        side.objectIndex = i;
+        bundle.packets.append(side);
+        auto position = layer3dPositionPacket(object.iparams.first());
+        position.objectIndex = i;
+        bundle.packets.append(position);
+        break;
+    }
     return bundle;
 }
 
@@ -190,6 +188,29 @@ QByteArray FpgaPacketCompiler::layer3dPayload(const QByteArray &data)
     QByteArray payload = data;
     std::reverse(payload.begin(), payload.end());
     return payload;
+}
+
+FpgaPacket FpgaPacketCompiler::layer3dSidePacket(bool left)
+{
+    FpgaPacket packet;
+    packet.type = FpgaPacketType::Layer3d;
+    packet.objectType = QStringLiteral("layer3d");
+    packet.payloadSize = 1;
+    packet.bytes = framePacket(packet.type, QByteArray(1, left ? char(1) : char(0)), &packet.fcs);
+    return packet;
+}
+
+FpgaPacket FpgaPacketCompiler::layer3dPositionPacket(const QString &initHex)
+{
+    FpgaPacket packet;
+    packet.type = FpgaPacketType::Layer3d;
+    packet.objectType = QStringLiteral("layer3d");
+    packet.payloadSize = 19;
+    packet.parameterIndex = 0;
+    const QByteArray data = hexToBytes(initHex);
+    if (data.size() != 19) return packet;
+    packet.bytes = framePacket(packet.type, layer3dPayload(data), &packet.fcs);
+    return packet;
 }
 
 QList<QByteArray> FpgaPacketCompiler::encodeRotationTiles(const FpgaCompiledDocument &document,

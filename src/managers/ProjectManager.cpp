@@ -23,6 +23,7 @@
 #include "ImageObject.h"
 #include "AviaHorizonObject.h"
 #include "ThreeDViewObject.h"
+#include <QScopedValueRollback>
 #include "TextObject.h"
 #include "BitParser.h"
 
@@ -1731,6 +1732,10 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
 
 ProjectManager::ProjectManager() : m_document(new EditorProjectDocument())
 {
+    connect(this, &ProjectManager::projectLoaded, this, [this]() { ++m_sceneRevision; });
+    connect(this, &ProjectManager::projectChanged, this, [this]() {
+        if (!m_aircraftStateChange) ++m_sceneRevision;
+    });
     reloadGlobalSettings();
 }
 
@@ -3020,17 +3025,19 @@ ThreeDViewObject *ProjectManager::threeDViewObject() const
     return nullptr;
 }
 
-bool ProjectManager::setAircraftState(int x, int y, double altitude, int course, int pitch, bool recordChange)
+bool ProjectManager::setAircraftState(double x, double y, double altitude, double course, int screenY, bool recordChange)
 {
     auto *object = threeDViewObject();
-    if (!object || (object->aircraftX() == x && object->aircraftY() == y
-                   && object->aircraftAltitude() == altitude && object->aircraftCourse() == course
-                   && object->aircraftPitch() == pitch))
-        return false;
-    if (recordChange)
+    if (!object) return false;
+    const QString previous = object->serializeInit();
+    if (!object->setAircraftState(x, y, altitude, course, screenY)) return false;
+    const QString next = object->serializeInit();
+    if (recordChange) {
+        object->parse(previous, FpgaSchemaRegistry::instance()->buildSchema("layer3d"));
         recordHistory();
-    if (!object->setAircraftState(x, y, altitude, course, pitch))
-        return false;
+        object->parse(next, FpgaSchemaRegistry::instance()->buildSchema("layer3d"));
+    }
+    const QScopedValueRollback<bool> changingState(m_aircraftStateChange, true);
     emit projectChanged();
     return true;
 }
