@@ -419,7 +419,8 @@ QToolButton#SettingsToolButton {
 #AircraftXSpin,
 #AircraftYSpin,
 #AircraftAltitudeSpin,
-#AircraftCourseSpin {
+#AircraftCourseSpin,
+#AircraftPitchSpin {
     background-color: #121922;
     color: #edf7fb;
     border: 1px solid #22303c;
@@ -432,7 +433,8 @@ QToolButton#SettingsToolButton {
 #AircraftXSpin:focus,
 #AircraftYSpin:focus,
 #AircraftAltitudeSpin:focus,
-#AircraftCourseSpin:focus {
+#AircraftCourseSpin:focus,
+#AircraftPitchSpin:focus {
     border-color: #00c8f0;
 }
 
@@ -443,19 +445,24 @@ QToolButton#SettingsToolButton {
 #AircraftAltitudeSpin::up-button,
 #AircraftAltitudeSpin::down-button,
 #AircraftCourseSpin::up-button,
-#AircraftCourseSpin::down-button {
+#AircraftCourseSpin::down-button,
+#AircraftPitchSpin::up-button,
+#AircraftPitchSpin::down-button {
     width: 0;
     height: 0;
     border: none;
 }
 
-QToolButton#AircraftAutopilotButton {
+QToolButton#AircraftAutopilotButton,
+QToolButton#AircraftPitchButton {
     background-color: transparent;
     border: none;
     padding: 0;
 }
 
-QToolButton#AircraftAutopilotButton:hover {
+QToolButton#AircraftAutopilotButton:hover,
+QToolButton#AircraftPitchButton:hover,
+QToolButton#AircraftPitchButton:pressed {
     background-color: transparent;
     border: none;
 }

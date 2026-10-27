@@ -48,10 +48,14 @@ private:
     QSpinBox *m_ySpin = nullptr;
     QSpinBox *m_altitudeSpin = nullptr;
     QSpinBox *m_courseSpin = nullptr;
+    QSpinBox *m_pitchSpin = nullptr;
+    QToolButton *m_pitchUpButton = nullptr;
+    QToolButton *m_pitchDownButton = nullptr;
     QToolButton *m_autopilotButton = nullptr;
     QTimer *m_autopilotTimer = nullptr;
     QWidget *m_courseControlArea = nullptr;
     QWidget *m_altitudeControlArea = nullptr;
+    QWidget *m_pitchControlArea = nullptr;
     QFrame *m_unavailableOverlay = nullptr;
     QHBoxLayout *m_mainLayout = nullptr;
     QGridLayout *m_controlsLayout = nullptr;

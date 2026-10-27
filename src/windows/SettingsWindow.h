@@ -45,7 +45,6 @@ private:
     QCheckBox *m_autoLoadCheck;
     
     QSpinBox *m_gridStepSpin;
-    QSpinBox *m_aircraftMapCellSizeSpin;
     QPushButton *m_gridColorButton;
     QPushButton *m_snapCanvasColorButton;
     QPushButton *m_snapGridColorButton;

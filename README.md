@@ -1,102 +1,95 @@
 # AvionixDesigner
 
-AvionixDesigner - это редактор кадров для графического контроллера на базе ПЛИС.
+AvionixDesigner — редактор кадров на C++ и Qt для графического контроллера на базе ПЛИС. Приложение позволяет собирать интерфейс из объектов, редактировать их параметры и сохранять кадр в XML со схемами и порядком полей, необходимыми контроллеру.
+
+## Возможности
+
+- Прямоугольники, штриховые линии, ленточные шкалы, авиагоризонт, текст и импорт изображений.
+- Выделение, группировка, выравнивание, изменение порядка объектов, отмена и повтор действий.
+- Сетка и привязки к холсту, сетке и другим объектам.
+- Область 3D-вида и панель позиционирования самолета: координаты X/Y, курс, высота, тангаж и автопилот.
+- Подготовка пакетов ПЛИС, сохранение бинарных данных, передача по UART и встроенный симулятор.
+- Загрузка и сохранение XML, подготовка растровых масок и шрифтов для ПЛИС.
 
 ## Скриншот
 
-<img width="1840" height="1191" alt="Снимок экрана 2026-07-27 в 02 46 15" src="https://github.com/user-attachments/assets/55a007be-ea3c-49ce-90be-c08732e55da8" />
+<img width="1840" height="1191" alt="Интерфейс AvionixDesigner, июль 2026" src="https://github.com/user-attachments/assets/55a007be-ea3c-49ce-90be-c08732e55da8" />
 
 ## Сборка
 
 Требования:
 
 - CMake 3.19 или новее.
-- Компилятор C++17.
-- Qt 6.5 или новее с модулями `Core`, `Widgets`, `Xml`, `Svg`.
-- NSIS нужен только для сборки Windows-инсталлятора через CPack.
+- Компилятор с поддержкой C++17.
+- Qt 6.5 или новее с модулями `Core`, `Widgets`, `Xml`, `Svg` и `SerialPort`.
+- NSIS — для создания установщика Windows через CPack.
 
 Локальная сборка:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --parallel
+cmake --build build --config Debug --parallel
 ```
 
-## Файловая Структура
+Если CMake не находит Qt, укажите каталог установленного комплекта Qt через `-DCMAKE_PREFIX_PATH=/path/to/Qt/kit` при конфигурации.
 
-```text
-.
-|-- .github/
-|-- .gitignore
-|-- CMakeLists.txt
-|-- README.md
-|-- docs/
-|-- res/
-|-- src/
-|   |-- BaseObject.h
-|   |-- BasePanel.h
-|   |-- editor/
-|   |   |-- EditorProjectDocument.cpp
-|   |   `-- EditorProjectDocument.h
-|   |-- main.cpp
-|   |-- managers/
-|   |   |-- AppearanceManager.cpp
-|   |   |-- AppearanceManager.h
-|   |   |-- ObjectsManager.cpp
-|   |   |-- ObjectsManager.h
-|   |   |-- PanelsManager.cpp
-|   |   |-- PanelsManager.h
-|   |   |-- ProjectManager.cpp
-|   |   `-- ProjectManager.h
-|   |-- objects/
-|   |   |-- AviaHorizonObject.cpp
-|   |   |-- AviaHorizonObject.h
-|   |   |-- DashedLineObject.cpp
-|   |   |-- DashedLineObject.h
-|   |   |-- ImageObject.cpp
-|   |   |-- ImageObject.h
-|   |   |-- RectangleObject.cpp
-|   |   |-- RectangleObject.h
-|   |   |-- RibbonScaleObject.cpp
-|   |   |-- RibbonScaleObject.h
-|   |   |-- RotationObject.cpp
-|   |   |-- RotationObject.h
-|   |   |-- StaticGroupObject.cpp
-|   |   |-- StaticGroupObject.h
-|   |   |-- TextObject.cpp
-|   |   `-- TextObject.h
-|   |-- panels/
-|   |   |-- EditorWorkspacePanel.cpp
-|   |   |-- EditorWorkspacePanel.h
-|   |   |-- ObjectLibraryPanel.cpp
-|   |   |-- ObjectLibraryPanel.h
-|   |   |-- ObjectListPanel.cpp
-|   |   |-- ObjectListPanel.h
-|   |   |-- ObjectPropertiesPanel.cpp
-|   |   |-- ObjectPropertiesPanel.h
-|   |   |-- SelectionToolStrip.cpp
-|   |   |-- SelectionToolStrip.h
-|   |   |-- ViewportPanel.cpp
-|   |   |-- ViewportPanel.h
-|   |   |-- ViewportSettingsPanel.cpp
-|   |   `-- ViewportSettingsPanel.h
-|   |-- schema/
-|   |   |-- FpgaSchemaRegistry.cpp
-|   |   `-- FpgaSchemaRegistry.h
-|   |-- utils/
-|   |   |-- BitParser.h
-|   |   |-- ProportionalResize.h
-|   |   `-- XmlReader.h
-|   `-- windows/
-|       |-- FontExportDialog.cpp
-|       |-- FontExportDialog.h
-|       |-- MainWindow.cpp
-|       |-- MainWindow.h
-|       |-- NewProjectDialog.cpp
-|       |-- NewProjectDialog.h
-|       |-- SettingsWindow.cpp
-|       `-- SettingsWindow.h
-`-- tests/
-    |-- image.xml
-    `-- test.xml
+Приложение можно запустить из Qt Creator, открыв `CMakeLists.txt`, либо из каталога сборки:
+
+- macOS: `build/AvionixDesigner.app`.
+- Linux: `build/AvionixDesigner`.
+- Windows с Visual Studio: `build/Debug/AvionixDesigner.exe`.
+
+Для сборки установочного пакета:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --parallel
+cmake --build build --config Release --target package
 ```
+
+CPack создает установщик NSIS для Windows, DMG для macOS или архив TGZ для Linux. Сценарий [Windows Release](.github/workflows/windows-release.yml) собирает и публикует установщик Windows; версию он берет из `CMakeLists.txt`.
+
+## Работа с 3D-видом
+
+Добавьте объект «3D вид» из библиотеки объектов, чтобы включить панель позиционирования самолета. Область 3D-вида закрепляется у левого или правого края холста; сторона выбирается в свойстве «Положение».
+
+Координаты X и Y вводятся в целых метрах от **0 до 8191**. X увеличивается вправо, Y — вверх. Весь диапазон отображается на одной рабочей области: крайние значения соответствуют противоположным краям, без переключения между квадратами карты. Автопилот перемещает самолет по выбранному курсу и останавливается на границе диапазона.
+
+Тангаж задается в целых градусах от **−512 до 511**. Значение можно ввести вручную или изменить стрелками на 1°. При удержании стрелки изменение повторяется; нажатая стрелка подсвечивается голубым.
+
+## XML для ПЛИС
+
+Сохранение формирует XML с описанием используемых схем в `<parameters>` и объектами в `<objects>`. Форматы модулей и исходные примеры находятся в [docs](docs/), а действующие схемы редактора — в [FpgaSchemaRegistry.cpp](src/schema/FpgaSchemaRegistry.cpp).
+
+Объект 3D-вида сохраняется как `<layer3d>` с одним блоком `<init>`, без `<data>`. Параметры упакованы в 150-битное слово, представленное 38 шестнадцатеричными символами. Нумерация битов начинается с младшего бита:
+
+| Поле | Биты | Представление |
+| --- | --- | --- |
+| X | `[18:0]` | Без знака: 13 целых и 6 дробных битов; введенное значение умножается на 64 |
+| Y | `[37:19]` | Без знака: 13 целых и 6 дробных битов; введенное значение умножается на 64 |
+| Курс | `[56:38]` | 19 бит на полный оборот: `2^19` единиц соответствуют 360° |
+| Высота | `[73:57]` | Знаковое 17-битное значение с шагом 0,25 м |
+| Тангаж | `[83:74]` | Знаковое 10-битное число в дополнительном коде, целые градусы |
+| Резерв | `[149:84]` | 66 бит |
+
+## Структура проекта
+
+| Каталог | Назначение |
+| --- | --- |
+| `src/editor/` | Внутренняя модель документа |
+| `src/managers/` | Управление проектом, объектами, панелями и оформлением |
+| `src/objects/` | Реализации объектов редактора |
+| `src/panels/` | Холст, библиотека, свойства, позиционирование самолета и панели ПЛИС |
+| `src/windows/` | Главное окно и диалоги |
+| `src/schema/` | Реестр схем параметров ПЛИС |
+| `src/fpga/` | Компиляция XML в пакеты, UART, бинарный экспорт и симулятор |
+| `src/utils/` | Битовые операции, чтение XML и вспомогательные функции |
+| `res/` | Иконки, тема и Qt-ресурсы; иконки позиционирования — в `res/icons/aircraft-position/` |
+| `docs/` | Документация модулей, Verilog и исходные XML-примеры |
+| `tests/` | XML-примеры для ручной проверки загрузки и отображения |
+| `.github/workflows/` | Автоматическая сборка установщика Windows |
+| `build/` | Локальные результаты сборки; исключены из Git |
+
+## Лицензия
+
+Условия использования приведены в [LICENSE](LICENSE).

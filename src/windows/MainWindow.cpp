@@ -37,8 +37,8 @@
 namespace {
 constexpr int kDefaultFpgaSimulatorDockWidth = 620;
 constexpr int kDefaultFpgaSimulatorDockHeight = 420;
-constexpr int kDefaultAircraftPositionDockWidth = 930;
-constexpr int kMinimumAircraftPositionDockWidth = 850;
+constexpr int kDefaultAircraftPositionDockWidth = 1030;
+constexpr int kMinimumAircraftPositionDockWidth = 950;
 constexpr int kDefaultAircraftPositionDockHeight = 460;
 
 QString fontExportKey(const QString &family, int pixelSize) {

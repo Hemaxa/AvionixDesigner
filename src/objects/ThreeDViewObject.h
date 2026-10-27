@@ -31,7 +31,8 @@ public:
     int aircraftY() const;
     int aircraftAltitude() const;
     int aircraftCourse() const;
-    bool setAircraftState(int x, int y, int altitude, int course);
+    int aircraftPitch() const;
+    bool setAircraftState(int x, int y, int altitude, int course, int pitch);
     QString serializeInit() const;
     QRectF aircraftMarkerRect() const;
     bool isLeftAnchored() const { return m_leftAnchored; }

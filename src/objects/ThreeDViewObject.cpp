@@ -31,10 +31,24 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
         const ParamSchema current = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d"));
         const QString source = m_initHex;
         for (const QString &name : {QStringLiteral("x"), QStringLiteral("y"),
-                                   QStringLiteral("course"), QStringLiteral("height")}) {
+                                   QStringLiteral("course"), QStringLiteral("height"),
+                                   QStringLiteral("pitch")}) {
             const ParamInfo target = current.value(name);
             const ParamInfo original = schema.value(name, target);
-            if (name == QStringLiteral("course")) {
+            if (name == QStringLiteral("pitch")) {
+                BitParser::inject(m_initHex, target.offset, target.size,
+                                  schema.contains(name) ? BitParser::extract(source, original.offset, original.size) : 0);
+            } else if (name == QStringLiteral("x") || name == QStringLiteral("y")) {
+                // Current coordinates are unsigned Q13.6. Older 17-bit
+                // layouts stored signed whole meters.
+                const int raw = original.size == Layer3dFormat::coordinateBits
+                    ? int(BitParser::extract(source, original.offset, original.size))
+                    : qBound(Layer3dFormat::minPosition,
+                             int(BitParser::extractSigned(source, original.offset, original.size)),
+                             Layer3dFormat::maxPosition) * Layer3dFormat::coordinateUnitsPerMeter;
+                BitParser::inject(m_initHex, target.offset, target.size,
+                                  qMin(raw, Layer3dFormat::maxPosition * Layer3dFormat::coordinateUnitsPerMeter));
+            } else if (name == QStringLiteral("course")) {
                 BitParser::inject(m_initHex, target.offset, target.size,
                                   BitParser::extract(source, original.offset, original.size));
             } else {
@@ -99,19 +113,14 @@ void ThreeDViewObject::draw(QPainter &painter)
     const double labelHeight = metrics.height() + 8.0;
     const double left = qBound(rect.left() + 8.0, marker.center().x() - labelWidth * 0.5,
                                rect.right() - 8.0 - labelWidth);
-    const QRectF label(left, marker.top() - labelHeight - 4.0, labelWidth, labelHeight);
+    const double labelTop = marker.top() - labelHeight - 4.0;
+    const QRectF label(left, labelTop < rect.top() + 4.0 ? marker.bottom() + 4.0 : labelTop,
+                       labelWidth, labelHeight);
     painter.setPen(QPen(QColor(QStringLiteral("#22303c")), 1));
     painter.setBrush(QColor(QStringLiteral("#17212b")));
     painter.drawRoundedRect(label, 4, 4);
     painter.setPen(QColor(QStringLiteral("#edf7fb")));
     painter.drawText(label, Qt::AlignCenter, coordinates);
-
-    painter.setPen(QColor(QStringLiteral("#9fb3c1")));
-    painter.drawText(QRectF(rect.left() + 8.0, rect.bottom() - labelHeight - 4.0,
-                            availableWidth, labelHeight), Qt::AlignLeft | Qt::AlignVCenter,
-                     metrics.elidedText(AircraftPositionMapping::cellLabel(
-                         aircraftX(), aircraftY(), ProjectManager::instance()->aircraftMapCellSize()),
-                         Qt::ElideRight, availableWidth));
 
     painter.restore();
 }
@@ -181,7 +190,8 @@ QMap<QString, quint32> ThreeDViewObject::serializeParams() const
     QMap<QString, quint32> params;
     const auto schema = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d"));
     for (const QString &name : {QStringLiteral("x"), QStringLiteral("y"),
-                               QStringLiteral("course"), QStringLiteral("height")}) {
+                               QStringLiteral("course"), QStringLiteral("height"),
+                               QStringLiteral("pitch")}) {
         const auto field = schema.value(name);
         params.insert(name, BitParser::extract(m_initHex, field.offset, field.size));
     }
@@ -190,12 +200,14 @@ QMap<QString, quint32> ThreeDViewObject::serializeParams() const
 
 int ThreeDViewObject::aircraftX() const
 {
-    return BitParser::extractSigned(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits);
+    return BitParser::extract(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits)
+        / Layer3dFormat::coordinateUnitsPerMeter;
 }
 
 int ThreeDViewObject::aircraftY() const
 {
-    return BitParser::extractSigned(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits);
+    return BitParser::extract(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits)
+        / Layer3dFormat::coordinateUnitsPerMeter;
 }
 
 int ThreeDViewObject::aircraftAltitude() const
@@ -210,16 +222,24 @@ int ThreeDViewObject::aircraftCourse() const
                   * 360.0 / Layer3dFormat::courseTurn) % 360;
 }
 
-bool ThreeDViewObject::setAircraftState(int x, int y, int altitude, int course)
+int ThreeDViewObject::aircraftPitch() const
+{
+    return BitParser::extractSigned(m_initHex, Layer3dFormat::pitchOffset, Layer3dFormat::pitchBits);
+}
+
+bool ThreeDViewObject::setAircraftState(int x, int y, int altitude, int course, int pitch)
 {
     x = qBound(Layer3dFormat::minPosition, x, Layer3dFormat::maxPosition);
     y = qBound(Layer3dFormat::minPosition, y, Layer3dFormat::maxPosition);
     course = (course % 360 + 360) % 360;
+    pitch = qBound(Layer3dFormat::minPitch, pitch, Layer3dFormat::maxPitch);
     const QString previous = m_initHex;
     if (x != aircraftX())
-        BitParser::inject(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits, static_cast<quint32>(x));
+        BitParser::inject(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits,
+                          x * Layer3dFormat::coordinateUnitsPerMeter);
     if (y != aircraftY())
-        BitParser::inject(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits, static_cast<quint32>(y));
+        BitParser::inject(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits,
+                          y * Layer3dFormat::coordinateUnitsPerMeter);
     if (altitude != aircraftAltitude()) {
         const int rawHeight = qBound(Layer3dFormat::minHeightRaw,
             qBound(-16384, altitude, 16384) * Layer3dFormat::heightUnitsPerMeter,
@@ -229,6 +249,9 @@ bool ThreeDViewObject::setAircraftState(int x, int y, int altitude, int course)
     if (course != aircraftCourse())
         BitParser::inject(m_initHex, Layer3dFormat::courseOffset, Layer3dFormat::courseBits,
                           qRound(course * double(Layer3dFormat::courseTurn) / 360.0) % Layer3dFormat::courseTurn);
+    if (pitch != aircraftPitch())
+        BitParser::inject(m_initHex, Layer3dFormat::pitchOffset, Layer3dFormat::pitchBits,
+                          static_cast<quint32>(pitch));
     return previous != m_initHex;
 }
 
@@ -242,14 +265,9 @@ QRectF ThreeDViewObject::aircraftMarkerRect() const
     const QRectF view = viewRect();
     const double scale = view.width() / kReferenceSide;
     const QRectF rect(QPointF(0, 0), view.size() / scale);
-    // Reserve proportional space above the marker and below the map so
-    // neither label overlaps the dot, even at the four corners of a tile.
-    const double textHeight = QFontMetricsF(annotationFont()).height();
-    const QRectF inner = rect.adjusted(2, 2 + textHeight + 20.0,
-                                      -2, -2 - textHeight - 16.0);
+    const QRectF inner = rect.adjusted(2, 2, -2, -2);
     const double size = 24.0;
-    const QPointF center = AircraftPositionMapping::center(inner, aircraftX(), aircraftY(), size,
-                                                          ProjectManager::instance()->aircraftMapCellSize());
+    const QPointF center = AircraftPositionMapping::center(inner, aircraftX(), aircraftY(), size);
     return QRectF(view.topLeft() + (center - QPointF(size * 0.5, size * 0.5)) * scale,
                   QSizeF(size * scale, size * scale));
 }

@@ -25,7 +25,6 @@
 #include "ThreeDViewObject.h"
 #include "TextObject.h"
 #include "BitParser.h"
-#include "AircraftPositionMapping.h"
 
 #include <algorithm>
 #include <limits>
@@ -3016,15 +3015,16 @@ ThreeDViewObject *ProjectManager::threeDViewObject() const
     return nullptr;
 }
 
-bool ProjectManager::setAircraftState(int x, int y, int altitude, int course, bool recordChange)
+bool ProjectManager::setAircraftState(int x, int y, int altitude, int course, int pitch, bool recordChange)
 {
     auto *object = threeDViewObject();
     if (!object || (object->aircraftX() == x && object->aircraftY() == y
-                   && object->aircraftAltitude() == altitude && object->aircraftCourse() == course))
+                   && object->aircraftAltitude() == altitude && object->aircraftCourse() == course
+                   && object->aircraftPitch() == pitch))
         return false;
     if (recordChange)
         recordHistory();
-    if (!object->setAircraftState(x, y, altitude, course))
+    if (!object->setAircraftState(x, y, altitude, course, pitch))
         return false;
     emit projectChanged();
     return true;
@@ -3035,7 +3035,6 @@ bool ProjectManager::snapToGrid() const { return m_snapToGrid; }
 bool ProjectManager::snapToObjects() const { return m_snapToObjects; }
 
 int ProjectManager::gridStep() const { return m_gridStep; }
-int ProjectManager::aircraftMapCellSize() const { return m_aircraftMapCellSize; }
 QColor ProjectManager::gridColor() const { return m_gridColor; }
 QColor ProjectManager::snapCanvasGuideColor() const { return m_snapCanvasGuideColor; }
 QColor ProjectManager::snapGridGuideColor() const { return m_snapGridGuideColor; }
@@ -3045,8 +3044,6 @@ void ProjectManager::reloadGlobalSettings()
 {
     QSettings settings("Avionix", "Designer");
     m_gridStep = qBound(1, settings.value("gridStep", 10).toInt(), 1000);
-    m_aircraftMapCellSize = AircraftPositionMapping::boundedCellSize(
-        settings.value("aircraftMapCellSize", AircraftPositionMapping::defaultCellSize).toInt());
     
     QString colorStr = settings.value("gridColor", "#3778b4c8").toString();
     m_gridColor = QColor(colorStr);

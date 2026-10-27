@@ -4,58 +4,28 @@
 #include <QRectF>
 #include <QString>
 #include <QtGlobal>
-#include <cmath>
 #include "fpga/model/Layer3dFormat.h"
 
 namespace AircraftPositionMapping {
-// Coordinates in layer3d are signed 19-bit values. Tiles are a display
-// convention only: crossing a tile boundary must not reset these values.
 constexpr int minPosition = Layer3dFormat::minPosition;
 constexpr int maxPosition = Layer3dFormat::maxPosition;
-constexpr int defaultCellSize = 2000;
-constexpr int minCellSize = 1;
-constexpr int maxCellSize = maxPosition - minPosition + 1;
-
-inline int boundedCellSize(int size)
-{
-    return qBound(minCellSize, size, maxCellSize);
-}
-
-inline int cellIndex(int coordinate, int size)
-{
-    size = boundedCellSize(size);
-    // Tile [0; 0] is centered on the origin. Half-open intervals make the
-    // positive and negative boundaries unambiguous, including odd sizes.
-    return static_cast<int>(std::floor((coordinate + size * 0.5) / size));
-}
-
-inline double localPosition(int coordinate, int size)
-{
-    size = boundedCellSize(size);
-    return coordinate - double(cellIndex(coordinate, size)) * size;
-}
-
-inline QString cellLabel(int x, int y, int size)
-{
-    return QStringLiteral("Квадрат [%1; %2]")
-        .arg(cellIndex(x, size)).arg(cellIndex(y, size));
-}
 
 inline QString coordinateLabel(int x, int y)
 {
     return QStringLiteral("X: %1   Y: %2").arg(x).arg(y);
 }
 
-inline QPointF center(const QRectF &bounds, int x, int y, double markerSize = 0.0,
-                      int cellSize = defaultCellSize)
+inline QPointF center(const QRectF &bounds, int x, int y, const QSizeF &markerSize)
 {
-    cellSize = boundedCellSize(cellSize);
-    const double normX = localPosition(x, cellSize) / (cellSize * 0.5);
-    const double normY = localPosition(y, cellSize) / (cellSize * 0.5);
-    const double travelX = qMin(bounds.width() * 0.38,
-                               qMax(0.0, (bounds.width() - markerSize) * 0.5));
-    const double travelY = qMin(bounds.height() * 0.38,
-                               qMax(0.0, (bounds.height() - markerSize) * 0.5));
-    return bounds.center() + QPointF(normX * travelX, -normY * travelY);
+    const double normX = qBound(minPosition, x, maxPosition) / double(maxPosition);
+    const double normY = qBound(minPosition, y, maxPosition) / double(maxPosition);
+    const double travelX = qMax(0.0, bounds.width() - markerSize.width());
+    const double travelY = qMax(0.0, bounds.height() - markerSize.height());
+    return bounds.center() + QPointF((normX - 0.5) * travelX, (0.5 - normY) * travelY);
+}
+
+inline QPointF center(const QRectF &bounds, int x, int y, double markerSize = 0.0)
+{
+    return center(bounds, x, y, QSizeF(markerSize, markerSize));
 }
 }

@@ -33,6 +33,10 @@
         <file>icons/aircraft-position/autopilot-button-on.svg</file>
         <file>icons/aircraft-position/aircraft.svg</file>
         <file>icons/aircraft-position/screen.svg</file>
+        <file>icons/aircraft-position/pitch-up.svg</file>
+        <file>icons/aircraft-position/pitch-up-pressed.svg</file>
+        <file>icons/aircraft-position/pitch-down.svg</file>
+        <file>icons/aircraft-position/pitch-down-pressed.svg</file>
         <file>icons/selection/align-top.svg</file>
         <file>icons/selection/align-vcenter.svg</file>
         <file>icons/selection/align-bottom.svg</file>
