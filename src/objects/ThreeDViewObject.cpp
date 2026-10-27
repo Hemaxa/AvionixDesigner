@@ -28,6 +28,8 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
         m_initHex = hexInit.simplified().remove(QLatin1Char(' '))
             .rightJustified(Layer3dFormat::hexLength, QLatin1Char('0'))
             .right(Layer3dFormat::hexLength).toUpper();
+        // A 38-digit container has two unused high bits above the 150-bit word.
+        m_initHex[0] = QLatin1Char("0123"[m_initHex.left(1).toUInt(nullptr, 16) & 3]);
         const ParamSchema current = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d"));
         const QString source = m_initHex;
         for (const QString &name : {QStringLiteral("x"), QStringLiteral("y"),
@@ -210,10 +212,10 @@ int ThreeDViewObject::aircraftY() const
         / Layer3dFormat::coordinateUnitsPerMeter;
 }
 
-int ThreeDViewObject::aircraftAltitude() const
+double ThreeDViewObject::aircraftAltitude() const
 {
-    return qRound(BitParser::extractSigned(m_initHex, Layer3dFormat::heightOffset, Layer3dFormat::heightBits)
-                  / double(Layer3dFormat::heightUnitsPerMeter));
+    return BitParser::extractSigned(m_initHex, Layer3dFormat::heightOffset, Layer3dFormat::heightBits)
+        / double(Layer3dFormat::heightUnitsPerMeter);
 }
 
 int ThreeDViewObject::aircraftCourse() const
@@ -227,7 +229,7 @@ int ThreeDViewObject::aircraftPitch() const
     return BitParser::extractSigned(m_initHex, Layer3dFormat::pitchOffset, Layer3dFormat::pitchBits);
 }
 
-bool ThreeDViewObject::setAircraftState(int x, int y, int altitude, int course, int pitch)
+bool ThreeDViewObject::setAircraftState(int x, int y, double altitude, int course, int pitch)
 {
     x = qBound(Layer3dFormat::minPosition, x, Layer3dFormat::maxPosition);
     y = qBound(Layer3dFormat::minPosition, y, Layer3dFormat::maxPosition);
@@ -240,10 +242,9 @@ bool ThreeDViewObject::setAircraftState(int x, int y, int altitude, int course, 
     if (y != aircraftY())
         BitParser::inject(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits,
                           y * Layer3dFormat::coordinateUnitsPerMeter);
-    if (altitude != aircraftAltitude()) {
-        const int rawHeight = qBound(Layer3dFormat::minHeightRaw,
-            qBound(-16384, altitude, 16384) * Layer3dFormat::heightUnitsPerMeter,
-            Layer3dFormat::maxHeightRaw);
+    if (qIsFinite(altitude)) {
+        const int rawHeight = qRound(qBound(Layer3dFormat::minHeight, altitude,
+                                            Layer3dFormat::maxHeight) * Layer3dFormat::heightUnitsPerMeter);
         BitParser::inject(m_initHex, Layer3dFormat::heightOffset, Layer3dFormat::heightBits, static_cast<quint32>(rawHeight));
     }
     if (course != aircraftCourse())

@@ -11,6 +11,8 @@ public:
     //метод, который извлекает числовое значение из HEX-строки
     static quint32 extract(const QString &hexString, int offset, int size) 
     {
+        if (offset < 0 || size <= 0)
+            return 0;
         //полученное извлеченное число
         quint32 result = 0;
 
@@ -18,7 +20,7 @@ public:
         int len = hexString.length();
         
         //цикл по идексам внутри диапазона нужных символов из HEX-строки
-        for (int i = 0; i < size; ++i) {
+        for (int i = 0; i < qMin(size, 32); ++i) {
             //глобальный индекс бита в двоичном виде строки (идет с конца)
             int targetBitIndex = offset + i;
             
@@ -44,7 +46,7 @@ public:
             
             //если бит установлен, добавляем его в результат
             if ((val >> bitInChar) & 1) {
-                result |= (1 << i);
+                result |= (quint32(1) << i);
             }
         }
         return result;
@@ -64,11 +66,13 @@ public:
     static qint32 extractSigned(const QString &hexString, int offset, int size)
     {
         quint32 raw = extract(hexString, offset, size);
+        if (size <= 0 || size >= 32)
+            return static_cast<qint32>(raw);
         
         //проверяем старший бит для определения знака
-        if (raw & (1 << (size - 1))) {
+        if (raw & (quint32(1) << (size - 1))) {
             //отрицательное число - расширяем знак
-            raw |= ~((1 << size) - 1);
+            raw |= ~((quint32(1) << size) - 1);
         }
         return static_cast<qint32>(raw);
     }
@@ -77,6 +81,8 @@ public:
     //по заданному смещению (offset) и размеру (size) в битах
     static void inject(QString &hexString, int offset, int size, quint32 value)
     {
+        if (offset < 0 || size <= 0)
+            return;
         int len = hexString.length();
 
         for (int i = 0; i < size; ++i) {
@@ -98,7 +104,7 @@ public:
                 val = ch.toLatin1() - 'a' + 10;
 
             //устанавливаем или сбрасываем нужный бит
-            if ((value >> i) & 1) {
+            if (i < 32 && ((value >> i) & 1)) {
                 val |= (1 << bitInChar);
             } else {
                 val &= ~(1 << bitInChar);

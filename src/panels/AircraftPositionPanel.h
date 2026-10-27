@@ -10,6 +10,7 @@ class QLabel;
 class QFrame;
 class QResizeEvent;
 class QSpinBox;
+class QDoubleSpinBox;
 class QTimer;
 class QToolButton;
 class QWidget;
@@ -46,7 +47,7 @@ private:
     CourseKnobWidget *m_courseKnob = nullptr;
     QSpinBox *m_xSpin = nullptr;
     QSpinBox *m_ySpin = nullptr;
-    QSpinBox *m_altitudeSpin = nullptr;
+    QDoubleSpinBox *m_altitudeSpin = nullptr;
     QSpinBox *m_courseSpin = nullptr;
     QSpinBox *m_pitchSpin = nullptr;
     QToolButton *m_pitchUpButton = nullptr;

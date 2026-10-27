@@ -320,6 +320,7 @@ QLabel {
 QLineEdit,
 QTextEdit,
 QSpinBox,
+QDoubleSpinBox,
 QComboBox {
     background-color: #121922;
     color: #edf7fb;
@@ -332,6 +333,7 @@ QComboBox {
 QLineEdit:focus,
 QTextEdit:focus,
 QSpinBox:focus,
+QDoubleSpinBox:focus,
 QComboBox:focus {
     border-color: #00c8f0;
 }
@@ -511,6 +513,7 @@ QDialog QLabel {
 QDialog QLineEdit,
 QDialog QTextEdit,
 QDialog QSpinBox,
+QDialog QDoubleSpinBox,
 QDialog QComboBox {
     min-height: 34px;
     padding: 7px 10px;
@@ -530,6 +533,7 @@ QDialogButtonBox QPushButton {
 
 /* Equal settings rows without the generic dialog's extra vertical padding. */
 QDialog#SettingsWindow QSpinBox,
+QDialog#SettingsWindow QDoubleSpinBox,
 QDialog#SettingsWindow QCheckBox,
 QDialog#SettingsWindow QPushButton,
 QDialog#SettingsWindow QToolButton {
@@ -591,9 +595,11 @@ QDialog#UartStreamingDialog #DialogFieldLabel {
 
 QDialog#NewProjectDialog QLineEdit,
 QDialog#NewProjectDialog QSpinBox,
+QDialog#NewProjectDialog QDoubleSpinBox,
 QDialog#NewProjectDialog #ProjectColorButton,
 QDialog#UartStreamingDialog QComboBox,
 QDialog#UartStreamingDialog QSpinBox,
+QDialog#UartStreamingDialog QDoubleSpinBox,
 QDialog#UartStreamingDialog QPushButton {
     min-height: 30px;
     max-height: 32px;

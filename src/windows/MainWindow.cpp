@@ -180,7 +180,9 @@ void MainWindow::onSaveFile() {
   if (!configureFontExportAlphabets())
     return;
 
-  project->saveToFile();
+  if (!project->saveToFile()) {
+    QMessageBox::warning(this, tr("Не удалось сохранить XML"), project->lastErrorMessage());
+  }
 }
 
 void MainWindow::onSaveFileAs() {
@@ -196,7 +198,10 @@ void MainWindow::onSaveFileAs() {
     if (!configureFontExportAlphabets())
       return;
 
-    project->saveToFile(fileName);
+    if (!project->saveToFile(fileName)) {
+      QMessageBox::warning(this, tr("Не удалось сохранить XML"), project->lastErrorMessage());
+      return;
+    }
     QSettings settings("Avionix", "Designer");
     settings.setValue("lastProject", fileName);
     updateWindowTitle();

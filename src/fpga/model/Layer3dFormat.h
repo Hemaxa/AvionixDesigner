@@ -25,4 +25,13 @@ constexpr int courseTurn = 1 << courseBits;
 constexpr int heightUnitsPerMeter = 4;
 constexpr int minHeightRaw = -(1 << (heightBits - 1));
 constexpr int maxHeightRaw = (1 << (heightBits - 1)) - 1;
+constexpr double minHeight = minHeightRaw / double(heightUnitsPerMeter);
+constexpr double maxHeight = maxHeightRaw / double(heightUnitsPerMeter);
+constexpr double heightStep = 1.0 / heightUnitsPerMeter;
+static_assert(xOffset + coordinateBits == yOffset);
+static_assert(yOffset + coordinateBits == courseOffset);
+static_assert(courseOffset + courseBits == heightOffset);
+static_assert(heightOffset + heightBits == pitchOffset);
+static_assert(pitchOffset + pitchBits == paddingOffset);
+static_assert(paddingOffset + paddingBits == 150);
 }

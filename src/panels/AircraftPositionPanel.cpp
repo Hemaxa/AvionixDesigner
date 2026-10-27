@@ -17,6 +17,7 @@
 #include <QResizeEvent>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QSvgRenderer>
 #include <QTimer>
 #include <QToolButton>
@@ -31,8 +32,8 @@
 namespace {
 constexpr int kMinPosition = AircraftPositionMapping::minPosition;
 constexpr int kMaxPosition = AircraftPositionMapping::maxPosition;
-constexpr int kMinAltitude = 0;
-constexpr int kMaxAltitude = 10000;
+constexpr double kMinAltitude = 0.0;
+constexpr double kMaxAltitude = 10000.0;
 constexpr int kDefaultAutopilotIntervalMs = 90;
 constexpr double kAutopilotStep = 2.5;
 constexpr double kMinimumPanelScale = 0.60;
@@ -104,7 +105,7 @@ public:
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   }
 
-  void setState(int x, int y, int altitude, int course) {
+  void setState(int x, int y, double altitude, int course) {
     m_x = x;
     m_y = y;
     m_altitude = altitude;
@@ -156,7 +157,7 @@ private:
   QSvgRenderer m_aircraftRenderer;
   int m_x = 0;
   int m_y = 0;
-  int m_altitude = 0;
+  double m_altitude = 0.0;
   int m_course = 0;
 };
 
@@ -173,20 +174,21 @@ public:
     setFocusPolicy(Qt::StrongFocus);
   }
 
-  void setValue(int value) {
-    const int nextValue = std::clamp(value, kMinAltitude, kMaxAltitude);
+  void setValue(double value) {
+    const double nextValue = qRound(std::clamp(value, kMinAltitude, kMaxAltitude)
+                                    * Layer3dFormat::heightUnitsPerMeter) * Layer3dFormat::heightStep;
     if (m_value == nextValue)
       return;
     m_value = nextValue;
     update();
   }
 
-  int value() const { return m_value; }
+  double value() const { return m_value; }
   void setControlScale(double scale) {
     setFixedSize(qRound(170 * scale), qRound(232 * scale));
     update();
   }
-  std::function<void(int)> valueChanged;
+  std::function<void(double)> valueChanged;
 
 protected:
   void paintEvent(QPaintEvent *) override {
@@ -242,7 +244,8 @@ protected:
   }
 
   void mousePressEvent(QMouseEvent *event) override {
-    setValueFromY(event->position().y());
+    if (event->button() == Qt::LeftButton)
+      setValueFromY(event->position().y());
   }
 
   void mouseMoveEvent(QMouseEvent *event) override {
@@ -251,15 +254,22 @@ protected:
   }
 
   void wheelEvent(QWheelEvent *event) override {
-    const int direction = event->angleDelta().y() >= 0 ? 1 : -1;
-    updateValue(m_value + direction * 100);
+    const int delta = event->angleDelta().y();
+    if (delta == 0)
+      return;
+    const double step = event->modifiers() & Qt::ShiftModifier ? 100.0 : Layer3dFormat::heightStep;
+    updateValue(m_value + (delta > 0 ? step : -step));
   }
 
   void keyPressEvent(QKeyEvent *event) override {
     if (event->key() == Qt::Key_Up) {
-      updateValue(m_value + 100);
+      updateValue(m_value + Layer3dFormat::heightStep);
     } else if (event->key() == Qt::Key_Down) {
-      updateValue(m_value - 100);
+      updateValue(m_value - Layer3dFormat::heightStep);
+    } else if (event->key() == Qt::Key_PageUp) {
+      updateValue(m_value + 100.0);
+    } else if (event->key() == Qt::Key_PageDown) {
+      updateValue(m_value - 100.0);
     } else {
       QWidget::keyPressEvent(event);
     }
@@ -276,12 +286,12 @@ private:
                             trackRect.width(), trackRect.height() * 0.76);
     const double ratio =
         std::clamp((valueRange.bottom() - y) / valueRange.height(), 0.0, 1.0);
-    updateValue(kMinAltitude + static_cast<int>(std::round(
-                                   ratio * (kMaxAltitude - kMinAltitude))));
+    updateValue(kMinAltitude + ratio * (kMaxAltitude - kMinAltitude));
   }
 
-  void updateValue(int value) {
-    const int nextValue = std::clamp(value, kMinAltitude, kMaxAltitude);
+  void updateValue(double value) {
+    const double nextValue = qRound(std::clamp(value, kMinAltitude, kMaxAltitude)
+                                    * Layer3dFormat::heightUnitsPerMeter) * Layer3dFormat::heightStep;
     if (nextValue == m_value)
       return;
     m_value = nextValue;
@@ -292,7 +302,7 @@ private:
 
   QSvgRenderer m_trackRenderer;
   QSvgRenderer m_thumbRenderer;
-  int m_value = 0;
+  double m_value = 0.0;
 };
 
 class AircraftPositionPanel::CourseKnobWidget : public QWidget {
@@ -461,9 +471,16 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   m_ySpin->setPrefix(QStringLiteral("Y: "));
   m_xSpin->setToolTip(QStringLiteral("Координата X самолета в метрах; увеличивается вправо"));
   m_ySpin->setToolTip(QStringLiteral("Координата Y самолета в метрах; увеличивается вверх"));
-  m_altitudeSpin =
-      createValueSpin(QStringLiteral("AircraftAltitudeSpin"), kMinAltitude,
-                      kMaxAltitude, 0, QStringLiteral(" м"));
+  m_altitudeSpin = new QDoubleSpinBox(this);
+  m_altitudeSpin->setObjectName(QStringLiteral("AircraftAltitudeSpin"));
+  m_altitudeSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+  m_altitudeSpin->setAlignment(Qt::AlignCenter);
+  m_altitudeSpin->setDecimals(2);
+  m_altitudeSpin->setKeyboardTracking(false);
+  m_altitudeSpin->setRange(kMinAltitude, kMaxAltitude);
+  m_altitudeSpin->setSingleStep(Layer3dFormat::heightStep);
+  m_altitudeSpin->setSuffix(QStringLiteral(" м"));
+  m_altitudeSpin->setToolTip(QStringLiteral("Высота самолета с шагом 0,25 м"));
   m_courseSpin = createValueSpin(QStringLiteral("AircraftCourseSpin"), 0, 359,
                                  0, QStringLiteral("°"));
   m_pitchSpin = createValueSpin(QStringLiteral("AircraftPitchSpin"),
@@ -489,6 +506,8 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   m_pitchUpButton = createPitchButton(QStringLiteral("up"), QStringLiteral("Увеличить тангаж"));
   m_pitchDownButton = createPitchButton(QStringLiteral("down"), QStringLiteral("Уменьшить тангаж"));
   m_altitudeSlider = new AltitudeSliderWidget(this);
+  m_altitudeSlider->setToolTip(QStringLiteral("Шаг 0,25 м: стрелки ↑/↓ или колесо мыши.\n"
+                                           "Шаг 100 м: Page Up/Page Down или Shift + колесо."));
   m_courseKnob = new CourseKnobWidget(this);
   m_courseControlArea = new QWidget(this);
   m_altitudeControlArea = new QWidget(this);
@@ -606,9 +625,12 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
               m_preciseY = value;
             syncScreen();
           });
-  connect(m_altitudeSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
-          [this](int value) {
-            m_altitudeSlider->setValue(value);
+  connect(m_altitudeSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [this](double value) {
+            const double snapped = qRound(value * Layer3dFormat::heightUnitsPerMeter) * Layer3dFormat::heightStep;
+            const QSignalBlocker blocker(m_altitudeSpin);
+            m_altitudeSpin->setValue(snapped);
+            m_altitudeSlider->setValue(snapped);
             syncScreen();
           });
   connect(m_courseSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
@@ -625,7 +647,7 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   connect(m_autopilotTimer, &QTimer::timeout, this,
           &AircraftPositionPanel::advanceAutopilot);
 
-  m_altitudeSlider->valueChanged = [this](int value) {
+  m_altitudeSlider->valueChanged = [this](double value) {
     QSignalBlocker blocker(m_altitudeSpin);
     m_altitudeSpin->setValue(value);
     syncScreen();
@@ -718,7 +740,7 @@ void AircraftPositionPanel::applyControlScale() {
                                   compactFieldHeight);
   const QSize courseFieldSize(qRound(std::max(78.0, 84.0 * scale)),
                               compactFieldHeight);
-  const QSize altitudeFieldSize(qRound(std::max(106.0, 112.0 * scale)),
+  const QSize altitudeFieldSize(qRound(std::max(140.0, 148.0 * scale)),
                                 compactFieldHeight);
   m_xSpin->setFixedSize(coordinateFieldSize);
   m_ySpin->setFixedSize(coordinateFieldSize);
@@ -842,7 +864,7 @@ void AircraftPositionPanel::syncFromProject() {
   const QSignalBlocker pitchBlocker(m_pitchSpin);
   const int x = object ? object->aircraftX() : 0;
   const int y = object ? object->aircraftY() : 0;
-  const int altitude = object ? object->aircraftAltitude() : 0;
+  const double altitude = object ? object->aircraftAltitude() : 0.0;
   // Undo, redo or loading another state must not be overwritten by the next
   // timer tick using stale fractional coordinates from the previous flight.
   if (m_autopilotEnabled && (x != m_xSpin->value() || y != m_ySpin->value()))

@@ -1580,7 +1580,6 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                                       int canvasWidth,
                                       int canvasHeight,
                                       const QColor &backgroundColor,
-                                      const QMap<QString, ParamSchema> &schemas,
                                       const QMap<QString, QString> &schemaAliases,
                                       const QList<QSharedPointer<BaseObject>> &objects,
                                       const QStringList &objectTags,
@@ -1601,8 +1600,10 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     root.appendChild(objectsEl);
 
     auto *registry = FpgaSchemaRegistry::instance();
-    const ParamSchema staticSchema = schemas.value(QStringLiteral("staticgroup"), registry->buildSchema(QStringLiteral("staticgroup")));
-    const ParamSchema rotationSchema = schemas.value(QStringLiteral("rotationobject"), registry->buildSchema(QStringLiteral("rotationobject")));
+    // Export init words using the same current layouts written to <parameters>.
+    // Imported schemas are only for decoding the source document.
+    const ParamSchema staticSchema = registry->buildSchema(QStringLiteral("staticgroup"));
+    const ParamSchema rotationSchema = registry->buildSchema(QStringLiteral("rotationobject"));
     const ParamSchema fontSchema = registry->buildSchema(QStringLiteral("font"));
     const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
 
@@ -1715,9 +1716,10 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
 
         const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
         const QString schemaName = schemaAliases.value(tagName, registry->canonicalSchemaName(tagName));
-        if (tagName.isEmpty() || !schemas.contains(schemaName))
+        const ParamSchema schema = registry->buildSchema(schemaName);
+        if (tagName.isEmpty() || schema.isEmpty())
             continue;
-        objectsEl.appendChild(createObjectElement(doc, tagName, schemas[schemaName], obj));
+        objectsEl.appendChild(createObjectElement(doc, tagName, schema, obj));
     }
 
     if (fontsOut)
@@ -2133,7 +2135,7 @@ int ProjectManager::addObject(const QString &typeName)
         return -1;
     }
 
-    if (typeName.trimmed().toLower() == QStringLiteral("three_d_view")) {
+    if (registry->canonicalSchemaName(typeName.trimmed().toLower()) == QStringLiteral("layer3d")) {
         for (int i = 0; i < m_objects.size(); ++i) {
             if (dynamic_cast<ThreeDViewObject*>(m_objects[i].data())) {
                 emit logMessage(tr("3D-вид уже добавлен в сцену"));
@@ -2149,8 +2151,12 @@ int ProjectManager::addObject(const QString &typeName)
     }
 
     const int offset = 24 * (m_objects.size() % 6);
-    const double centerX = qBound(40.0, m_document->canvasWidth() * 0.35 + offset, m_document->canvasWidth() - 40.0);
-    const double centerY = qBound(40.0, m_document->canvasHeight() * 0.35 + offset, m_document->canvasHeight() - 40.0);
+    const double marginX = qMin(40.0, m_document->canvasWidth() * 0.5);
+    const double marginY = qMin(40.0, m_document->canvasHeight() * 0.5);
+    const double centerX = qBound(marginX, m_document->canvasWidth() * 0.35 + offset,
+                                   m_document->canvasWidth() - marginX);
+    const double centerY = qBound(marginY, m_document->canvasHeight() * 0.35 + offset,
+                                   m_document->canvasHeight() - marginY);
 
     if (auto rect = dynamic_cast<RectangleObject*>(rawObject)) {
         rect->x = qMax(12.0, centerX - 60.0);
@@ -2878,7 +2884,6 @@ QDomDocument ProjectManager::buildCompiledFpgaXml() const
         m_document->canvasWidth(),
         m_document->canvasHeight(),
         m_document->backgroundColor(),
-        m_schemas,
         m_schemaAliases,
         m_objects,
         m_objectTags,
@@ -3015,7 +3020,7 @@ ThreeDViewObject *ProjectManager::threeDViewObject() const
     return nullptr;
 }
 
-bool ProjectManager::setAircraftState(int x, int y, int altitude, int course, int pitch, bool recordChange)
+bool ProjectManager::setAircraftState(int x, int y, double altitude, int course, int pitch, bool recordChange)
 {
     auto *object = threeDViewObject();
     if (!object || (object->aircraftX() == x && object->aircraftY() == y

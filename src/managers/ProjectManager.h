@@ -130,7 +130,7 @@ public:
     //проверяет, добавлен ли в сцену редакторский объект 3D-вида
     bool hasThreeDViewObject() const;
     ThreeDViewObject *threeDViewObject() const;
-    bool setAircraftState(int x, int y, int altitude, int course, int pitch, bool recordChange = true);
+    bool setAircraftState(int x, int y, double altitude, int course, int pitch, bool recordChange = true);
 
     //возвращает имя проекта
     QString getProjectName() const;
