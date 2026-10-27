@@ -3,6 +3,7 @@
 #pragma once
 
 #include "BasePanel.h"
+#include <QElapsedTimer>
 
 class QGridLayout;
 class QHBoxLayout;
@@ -45,22 +46,24 @@ private:
     ScreenWidget *m_screenWidget = nullptr;
     AltitudeSliderWidget *m_altitudeSlider = nullptr;
     CourseKnobWidget *m_courseKnob = nullptr;
-    QSpinBox *m_xSpin = nullptr;
-    QSpinBox *m_ySpin = nullptr;
+    QDoubleSpinBox *m_xSpin = nullptr;
+    QDoubleSpinBox *m_ySpin = nullptr;
     QDoubleSpinBox *m_altitudeSpin = nullptr;
-    QSpinBox *m_courseSpin = nullptr;
-    QSpinBox *m_pitchSpin = nullptr;
-    QToolButton *m_pitchUpButton = nullptr;
-    QToolButton *m_pitchDownButton = nullptr;
+    QDoubleSpinBox *m_courseSpin = nullptr;
+    QSpinBox *m_screenYSpin = nullptr;
+    QToolButton *m_screenYUpButton = nullptr;
+    QToolButton *m_screenYDownButton = nullptr;
     QToolButton *m_autopilotButton = nullptr;
     QTimer *m_autopilotTimer = nullptr;
     QWidget *m_courseControlArea = nullptr;
     QWidget *m_altitudeControlArea = nullptr;
-    QWidget *m_pitchControlArea = nullptr;
+    QWidget *m_screenYControlArea = nullptr;
     QFrame *m_unavailableOverlay = nullptr;
     QHBoxLayout *m_mainLayout = nullptr;
     QGridLayout *m_controlsLayout = nullptr;
 
+    QElapsedTimer m_flightClock;
+    quint64 m_flightSceneRevision = 0;
     double m_preciseX = 0.0;
     double m_preciseY = 0.0;
     double m_appliedControlScale = 0.0;

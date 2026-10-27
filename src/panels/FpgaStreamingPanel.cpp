@@ -3,6 +3,8 @@
 #include "FpgaStreamingPanel.h"
 
 #include "ProjectManager.h"
+#include "ThreeDViewObject.h"
+#include "fpga/packets/FpgaPacketCompiler.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include "fpga/transport/FpgaPacketDump.h"
 
@@ -30,8 +32,8 @@
 
 namespace {
 constexpr int kDefaultUartBaudRate = 115200;
-constexpr int kDefaultUartIntervalMs = 500;
-constexpr int kMinimumUartIntervalMs = 100;
+constexpr int kDefaultUartIntervalMs = 20;
+constexpr int kMinimumUartIntervalMs = 0;
 constexpr int kMaximumUartIntervalMs = 60000;
 
 QString toolTipWithShortcut(const QString &text, const QKeySequence &shortcut = {})
@@ -90,7 +92,7 @@ public:
         titleLabel->setObjectName(QStringLiteral("DialogTitleLabel"));
 
         auto *descriptionLabel = new QLabel(
-            QStringLiteral("Выберите порт, скорость и интервал автоотправки текущих пакетов на ПЛИС.")
+            QStringLiteral("Сначала загружается сцена, затем передаются положения самолета. Интервал 0 — без дополнительной паузы.")
         , this);
         descriptionLabel->setObjectName(QStringLiteral("DialogDescriptionLabel"));
         descriptionLabel->setWordWrap(true);
@@ -114,6 +116,12 @@ public:
         portLayout->addWidget(m_portCombo, 1);
         portLayout->addWidget(refreshButton, 0);
 
+        m_loadBaudRateSpin = new QSpinBox(this);
+        m_loadBaudRateSpin->setObjectName(QStringLiteral("UartLoadBaudRateSpin"));
+        m_loadBaudRateSpin->setRange(1200, 4000000);
+        m_loadBaudRateSpin->setSingleStep(9600);
+        m_loadBaudRateSpin->setFixedHeight(32);
+
         m_baudRateSpin = new QSpinBox(this);
         m_baudRateSpin->setObjectName(QStringLiteral("UartBaudRateSpin"));
         m_baudRateSpin->setRange(1200, 4000000);
@@ -123,7 +131,8 @@ public:
         m_intervalSpin = new QSpinBox(this);
         m_intervalSpin->setObjectName(QStringLiteral("UartIntervalSpin"));
         m_intervalSpin->setRange(kMinimumUartIntervalMs, kMaximumUartIntervalMs);
-        m_intervalSpin->setSingleStep(50);
+        m_intervalSpin->setSingleStep(1);
+        m_intervalSpin->setSpecialValueText(QStringLiteral("Без дополнительной паузы"));
         m_intervalSpin->setSuffix(QStringLiteral(" мс"));
         m_intervalSpin->setFixedHeight(32);
 
@@ -133,8 +142,9 @@ public:
         form->setHorizontalSpacing(14);
         form->setVerticalSpacing(10);
         addFormRow(form, 0, QStringLiteral("Порт"), portRow);
-        addFormRow(form, 1, QStringLiteral("Скорость"), m_baudRateSpin);
-        addFormRow(form, 2, QStringLiteral("Интервал"), m_intervalSpin);
+        addFormRow(form, 1, QStringLiteral("Загрузка, бод"), m_loadBaudRateSpin);
+        addFormRow(form, 2, QStringLiteral("Управление, бод"), m_baudRateSpin);
+        addFormRow(form, 3, QStringLiteral("Интервал"), m_intervalSpin);
         form->setColumnStretch(1, 1);
 
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -157,11 +167,15 @@ public:
     {
         const QString savedPort = settings.value(QStringLiteral("fpga/uartPort")).toString();
         refreshPorts(savedPort);
-        m_baudRateSpin->setValue(settings.value(QStringLiteral("fpga/uartBaudRate"), kDefaultUartBaudRate).toInt());
+        m_loadBaudRateSpin->setValue(settings.value(QStringLiteral("fpga/uartLoadBaudRate"), 921600).toInt());
+        // The old single baud rate could be a scene-upload rate. Do not reuse
+        // it as the new, separately configured control rate.
+        m_baudRateSpin->setValue(settings.value(QStringLiteral("fpga/uartControlBaudRate"), kDefaultUartBaudRate).toInt());
         m_intervalSpin->setValue(settings.value(QStringLiteral("fpga/uartIntervalMs"), kDefaultUartIntervalMs).toInt());
     }
 
     QString portName() const { return m_portCombo->currentText().trimmed(); }
+    int loadBaudRate() const { return m_loadBaudRateSpin->value(); }
     int baudRate() const { return m_baudRateSpin->value(); }
     int intervalMs() const { return m_intervalSpin->value(); }
 
@@ -190,6 +204,7 @@ private:
     }
 
     QComboBox *m_portCombo = nullptr;
+    QSpinBox *m_loadBaudRateSpin = nullptr;
     QSpinBox *m_baudRateSpin = nullptr;
     QSpinBox *m_intervalSpin = nullptr;
 };
@@ -208,8 +223,17 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     m_stopButton->setEnabled(false);
     m_simulatorButton->setChecked(true);
 
-    m_uartTimer = new QTimer(this);
-    m_uartTimer->setTimerType(Qt::CoarseTimer);
+    m_uartTransport = new FpgaUartTransport(this);
+    connect(m_uartTransport, &FpgaUartTransport::setupComplete, this, [this]() {
+        emit ProjectManager::instance()->logMessage(QStringLiteral("UART: сцена загружена; управление %1 бод, интервал %2 мс.")
+            .arg(m_uartConfig.baudRate).arg(m_uartConfig.intervalMs));
+    });
+    connect(m_uartTransport, &FpgaUartTransport::positionRequested, this, &FpgaStreamingPanel::transmitUartFrame);
+    connect(m_uartTransport, &FpgaUartTransport::failed, this, [this](const QString &error) {
+        stopUartStreaming();
+        setRunning(simulatorModeActive());
+        QMessageBox::warning(this, QStringLiteral("UART"), error);
+    });
 
     m_modeLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_modeLayout->setSpacing(6);
@@ -243,9 +267,11 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     connect(m_simulatorButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
     connect(m_uartButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &FpgaStreamingPanel::invalidatePackets);
-    connect(m_uartTimer, &QTimer::timeout, this, &FpgaStreamingPanel::transmitUartFrame);
+    connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &FpgaStreamingPanel::invalidatePackets);
     updateAdaptiveLayout();
 }
+
+FpgaStreamingPanel::~FpgaStreamingPanel() { stopUartStreaming(); }
 
 void FpgaStreamingPanel::resizeEvent(QResizeEvent *event)
 {
@@ -373,77 +399,50 @@ bool FpgaStreamingPanel::configureUartStreaming()
 
     m_uartConfig.portName = dialog.portName();
     m_uartConfig.baudRate = dialog.baudRate();
+    m_uartConfig.loadBaudRate = dialog.loadBaudRate();
+    m_uartConfig.intervalMs = dialog.intervalMs();
     m_uartConfig.writeInitialZero = true;
-    m_uartConfig.writeTimeoutMs = qMin(1000, qMax(50, dialog.intervalMs() / 2));
-    m_uartIntervalMs = dialog.intervalMs();
+    m_uartConfig.writeTimeoutMs = 5000;
 
     settings.setValue(QStringLiteral("fpga/uartPort"), m_uartConfig.portName);
-    settings.setValue(QStringLiteral("fpga/uartBaudRate"), m_uartConfig.baudRate);
-    settings.setValue(QStringLiteral("fpga/uartIntervalMs"), m_uartIntervalMs);
-    return true;
-}
-
-bool FpgaStreamingPanel::sendCurrentBundleViaUart(bool showSuccessMessage)
-{
-    if (m_uartSending)
-        return true;
-
-    QString error;
-    m_uartSending = true;
-    const bool success = FpgaUartTransport::writeBundle(m_bundle, m_uartConfig, &error);
-    m_uartSending = false;
-
-    if (!success) {
-        QMessageBox::warning(this, QStringLiteral("UART"), error);
-        return false;
-    }
-
-    if (showSuccessMessage) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("UART"),
-            QStringLiteral("Трансляция запущена: %1 пакетов, %2 байт каждые %3 мс")
-                .arg(m_bundle.packets.size())
-                .arg(m_bundle.totalBytes() + 1)
-                .arg(m_uartIntervalMs)
-        );
-    }
+    settings.setValue(QStringLiteral("fpga/uartLoadBaudRate"), m_uartConfig.loadBaudRate);
+    settings.setValue(QStringLiteral("fpga/uartControlBaudRate"), m_uartConfig.baudRate);
+    settings.setValue(QStringLiteral("fpga/uartIntervalMs"), m_uartConfig.intervalMs);
     return true;
 }
 
 void FpgaStreamingPanel::startUartStreaming()
 {
-    m_uartStreaming = true;
-    if (!sendCurrentBundleViaUart(false)) {
-        stopUartStreaming();
-        return;
-    }
-    m_uartTimer->start(m_uartIntervalMs);
+    m_lastSceneRevision = ProjectManager::instance()->sceneRevision();
+    QString error;
+    m_uartStreaming = m_uartTransport->startStreaming(m_bundle, m_uartConfig, &error);
+    if (!m_uartStreaming) QMessageBox::warning(this, QStringLiteral("UART"), error);
 }
 
 void FpgaStreamingPanel::stopUartStreaming()
 {
     m_uartStreaming = false;
-    if (m_uartTimer)
-        m_uartTimer->stop();
+    if (m_uartTransport) m_uartTransport->stopStreaming();
 }
 
 void FpgaStreamingPanel::transmitUartFrame()
 {
-    if (!m_uartStreaming || m_uartConfig.portName.isEmpty())
-        return;
-
-    if (!compilePackets(false)) {
-        stopUartStreaming();
-        QMessageBox::warning(this, QStringLiteral("UART"), QStringLiteral("Трансляция остановлена: не удалось сформировать пакеты."));
-        setRunning(simulatorModeActive());
-        return;
+    m_updateScheduled = false;
+    if (!m_uartStreaming) return;
+    auto *project = ProjectManager::instance();
+    if (project->sceneRevision() != m_lastSceneRevision) {
+        if (!compilePackets(false)) {
+            stopUartStreaming();
+            setRunning(simulatorModeActive());
+            QMessageBox::warning(this, QStringLiteral("UART"), QStringLiteral("Не удалось сформировать сцену."));
+            return;
+        }
+        m_uartTransport->updateScene(m_bundle);
+        m_lastSceneRevision = project->sceneRevision();
     }
-
-    if (!sendCurrentBundleViaUart(false)) {
-        stopUartStreaming();
-        setRunning(simulatorModeActive());
-    }
+    auto *view = project->threeDViewObject();
+    m_uartTransport->updatePosition(view && view->isExportEnabled()
+        ? FpgaPacketCompiler::layer3dPositionPacket(view->serializeInit()).bytes : QByteArray());
 }
 
 void FpgaStreamingPanel::setRunning(bool running)
@@ -456,10 +455,12 @@ void FpgaStreamingPanel::setRunning(bool running)
 
 void FpgaStreamingPanel::invalidatePackets()
 {
-    if (!m_hasBundle)
-        return;
-
     m_hasBundle = false;
+    if (m_uartStreaming && !m_updateScheduled
+        && ProjectManager::instance()->sceneRevision() != m_lastSceneRevision) {
+        m_updateScheduled = true;
+        QTimer::singleShot(0, this, &FpgaStreamingPanel::transmitUartFrame);
+    }
 }
 
 void FpgaStreamingPanel::updateAdaptiveLayout()

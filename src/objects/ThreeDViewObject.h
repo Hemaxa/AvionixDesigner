@@ -27,12 +27,12 @@ public:
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;
 
-    int aircraftX() const;
-    int aircraftY() const;
+    double aircraftX() const;
+    double aircraftY() const;
     double aircraftAltitude() const;
-    int aircraftCourse() const;
-    int aircraftPitch() const;
-    bool setAircraftState(int x, int y, double altitude, int course, int pitch);
+    double aircraftCourse() const;
+    int aircraftScreenY() const;
+    bool setAircraftState(double x, double y, double altitude, double course, int screenY);
     QString serializeInit() const;
     QRectF aircraftMarkerRect() const;
     bool isLeftAnchored() const { return m_leftAnchored; }

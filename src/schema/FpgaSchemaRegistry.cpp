@@ -9,7 +9,7 @@ QList<FpgaSchemaField> layer3dFields()
         {"y", Layer3dFormat::yOffset, Layer3dFormat::coordinateBits},
         {"course", Layer3dFormat::courseOffset, Layer3dFormat::courseBits},
         {"height", Layer3dFormat::heightOffset, Layer3dFormat::heightBits},
-        {"pitch", Layer3dFormat::pitchOffset, Layer3dFormat::pitchBits},
+        {"yscreen", Layer3dFormat::screenYOffset, Layer3dFormat::screenYBits},
         {"padding", Layer3dFormat::paddingOffset, Layer3dFormat::paddingBits}
     };
 }

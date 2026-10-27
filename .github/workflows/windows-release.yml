@@ -58,10 +58,15 @@ jobs:
           -G "Visual Studio 17 2022"
           -A x64
           -DCMAKE_BUILD_TYPE=Release
+          -DAVIONIX_BUILD_TESTS=ON
 
       - name: Build
         shell: pwsh
         run: cmake --build build --config Release --parallel
+
+      - name: Verify protocol against Python
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Package installer
         shell: pwsh

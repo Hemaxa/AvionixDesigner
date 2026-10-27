@@ -19,6 +19,9 @@ ThreeDViewObject::ThreeDViewObject(QObject *parent)
       m_markerRenderer(QStringLiteral(":/icons/icons/objects/aircraft-position-dot.svg"))
 {
     setExportEnabled(true);
+    BitParser::inject(m_initHex, Layer3dFormat::screenYOffset, Layer3dFormat::screenYBits, Layer3dFormat::defaultScreenY);
+    BitParser::inject(m_initHex, Layer3dFormat::heightOffset, Layer3dFormat::heightBits, Layer3dFormat::heightToRaw(Layer3dFormat::defaultHeight));
+    BitParser::inject(m_initHex, Layer3dFormat::courseOffset, Layer3dFormat::courseBits, Layer3dFormat::courseToRaw(Layer3dFormat::defaultCourse));
     setEditRestrictionHint(QStringLiteral("3D-вид закреплен у границы холста. Сторона выбирается в параметре «Положение»."));
 }
 
@@ -34,12 +37,14 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
         const QString source = m_initHex;
         for (const QString &name : {QStringLiteral("x"), QStringLiteral("y"),
                                    QStringLiteral("course"), QStringLiteral("height"),
-                                   QStringLiteral("pitch")}) {
+                                   QStringLiteral("yscreen")}) {
             const ParamInfo target = current.value(name);
             const ParamInfo original = schema.value(name, target);
-            if (name == QStringLiteral("pitch")) {
+            if (name == QStringLiteral("yscreen")) {
                 BitParser::inject(m_initHex, target.offset, target.size,
-                                  schema.contains(name) ? BitParser::extract(source, original.offset, original.size) : 0);
+                                  schema.contains(name) ? BitParser::extract(source, original.offset, original.size)
+                                      : schema.contains("pitch") ? BitParser::extract(source, schema["pitch"].offset, schema["pitch"].size)
+                                      : Layer3dFormat::defaultScreenY);
             } else if (name == QStringLiteral("x") || name == QStringLiteral("y")) {
                 // Current coordinates are unsigned Q13.6. Older 17-bit
                 // layouts stored signed whole meters.
@@ -47,9 +52,9 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
                     ? int(BitParser::extract(source, original.offset, original.size))
                     : qBound(Layer3dFormat::minPosition,
                              int(BitParser::extractSigned(source, original.offset, original.size)),
-                             Layer3dFormat::maxPosition) * Layer3dFormat::coordinateUnitsPerMeter;
+                             Layer3dFormat::maxPosition) * Layer3dFormat::coordinateUnitsPerPoint;
                 BitParser::inject(m_initHex, target.offset, target.size,
-                                  qMin(raw, Layer3dFormat::maxPosition * Layer3dFormat::coordinateUnitsPerMeter));
+                                  qMin(raw, Layer3dFormat::maxPosition * Layer3dFormat::coordinateUnitsPerPoint));
             } else if (name == QStringLiteral("course")) {
                 BitParser::inject(m_initHex, target.offset, target.size,
                                   BitParser::extract(source, original.offset, original.size));
@@ -69,12 +74,15 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
         // Older XML describes only the on-screen layer origin, not the aircraft.
         const ParamInfo field = schema.value(QStringLiteral("enb"));
         setViewVisible(BitParser::extract(hexInit, field.offset, field.size) != 0);
+        if (schema.contains("x0")) {
+            const auto origin = schema.value("x0");
+            m_leftAnchored = BitParser::extract(hexInit, origin.offset, origin.size) < 512;
+        }
     }
 }
 
 void ThreeDViewObject::parseExtraData(const QDomElement &element)
 {
-    m_leftAnchored = false;
     for (QDomNode node = element.firstChild(); !node.isNull(); node = node.nextSibling()) {
         if (node.isComment() && node.nodeValue().trimmed() == QStringLiteral("AvionixDesigner: 3D view left"))
             m_leftAnchored = true;
@@ -193,23 +201,23 @@ QMap<QString, quint32> ThreeDViewObject::serializeParams() const
     const auto schema = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d"));
     for (const QString &name : {QStringLiteral("x"), QStringLiteral("y"),
                                QStringLiteral("course"), QStringLiteral("height"),
-                               QStringLiteral("pitch")}) {
+                               QStringLiteral("yscreen")}) {
         const auto field = schema.value(name);
         params.insert(name, BitParser::extract(m_initHex, field.offset, field.size));
     }
     return params;
 }
 
-int ThreeDViewObject::aircraftX() const
+double ThreeDViewObject::aircraftX() const
 {
     return BitParser::extract(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits)
-        / Layer3dFormat::coordinateUnitsPerMeter;
+        / double(Layer3dFormat::coordinateUnitsPerPoint);
 }
 
-int ThreeDViewObject::aircraftY() const
+double ThreeDViewObject::aircraftY() const
 {
     return BitParser::extract(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits)
-        / Layer3dFormat::coordinateUnitsPerMeter;
+        / double(Layer3dFormat::coordinateUnitsPerPoint);
 }
 
 double ThreeDViewObject::aircraftAltitude() const
@@ -218,41 +226,28 @@ double ThreeDViewObject::aircraftAltitude() const
         / double(Layer3dFormat::heightUnitsPerMeter);
 }
 
-int ThreeDViewObject::aircraftCourse() const
+double ThreeDViewObject::aircraftCourse() const
 {
-    return qRound(BitParser::extract(m_initHex, Layer3dFormat::courseOffset, Layer3dFormat::courseBits)
-                  * 360.0 / Layer3dFormat::courseTurn) % 360;
+    return BitParser::extract(m_initHex, Layer3dFormat::courseOffset, Layer3dFormat::courseBits)
+        / Layer3dFormat::courseScale;
 }
 
-int ThreeDViewObject::aircraftPitch() const
+int ThreeDViewObject::aircraftScreenY() const
 {
-    return BitParser::extractSigned(m_initHex, Layer3dFormat::pitchOffset, Layer3dFormat::pitchBits);
+    return BitParser::extract(m_initHex, Layer3dFormat::screenYOffset, Layer3dFormat::screenYBits);
 }
 
-bool ThreeDViewObject::setAircraftState(int x, int y, double altitude, int course, int pitch)
+bool ThreeDViewObject::setAircraftState(double x, double y, double altitude, double course, int screenY)
 {
-    x = qBound(Layer3dFormat::minPosition, x, Layer3dFormat::maxPosition);
-    y = qBound(Layer3dFormat::minPosition, y, Layer3dFormat::maxPosition);
-    course = (course % 360 + 360) % 360;
-    pitch = qBound(Layer3dFormat::minPitch, pitch, Layer3dFormat::maxPitch);
+    if (!qIsFinite(x) || !qIsFinite(y) || !qIsFinite(altitude) || !qIsFinite(course))
+        return false;
     const QString previous = m_initHex;
-    if (x != aircraftX())
-        BitParser::inject(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits,
-                          x * Layer3dFormat::coordinateUnitsPerMeter);
-    if (y != aircraftY())
-        BitParser::inject(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits,
-                          y * Layer3dFormat::coordinateUnitsPerMeter);
-    if (qIsFinite(altitude)) {
-        const int rawHeight = qRound(qBound(Layer3dFormat::minHeight, altitude,
-                                            Layer3dFormat::maxHeight) * Layer3dFormat::heightUnitsPerMeter);
-        BitParser::inject(m_initHex, Layer3dFormat::heightOffset, Layer3dFormat::heightBits, static_cast<quint32>(rawHeight));
-    }
-    if (course != aircraftCourse())
-        BitParser::inject(m_initHex, Layer3dFormat::courseOffset, Layer3dFormat::courseBits,
-                          qRound(course * double(Layer3dFormat::courseTurn) / 360.0) % Layer3dFormat::courseTurn);
-    if (pitch != aircraftPitch())
-        BitParser::inject(m_initHex, Layer3dFormat::pitchOffset, Layer3dFormat::pitchBits,
-                          static_cast<quint32>(pitch));
+    BitParser::inject(m_initHex, Layer3dFormat::xOffset, Layer3dFormat::coordinateBits, Layer3dFormat::positionToRaw(x));
+    BitParser::inject(m_initHex, Layer3dFormat::yOffset, Layer3dFormat::coordinateBits, Layer3dFormat::positionToRaw(y));
+    BitParser::inject(m_initHex, Layer3dFormat::heightOffset, Layer3dFormat::heightBits, Layer3dFormat::heightToRaw(altitude));
+    BitParser::inject(m_initHex, Layer3dFormat::courseOffset, Layer3dFormat::courseBits, Layer3dFormat::courseToRaw(course));
+    BitParser::inject(m_initHex, Layer3dFormat::screenYOffset, Layer3dFormat::screenYBits,
+                      qBound(Layer3dFormat::minScreenY, screenY, Layer3dFormat::maxScreenY));
     return previous != m_initHex;
 }
 

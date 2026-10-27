@@ -22,6 +22,7 @@ enum class FpgaMemoryKind
 struct FpgaCompiledObject
 {
     QString type;
+    bool leftAnchored = false;
     QStringList iparams;
     QString data;
     QMap<QString, int> kerningPairs;

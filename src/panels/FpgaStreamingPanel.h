@@ -9,7 +9,6 @@
 class QBoxLayout;
 class QFrame;
 class QResizeEvent;
-class QTimer;
 class QToolButton;
 
 class FpgaStreamingPanel : public BasePanel
@@ -18,6 +17,7 @@ class FpgaStreamingPanel : public BasePanel
 
 public:
     explicit FpgaStreamingPanel(QWidget *parent = nullptr);
+    ~FpgaStreamingPanel() override;
 
 signals:
     void simulatorBundleReady(const FpgaPacketBundle &bundle);
@@ -43,7 +43,6 @@ private:
     bool hasSelectedMode() const;
     bool simulatorModeActive() const;
     bool configureUartStreaming();
-    bool sendCurrentBundleViaUart(bool showSuccessMessage);
     void startUartStreaming();
     void stopUartStreaming();
     void setRunning(bool running);
@@ -62,12 +61,12 @@ private:
     QToolButton *m_stopButton = nullptr;
 
     FpgaPacketBundle m_bundle;
-    QTimer *m_uartTimer = nullptr;
+    FpgaUartTransport *m_uartTransport = nullptr;
+    quint64 m_lastSceneRevision = 0;
+    bool m_updateScheduled = false;
     FpgaUartConfig m_uartConfig;
-    int m_uartIntervalMs = 500;
     bool m_hasBundle = false;
     bool m_running = false;
     bool m_uartStreaming = false;
-    bool m_uartSending = false;
     bool m_verticalLayout = false;
 };

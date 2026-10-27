@@ -1,0 +1,27 @@
+{
+  "_platform": "Darwin",
+  "image.xml": {
+    "packets": 1176,
+    "sha256": "0e3a62eab7f57b48a1865732c33231b99da426182e2b7afc8b4366729fe3ff7c"
+  },
+  "test.xml": {
+    "packets": 293,
+    "sha256": "000a94c43f2ab5a7dbb792a4017e25a8fe75d8a83d558d0c48e583469a599388"
+  },
+  "test1.xml": {
+    "packets": 293,
+    "sha256": "000a94c43f2ab5a7dbb792a4017e25a8fe75d8a83d558d0c48e583469a599388"
+  },
+  "test2.xml": {
+    "packets": 233,
+    "sha256": "b9c04ffe06bf1e4cade04bfcf8e1fea49d8fdba96a7dc4fcfc4d708a3fa3404e"
+  },
+  "test3.xml": {
+    "packets": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "test4.xml": {
+    "packets": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
