@@ -18,7 +18,7 @@ void AviaHorizonObject::parse(const QString &hexInit, const ParamSchema &schema)
     if (schema.contains("hline"))
         horizonLineColor = BitParser::parseColor(BitParser::extract(hexInit, schema["hline"].offset, schema["hline"].size));
     if (schema.contains("width"))
-        lineWidth = BitParser::extract(hexInit, schema["width"].offset, schema["width"].size);
+        lineWidth = BitParser::extract(hexInit, schema["width"].offset, schema["width"].size) + 1;
     if (schema.contains("xo"))
         xCenter = BitParser::extract(hexInit, schema["xo"].offset, schema["xo"].size);
     if (schema.contains("yo"))
@@ -139,7 +139,7 @@ bool AviaHorizonObject::setObjectProperty(const QString &name, const QString &va
     else if (name == "Ширина линии") {
         lineWidth = value.toDouble(&ok);
         if (ok)
-            lineWidth = qBound(0.0, lineWidth, 15.0);
+            lineWidth = qBound(1.0, lineWidth, 16.0);
     }
     else if (name == "Цвет неба") {
         skyColor = QColor(value);
@@ -166,7 +166,7 @@ QMap<QString, quint32> AviaHorizonObject::serializeParams() const
         {"earth", BitParser::colorToBgr(earthColor)},
         {"sky", BitParser::colorToBgr(skyColor)},
         {"hline", BitParser::colorToBgr(horizonLineColor)},
-        {"width", static_cast<quint32>(qBound(0, qRound(lineWidth), 15))},
+        {"width", static_cast<quint32>(qBound(1, qRound(lineWidth), 16) - 1)},
         {"xo", static_cast<quint32>(qBound(0, qRound(xCenter), 4095))},
         {"yo", static_cast<quint32>(qBound(0, qRound(yCenter), 4095))},
         {"sn", static_cast<quint32>(static_cast<qint32>(sinVal))},

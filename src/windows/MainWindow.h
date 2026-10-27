@@ -22,6 +22,7 @@ class ViewportPanel;
 class ViewportSettingsPanel;
 class FpgaStreamingPanel;
 class FpgaSimulatorPanel;
+class AircraftPositionPanel;
 
 class MainWindow : public QMainWindow
 {
@@ -85,6 +86,8 @@ private:
     void connectSignals();
     //задаёт начальные размеры dock-панелей
     void setupDockSizes();
+    //задаёт стандартные размеры плавающих служебных панелей
+    void applyDefaultFloatingDockSizes();
     //создаёт QAction с текстом, shortcut и receiver/member
     QAction* createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member);
     //сохраняет геометрию и состояние dock-панелей
@@ -103,6 +106,8 @@ private:
     void scheduleFpgaSimulatorUpdate();
     //пересобирает пакеты и обновляет панель live-симулятора
     void updateFpgaSimulatorNow();
+    //обновляет доступность панели позиционирования самолета
+    void updateAircraftPositionAvailability();
 
     EditorWorkspacePanel *m_workspacePanel = nullptr;
     ViewportPanel *m_viewport = nullptr;
@@ -113,6 +118,7 @@ private:
     ViewportSettingsPanel *m_viewportSettings = nullptr;
     FpgaStreamingPanel *m_fpgaStreaming = nullptr;
     FpgaSimulatorPanel *m_fpgaSimulator = nullptr;
+    AircraftPositionPanel *m_aircraftPosition = nullptr;
 
     QDockWidget *m_objectListDock = nullptr;
     QDockWidget *m_objectPropertiesDock = nullptr;
@@ -120,6 +126,7 @@ private:
     QDockWidget *m_viewportSettingsDock = nullptr;
     QDockWidget *m_fpgaStreamingDock = nullptr;
     QDockWidget *m_fpgaSimulatorDock = nullptr;
+    QDockWidget *m_aircraftPositionDock = nullptr;
     QTimer *m_fpgaSimulatorUpdateTimer = nullptr;
 
     SettingsWindow *m_settingsWindow = nullptr;

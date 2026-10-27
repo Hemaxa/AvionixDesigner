@@ -39,6 +39,7 @@ QWidget {
 #ObjectPropertiesPanel,
 #ObjectLibraryPanel,
 #ViewportSettingsPanel,
+#AircraftPositionPanel,
 #SettingsCard,
 #PropertiesTableCard,
 #PropertiesEmptyState,
@@ -319,6 +320,7 @@ QLabel {
 QLineEdit,
 QTextEdit,
 QSpinBox,
+QDoubleSpinBox,
 QComboBox {
     background-color: #121922;
     color: #edf7fb;
@@ -331,6 +333,7 @@ QComboBox {
 QLineEdit:focus,
 QTextEdit:focus,
 QSpinBox:focus,
+QDoubleSpinBox:focus,
 QComboBox:focus {
     border-color: #00c8f0;
 }
@@ -380,6 +383,92 @@ QToolButton#SettingsToolButton {
     qproperty-iconSize: 32px 32px;
 }
 
+#AircraftPositionPanel {
+    background-color: #0f141a;
+}
+
+#AircraftPositionScreen {
+    background-color: #0f141a;
+    border: none;
+}
+
+#AircraftPositionCaption {
+    color: #edf7fb;
+    font-weight: 700;
+}
+
+#AircraftPositionUnavailableOverlay {
+    background-color: rgba(15, 20, 26, 225);
+    border: 1px solid #22303c;
+    border-radius: 8px;
+}
+
+#AircraftPositionUnavailableTitle {
+    color: #edf7fb;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+#AircraftPositionUnavailableText {
+    color: #9fb3c1;
+    font-size: 14px;
+}
+
+#FpgaSimulatorWarningsLabel {
+    color: #f05050;
+}
+
+#AircraftXSpin,
+#AircraftYSpin,
+#AircraftAltitudeSpin,
+#AircraftCourseSpin,
+#AircraftPitchSpin {
+    background-color: #121922;
+    color: #edf7fb;
+    border: 1px solid #22303c;
+    border-radius: 7px;
+    padding: 2px 6px;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+#AircraftXSpin:focus,
+#AircraftYSpin:focus,
+#AircraftAltitudeSpin:focus,
+#AircraftCourseSpin:focus,
+#AircraftPitchSpin:focus {
+    border-color: #00c8f0;
+}
+
+#AircraftXSpin::up-button,
+#AircraftXSpin::down-button,
+#AircraftYSpin::up-button,
+#AircraftYSpin::down-button,
+#AircraftAltitudeSpin::up-button,
+#AircraftAltitudeSpin::down-button,
+#AircraftCourseSpin::up-button,
+#AircraftCourseSpin::down-button,
+#AircraftPitchSpin::up-button,
+#AircraftPitchSpin::down-button {
+    width: 0;
+    height: 0;
+    border: none;
+}
+
+QToolButton#AircraftAutopilotButton,
+QToolButton#AircraftPitchButton {
+    background-color: transparent;
+    border: none;
+    padding: 0;
+}
+
+QToolButton#AircraftAutopilotButton:hover,
+QToolButton#AircraftPitchButton:hover,
+QToolButton#AircraftPitchButton:pressed {
+    background-color: transparent;
+    border: none;
+}
+
 QPushButton#SettingsColorButton {
     qproperty-iconSize: 36px 36px;
 }
@@ -424,6 +513,7 @@ QDialog QLabel {
 QDialog QLineEdit,
 QDialog QTextEdit,
 QDialog QSpinBox,
+QDialog QDoubleSpinBox,
 QDialog QComboBox {
     min-height: 34px;
     padding: 7px 10px;
@@ -439,6 +529,34 @@ QDialog QToolButton {
 
 QDialogButtonBox QPushButton {
     min-width: 84px;
+}
+
+/* Equal settings rows without the generic dialog's extra vertical padding. */
+QDialog#SettingsWindow QSpinBox,
+QDialog#SettingsWindow QDoubleSpinBox,
+QDialog#SettingsWindow QCheckBox,
+QDialog#SettingsWindow QPushButton,
+QDialog#SettingsWindow QToolButton {
+    min-height: 36px;
+    max-height: 36px;
+    padding-top: 0;
+    padding-bottom: 0;
+    font-size: 14px;
+}
+
+QDialog#SettingsWindow QCheckBox {
+    border: 1px solid transparent;
+}
+
+QDialog#SettingsWindow QGroupBox QLabel {
+    min-height: 38px;
+    max-height: 38px;
+}
+
+QDialog#SettingsWindow QPushButton#ColorSwatchButton {
+    min-width: 36px;
+    max-width: 36px;
+    padding: 0;
 }
 
 QDialog#FontExportDialog QTableWidget {
@@ -477,9 +595,11 @@ QDialog#UartStreamingDialog #DialogFieldLabel {
 
 QDialog#NewProjectDialog QLineEdit,
 QDialog#NewProjectDialog QSpinBox,
+QDialog#NewProjectDialog QDoubleSpinBox,
 QDialog#NewProjectDialog #ProjectColorButton,
 QDialog#UartStreamingDialog QComboBox,
 QDialog#UartStreamingDialog QSpinBox,
+QDialog#UartStreamingDialog QDoubleSpinBox,
 QDialog#UartStreamingDialog QPushButton {
     min-height: 30px;
     max-height: 32px;

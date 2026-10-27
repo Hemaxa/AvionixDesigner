@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 1.0.4 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.5 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg SerialPort)
 
@@ -71,6 +71,8 @@ qt_add_executable(AvionixDesigner
     src/panels/FpgaStreamingPanel.cpp
     src/panels/FpgaSimulatorPanel.h
     src/panels/FpgaSimulatorPanel.cpp
+    src/panels/AircraftPositionPanel.h
+    src/panels/AircraftPositionPanel.cpp
     
     # Объекты
     src/objects/RectangleObject.h
@@ -87,12 +89,15 @@ qt_add_executable(AvionixDesigner
     src/objects/ImageObject.cpp
     src/objects/AviaHorizonObject.h
     src/objects/AviaHorizonObject.cpp
+    src/objects/ThreeDViewObject.h
+    src/objects/ThreeDViewObject.cpp
     src/objects/TextObject.h
     src/objects/TextObject.cpp
     
     # FPGA Подсистема
     src/fpga/model/FpgaCompiledDocument.h
     src/fpga/model/FpgaCompiledDocument.cpp
+    src/fpga/model/Layer3dFormat.h
     src/fpga/packets/FpgaPacket.h
     src/fpga/packets/FpgaPacket.cpp
     src/fpga/packets/FpgaPacketCompiler.h
@@ -122,6 +127,7 @@ qt_add_executable(AvionixDesigner
     src/utils/BitParser.h
     src/utils/XmlReader.h
     src/utils/ProportionalResize.h
+    src/utils/AircraftPositionMapping.h
     
     # Ресурсы
     res/resources.qrc

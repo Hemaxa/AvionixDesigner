@@ -64,7 +64,7 @@ private:
     FpgaPacketBundle m_bundle;
     QTimer *m_uartTimer = nullptr;
     FpgaUartConfig m_uartConfig;
-    int m_uartIntervalMs = 2000;
+    int m_uartIntervalMs = 500;
     bool m_hasBundle = false;
     bool m_running = false;
     bool m_uartStreaming = false;

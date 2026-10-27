@@ -10,6 +10,8 @@
         <file>icons/library/dashedline.svg</file>
         <file>icons/library/ribonscale.svg</file>
         <file>icons/library/aviahorizon.svg</file>
+        <file>icons/library/three-d-view.svg</file>
+        <file>icons/objects/aircraft-position-dot.svg</file>
         <file>icons/library/text.svg</file>
         <file>icons/library/import-image.svg</file>
         <file>icons/list/eye-on.svg</file>
@@ -23,6 +25,18 @@
         <file>icons/fpga/uart.svg</file>
         <file>icons/fpga/play.svg</file>
         <file>icons/fpga/stop.svg</file>
+        <file>icons/aircraft-position/slider-thumb.svg</file>
+        <file>icons/aircraft-position/altitude-track.svg</file>
+        <file>icons/aircraft-position/course-pointer.svg</file>
+        <file>icons/aircraft-position/course-base.svg</file>
+        <file>icons/aircraft-position/autopilot-button-off.svg</file>
+        <file>icons/aircraft-position/autopilot-button-on.svg</file>
+        <file>icons/aircraft-position/aircraft.svg</file>
+        <file>icons/aircraft-position/screen.svg</file>
+        <file>icons/aircraft-position/pitch-up.svg</file>
+        <file>icons/aircraft-position/pitch-up-pressed.svg</file>
+        <file>icons/aircraft-position/pitch-down.svg</file>
+        <file>icons/aircraft-position/pitch-down-pressed.svg</file>
         <file>icons/selection/align-top.svg</file>
         <file>icons/selection/align-vcenter.svg</file>
         <file>icons/selection/align-bottom.svg</file>

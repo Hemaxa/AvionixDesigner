@@ -55,4 +55,6 @@ compile_commands.json
 
 # Мои добавления
 /build
+/FrameGUI
 .DS_Store
+/docs/FrameGUI

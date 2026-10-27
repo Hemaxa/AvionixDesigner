@@ -96,7 +96,6 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
     mainLayout->setSpacing(6);
 
     createButtons();
-    mainLayout->addStretch(1);
     mainLayout->addLayout(m_rowLayout);
     mainLayout->addStretch(1);
     updateAdaptiveLayout();
@@ -112,7 +111,7 @@ void ObjectLibraryPanel::createButtons()
 {
     m_rowLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_rowLayout->setSpacing(8);
-    m_rowLayout->setAlignment(Qt::AlignCenter);
+    m_rowLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
 
     QList<EditorObjectDescriptor> items;
     QMap<QString, QString> shortcutsByType;
@@ -131,13 +130,13 @@ void ObjectLibraryPanel::createButtons()
         QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title);
         card->setToolTip(toolTipWithShortcut(item.title, shortcutsByType.value(item.typeName)));
         m_libraryCards.append(card);
-        m_rowLayout->addWidget(card, 0, Qt::AlignCenter);
+        m_rowLayout->addWidget(card, 0, Qt::AlignLeft | Qt::AlignTop);
     }
 
     QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
     imageButton->setToolTip(toolTipWithShortcut(QStringLiteral("Добавить изображение"), QStringLiteral("Ctrl+I")));
     m_libraryCards.append(imageButton);
-    m_rowLayout->addWidget(imageButton, 0, Qt::AlignCenter);
+    m_rowLayout->addWidget(imageButton, 0, Qt::AlignLeft | Qt::AlignTop);
 }
 
 QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title)
@@ -183,6 +182,6 @@ void ObjectLibraryPanel::updateAdaptiveLayout()
 
     m_verticalLayout = vertical;
     m_rowLayout->setDirection(vertical ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
-    m_rowLayout->setAlignment(Qt::AlignCenter);
+    m_rowLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     updateGeometry();
 }

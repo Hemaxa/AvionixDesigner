@@ -19,7 +19,7 @@ void RibbonScaleObject::parse(const QString &hexInit, const ParamSchema &schema)
     if (schema.contains("bottom"))
         bottom = BitParser::extract(hexInit, schema["bottom"].offset, schema["bottom"].size);
     if (schema.contains("width"))
-        lineWidth = qMax(1, static_cast<int>(BitParser::extract(hexInit, schema["width"].offset, schema["width"].size)));
+        lineWidth = static_cast<int>(BitParser::extract(hexInit, schema["width"].offset, schema["width"].size)) + 1;
     if (schema.contains("period"))
         period = qMax(1, static_cast<int>(BitParser::extract(hexInit, schema["period"].offset, schema["period"].size)));
     if (schema.contains("ystart"))
@@ -153,7 +153,7 @@ bool RibbonScaleObject::setObjectProperty(const QString &name, const QString &va
         color = QColor(value);
         ok = color.isValid();
     } else if (name == "Ширина риски") {
-        lineWidth = qMax(1, value.toInt(&ok));
+        lineWidth = qBound(1, value.toInt(&ok), 16);
     } else if (name == "Период") {
         period = qMax(1, value.toInt(&ok));
     } else if (name == "Y start") {
@@ -174,7 +174,7 @@ QMap<QString, quint32> RibbonScaleObject::serializeParams() const
         {"right", static_cast<quint32>(qMax(0, qRound(right)))},
         {"top", static_cast<quint32>(qMax(0, qRound(top)))},
         {"bottom", static_cast<quint32>(qMax(0, qRound(bottom)))},
-        {"width", static_cast<quint32>(qBound(1, lineWidth, 15))},
+        {"width", static_cast<quint32>(qBound(1, lineWidth, 16) - 1)},
         {"period", static_cast<quint32>(qBound(1, period, 255))},
         {"ystart", static_cast<quint32>(qMax(0, qRound(yStart)))}
     };

@@ -18,6 +18,7 @@ public:
 
 public slots:
     void loadBundle(const FpgaPacketBundle &bundle);
+    void setSimulationActive(bool active);
 
 private:
     FpgaSimulator m_simulator;

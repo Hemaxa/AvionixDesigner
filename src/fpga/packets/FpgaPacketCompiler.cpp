@@ -6,6 +6,7 @@
 #include "fpga/packets/FpgaPacketFramer.h"
 
 #include <QtGlobal>
+#include <algorithm>
 
 namespace {
 void appendUint16(QByteArray *data, quint16 value)
@@ -91,6 +92,23 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaCompiledDocument &documen
     for (int objectIndex = 0; objectIndex < document.objects.size(); ++objectIndex) {
         const FpgaCompiledObject &object = document.objects[objectIndex];
 
+        if (object.type == QStringLiteral("layer3d")) {
+            for (int paramIndex = 0; paramIndex < object.iparams.size(); ++paramIndex) {
+                const QByteArray data = hexToBytes(object.iparams[paramIndex]);
+                quint32 fcs = 0;
+                FpgaPacket packet;
+                packet.type = FpgaPacketType::Layer3d;
+                packet.objectType = object.type;
+                packet.objectIndex = objectIndex;
+                packet.parameterIndex = paramIndex;
+                packet.payloadSize = data.size();
+                packet.bytes = framePacket(packet.type, layer3dPayload(data), &fcs);
+                packet.fcs = fcs;
+                bundle.packets.append(packet);
+            }
+            continue;
+        }
+
         for (int paramIndex = 0; paramIndex < object.iparams.size(); ++paramIndex) {
             const int objId = object.startParamIndex + paramIndex;
             const QByteArray paramBytes = hexToBytes(object.iparams[paramIndex]);
@@ -167,7 +185,11 @@ QByteArray FpgaPacketCompiler::memoryPayload(int memId, int address, const QByte
 
 QByteArray FpgaPacketCompiler::layer3dPayload(const QByteArray &data)
 {
-    return data;
+    // XML stores an integer in the usual hex order; pack_150bit in FrameGUI
+    // sends its 19 bytes little-endian. Other parameter packets stay unchanged.
+    QByteArray payload = data;
+    std::reverse(payload.begin(), payload.end());
+    return payload;
 }
 
 QList<QByteArray> FpgaPacketCompiler::encodeRotationTiles(const FpgaCompiledDocument &document,
@@ -241,4 +263,3 @@ QByteArray FpgaPacketCompiler::encodeStaticMaskData(const QString &data, QString
         bytes.append(static_cast<char>(qBound(0, value, 7)));
     return bytes;
 }
-

@@ -30,8 +30,8 @@
 
 namespace {
 constexpr int kDefaultUartBaudRate = 115200;
-constexpr int kDefaultUartIntervalMs = 2000;
-constexpr int kMinimumUartIntervalMs = 1000;
+constexpr int kDefaultUartIntervalMs = 500;
+constexpr int kMinimumUartIntervalMs = 100;
 constexpr int kMaximumUartIntervalMs = 60000;
 
 QString toolTipWithShortcut(const QString &text, const QKeySequence &shortcut = {})
@@ -123,7 +123,7 @@ public:
         m_intervalSpin = new QSpinBox(this);
         m_intervalSpin->setObjectName(QStringLiteral("UartIntervalSpin"));
         m_intervalSpin->setRange(kMinimumUartIntervalMs, kMaximumUartIntervalMs);
-        m_intervalSpin->setSingleStep(250);
+        m_intervalSpin->setSingleStep(50);
         m_intervalSpin->setSuffix(QStringLiteral(" мс"));
         m_intervalSpin->setFixedHeight(32);
 
@@ -213,10 +213,10 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
 
     m_modeLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_modeLayout->setSpacing(6);
-    m_modeLayout->setAlignment(Qt::AlignCenter);
-    m_modeLayout->addWidget(m_binButton, 0, Qt::AlignCenter);
-    m_modeLayout->addWidget(m_simulatorButton, 0, Qt::AlignCenter);
-    m_modeLayout->addWidget(m_uartButton, 0, Qt::AlignCenter);
+    m_modeLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_modeLayout->addWidget(m_binButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_modeLayout->addWidget(m_simulatorButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_modeLayout->addWidget(m_uartButton, 0, Qt::AlignLeft | Qt::AlignTop);
 
     m_separator = new QFrame(this);
     m_separator->setFrameShape(QFrame::VLine);
@@ -224,16 +224,16 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
 
     m_buttonLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_buttonLayout->setSpacing(6);
-    m_buttonLayout->setAlignment(Qt::AlignCenter);
-    m_buttonLayout->addWidget(m_startButton, 0, Qt::AlignCenter);
-    m_buttonLayout->addWidget(m_stopButton, 0, Qt::AlignCenter);
+    m_buttonLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_buttonLayout->addWidget(m_startButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_buttonLayout->addWidget(m_stopButton, 0, Qt::AlignLeft | Qt::AlignTop);
 
     m_layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
     m_layout->setContentsMargins(10, 8, 10, 8);
     m_layout->setSpacing(12);
-    m_layout->setAlignment(Qt::AlignCenter);
+    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_layout->addLayout(m_modeLayout);
-    m_layout->addWidget(m_separator, 0, Qt::AlignCenter);
+    m_layout->addWidget(m_separator, 0, Qt::AlignLeft | Qt::AlignTop);
     m_layout->addLayout(m_buttonLayout);
     m_layout->addStretch(1);
 
@@ -374,7 +374,7 @@ bool FpgaStreamingPanel::configureUartStreaming()
     m_uartConfig.portName = dialog.portName();
     m_uartConfig.baudRate = dialog.baudRate();
     m_uartConfig.writeInitialZero = true;
-    m_uartConfig.writeTimeoutMs = qMin(1000, qMax(250, dialog.intervalMs() / 2));
+    m_uartConfig.writeTimeoutMs = qMin(1000, qMax(50, dialog.intervalMs() / 2));
     m_uartIntervalMs = dialog.intervalMs();
 
     settings.setValue(QStringLiteral("fpga/uartPort"), m_uartConfig.portName);
@@ -477,8 +477,8 @@ void FpgaStreamingPanel::updateAdaptiveLayout()
     m_modeLayout->setDirection(direction);
     m_buttonLayout->setDirection(direction);
     m_separator->setFrameShape(vertical ? QFrame::HLine : QFrame::VLine);
-    m_layout->setAlignment(Qt::AlignCenter);
-    m_modeLayout->setAlignment(Qt::AlignCenter);
-    m_buttonLayout->setAlignment(Qt::AlignCenter);
+    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_modeLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_buttonLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     updateGeometry();
 }

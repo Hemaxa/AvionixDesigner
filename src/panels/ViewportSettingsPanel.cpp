@@ -60,12 +60,12 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
     m_layout->setContentsMargins(10, 8, 10, 8);
     m_layout->setSpacing(12);
-    m_layout->setAlignment(Qt::AlignCenter);
+    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
 
     // --- Левый столбец: рабочая область ---
     m_canvasLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_canvasLayout->setSpacing(6);
-    m_canvasLayout->setAlignment(Qt::AlignCenter);
+    m_canvasLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
 
     m_widthSpin = new QSpinBox(this);
     m_widthSpin->setRange(1, 8192);
@@ -73,11 +73,11 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_widthSpin->setMinimumWidth(56);
     m_widthSpin->setMaximumWidth(72);
     m_widthSpin->setToolTip(QStringLiteral("Ширина холста (px)"));
-    m_canvasLayout->addWidget(m_widthSpin, 0, Qt::AlignCenter);
+    m_canvasLayout->addWidget(m_widthSpin, 0, Qt::AlignLeft | Qt::AlignTop);
 
     auto *multiplyLabel = new QLabel("×", this);
     multiplyLabel->setObjectName("SettingsFieldLabel");
-    m_canvasLayout->addWidget(multiplyLabel, 0, Qt::AlignCenter);
+    m_canvasLayout->addWidget(multiplyLabel, 0, Qt::AlignLeft | Qt::AlignTop);
 
     m_heightSpin = new QSpinBox(this);
     m_heightSpin->setRange(1, 8192);
@@ -85,13 +85,13 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_heightSpin->setMinimumWidth(56);
     m_heightSpin->setMaximumWidth(72);
     m_heightSpin->setToolTip(QStringLiteral("Высота холста (px)"));
-    m_canvasLayout->addWidget(m_heightSpin, 0, Qt::AlignCenter);
+    m_canvasLayout->addWidget(m_heightSpin, 0, Qt::AlignLeft | Qt::AlignTop);
 
     m_bgColorButton = new QPushButton(this);
     m_bgColorButton->setObjectName("SettingsColorButton");
     m_bgColorButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_bgColorButton->setToolTip(QStringLiteral("Цвет фона"));
-    m_canvasLayout->addWidget(m_bgColorButton, 0, Qt::AlignCenter);
+    m_canvasLayout->addWidget(m_bgColorButton, 0, Qt::AlignLeft | Qt::AlignTop);
 
     m_layout->addLayout(m_canvasLayout);
 
@@ -99,22 +99,22 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_separator = new QFrame(this);
     m_separator->setFrameShape(QFrame::VLine);
     m_separator->setObjectName("SettingsSeparator");
-    m_layout->addWidget(m_separator, 0, Qt::AlignCenter);
+    m_layout->addWidget(m_separator, 0, Qt::AlignLeft | Qt::AlignTop);
 
     // --- Правый столбец: привязки ---
     m_snapLayout = new QBoxLayout(QBoxLayout::LeftToRight);
     m_snapLayout->setSpacing(6);
-    m_snapLayout->setAlignment(Qt::AlignCenter);
+    m_snapLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
 
     m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), this, QStringLiteral("Shift+V"));
     m_snapCanvasButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-screen.svg"), QStringLiteral("Привязка к границам экрана"), this, QStringLiteral("Shift+C"));
     m_snapGridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-grid.svg"), QStringLiteral("Привязка к сетке"), this, QStringLiteral("Shift+G"));
     m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к другим объектам"), this, QStringLiteral("Shift+O"));
 
-    m_snapLayout->addWidget(m_gridButton, 0, Qt::AlignCenter);
-    m_snapLayout->addWidget(m_snapCanvasButton, 0, Qt::AlignCenter);
-    m_snapLayout->addWidget(m_snapGridButton, 0, Qt::AlignCenter);
-    m_snapLayout->addWidget(m_snapObjectsButton, 0, Qt::AlignCenter);
+    m_snapLayout->addWidget(m_gridButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_snapLayout->addWidget(m_snapCanvasButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_snapLayout->addWidget(m_snapGridButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_snapLayout->addWidget(m_snapObjectsButton, 0, Qt::AlignLeft | Qt::AlignTop);
 
     m_layout->addLayout(m_snapLayout);
     m_layout->addStretch();
@@ -226,8 +226,8 @@ void ViewportSettingsPanel::updateAdaptiveLayout()
     m_canvasLayout->setDirection(direction);
     m_snapLayout->setDirection(direction);
     m_separator->setFrameShape(vertical ? QFrame::HLine : QFrame::VLine);
-    m_layout->setAlignment(Qt::AlignCenter);
-    m_canvasLayout->setAlignment(Qt::AlignCenter);
-    m_snapLayout->setAlignment(Qt::AlignCenter);
+    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_canvasLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_snapLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     updateGeometry();
 }
