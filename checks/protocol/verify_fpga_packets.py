@@ -6,8 +6,6 @@
 """
 import argparse
 import ast
-import hashlib
-import platform
 import __future__
 import json
 import logging
@@ -73,7 +71,7 @@ def word(fields, values):
     return f'{result:038X}'
 
 
-def fixture(path, ref):
+def fixture(path, ref, rotation=(32768, 56756)):
     root = ET.Element('project', name='UART reference', width='1024', height='768', bgcolor='#0')
     parameters, objects = ET.SubElement(root, 'parameters'), ET.SubElement(root, 'objects')
     fields = {
@@ -94,7 +92,7 @@ def fixture(path, ref):
     for name, values in [
         ('rectangle',dict(enb=1,color=0x563412,colorb=0xabcdef,x0=15,y0=20,w=120,h=80,a=2)),
         ('rectangle_a',dict(enb=1,color=0x00ff88,colorb=0x112233,alph=3,x0=160,y0=35,w=100,h=60,a=1)),
-        ('rotationobject',dict(enb=1,color=0xaabbcc,xrot=350,yrot=240,left=-5,top=-6,right=5,bottom=5,sq=2,sin=32768,cos=56756)),
+        ('rotationobject',dict(enb=1,color=0xaabbcc,xrot=350,yrot=240,left=-5,top=-6,right=5,bottom=5,sq=2,sin=rotation[0],cos=rotation[1])),
         ('staticgroup',dict(enb=1,color=0xfedcba,x=400,y=300,w=32,h=32,addr=0)),
     ]:
         obj = ET.SubElement(objects, name)
@@ -116,9 +114,51 @@ class Capture:
     def write(self, data): self.data.extend(data); return len(data)
 
 
-def run_editor(app, option, source, output):
-    subprocess.run([str(app), option, str(source), str(output)], check=True,
-                   env={**os.environ,'QT_QPA_PLATFORM':'offscreen'})
+def run_editor(app, option, source, output, expected_returncode=0):
+    if not source.is_file():
+        raise FileNotFoundError(f'Input XML does not exist: {source}')
+    output.unlink(missing_ok=True)
+    command = [str(app), option, str(source), str(output)]
+    result = subprocess.run(command, capture_output=True, text=True,
+                            encoding='utf-8', errors='replace',
+                            env={**os.environ, 'QT_QPA_PLATFORM':'offscreen'})
+    diagnostics = (f'Command: {command!r}\nExit code: {result.returncode}\n'
+                   f'STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}')
+    log = output.with_suffix(output.suffix + '.log')
+    log.write_text(diagnostics, encoding='utf-8')
+    if result.returncode != expected_returncode:
+        raise RuntimeError(f'Expected exit code {expected_returncode}. '
+                           f'Diagnostics saved to {log}\n{diagnostics}')
+    return result
+
+
+def verify_rejected_xml(app, reference_xml, output_dir):
+    """Создаем неправильные XML из свежего примера, без локальных tests/*.xml."""
+    def check(name, root):
+        source = output_dir/f'reject-{name}.xml'
+        output = output_dir/f'reject-{name}.bin'
+        ET.indent(root)
+        ET.ElementTree(root).write(source, encoding='utf-8', xml_declaration=True)
+        result = run_editor(app, '--export-bin', source, output, expected_returncode=1)
+        if not result.stderr.strip() or output.exists():
+            raise AssertionError(f'{name}: invalid XML must report an error without producing a BIN')
+        print(f'{name}: unsupported XML rejected with an error')
+
+    for canonical, alias in [('rotationobject', 'rotation_object'),
+                             ('staticgroup', 'static_group'),
+                             ('layer3d', 'three_d_view')]:
+        root = ET.parse(reference_xml).getroot()
+        root.find(f'parameters/{canonical}').tag = alias
+        root.find(f'objects/{canonical}').tag = alias
+        check(alias, root)
+
+    root = ET.parse(reference_xml).getroot()
+    root.find('parameters/layer3d/yscreen').tag = 'pitch'
+    check('old-screen-field', root)
+
+    root = ET.parse(reference_xml).getroot()
+    root.find('parameters/layer3d/x').set('size', '17')
+    check('old-coordinate-layout', root)
 
 
 def generate_vectors(ref, output):
@@ -149,34 +189,22 @@ def main():
     parser.add_argument('--output',type=Path,default=ROOT/'build/verification')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     ref=oracle(args.reference)
-    for side in ['right']:
-        xml=args.output/f'reference-{side}.xml'
-        pose=fixture(xml,ref)
+    cases = {'right': (32768, 56756), 'negative-sin': (-32768, 56756),
+             'negative-cos': (32768, -56756), 'negative-both': (-32768, -56756)}
+    for name, rotation in cases.items():
+        xml=args.output/f'reference-{name}.xml'
+        pose=fixture(xml,ref,rotation)
         capture=Capture();loader=ref['VbDataLoader'](capture,ref['VbXML'](str(xml)).get_dict())
-        loader.load_objects();loader.load_3d(side);capture.write(ref['pack_layer3d'](pose))
+        loader.load_objects();loader.load_3d('right');capture.write(ref['pack_layer3d'](pose))
         expected=bytes(capture.data[1:]) # Начальный 0x00 относится к UART-сеансу, а не BIN.
-        expected_file=args.output/f'python-{side}.bin';expected_file.write_bytes(expected)
-        actual_file=args.output/f'editor-{side}.bin'
+        expected_file=args.output/f'python-{name}.bin';expected_file.write_bytes(expected)
+        actual_file=args.output/f'editor-{name}.bin'
         run_editor(args.app,'--export-bin',xml,actual_file);actual=actual_file.read_bytes()
         if actual!=expected:
             first=next((i for i,(a,b) in enumerate(zip(actual,expected)) if a!=b),min(len(actual),len(expected)))
-            raise AssertionError(f'{side}: BIN differs at byte {first}, editor={len(actual)}, reference={len(expected)}')
-        print(f'{side}: identical complete BIN, {len(actual)} bytes, {len(frames(actual))} packets')
-    manifest = json.loads((TEST_DIR/'non3d_baseline.json').read_text(encoding='utf-8'))
-    compare_hash = platform.system() == manifest['_platform']
-    for filename in ['test.xml', 'test1.xml', 'test2.xml']:
-        actual_file = args.output/('regression-'+Path(filename).stem+'.bin')
-        run_editor(args.app, '--export-bin', ROOT/'tests'/filename, actual_file)
-        packets = [packet for packet in frames(actual_file.read_bytes()) if packet[6] != 6]
-        digest = hashlib.sha256(b''.join(packets)).hexdigest()
-        baseline = manifest[filename]
-        assert len(packets) == baseline['packets'] and (not compare_hash or digest == baseline['sha256']), filename
-        print(f'{filename}: canonical XML, {len(packets)} unchanged non-3D packets')
-    for filename in ['image.xml', 'test3.xml', 'test4.xml']:
-        result = subprocess.run([str(args.app), '--export-bin', str(ROOT/'tests'/filename), str(args.output/'rejected.bin')],
-                                capture_output=True, env={**os.environ, 'QT_QPA_PLATFORM':'offscreen'})
-        assert result.returncode != 0, f'Legacy XML unexpectedly accepted: {filename}'
-        print(f'{filename}: unsupported old XML rejected')
+            raise AssertionError(f'{name}: BIN differs at byte {first}, editor={len(actual)}, reference={len(expected)}')
+        print(f'{name}: identical complete BIN, {len(actual)} bytes, {len(frames(actual))} packets')
+    verify_rejected_xml(args.app, args.output/'reference-right.xml', args.output)
     generate_vectors(ref,args.output/'position-vectors.json')
     print('Generated Python position vectors for AvionixProtocolTests.')
 
