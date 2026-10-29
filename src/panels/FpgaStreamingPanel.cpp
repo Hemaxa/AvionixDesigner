@@ -3,13 +3,13 @@
 #include "FpgaStreamingPanel.h"
 
 #include "ProjectManager.h"
+#include "FlowLayout.h"
 #include "ThreeDViewObject.h"
 #include "fpga/packets/FpgaPacketCompiler.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include "fpga/transport/FpgaPacketDump.h"
 
 #include <QFileDialog>
-#include <QBoxLayout>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -20,9 +20,8 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QResizeEvent>
 #include <QSerialPortInfo>
-#include <QSettings>
+#include "ApplicationSettings.h"
 #include <QSpinBox>
 #include <QTimer>
 #include <QToolButton>
@@ -60,11 +59,6 @@ QToolButton* createIconButton(
     return button;
 }
 
-bool shouldUseVerticalControls(const QWidget *widget)
-{
-    return widget && widget->height() > widget->width() * 1.15;
-}
-
 QStringList availablePortNames()
 {
     QStringList names;
@@ -77,6 +71,7 @@ QStringList availablePortNames()
     return names;
 }
 
+// Параметры порта, двух скоростей и интервала перед началом UART-сеанса.
 class UartStreamingDialog : public QDialog
 {
 public:
@@ -168,8 +163,8 @@ public:
         const QString savedPort = settings.value(QStringLiteral("fpga/uartPort")).toString();
         refreshPorts(savedPort);
         m_loadBaudRateSpin->setValue(settings.value(QStringLiteral("fpga/uartLoadBaudRate"), 921600).toInt());
-        // The old single baud rate could be a scene-upload rate. Do not reuse
-        // it as the new, separately configured control rate.
+        // Старая общая скорость могла относиться к загрузке сцены, поэтому
+        // не используем ее для нового отдельного параметра скорости управления.
         m_baudRateSpin->setValue(settings.value(QStringLiteral("fpga/uartControlBaudRate"), kDefaultUartBaudRate).toInt());
         m_intervalSpin->setValue(settings.value(QStringLiteral("fpga/uartIntervalMs"), kDefaultUartIntervalMs).toInt());
     }
@@ -235,31 +230,9 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
         QMessageBox::warning(this, QStringLiteral("UART"), error);
     });
 
-    m_modeLayout = new QBoxLayout(QBoxLayout::LeftToRight);
-    m_modeLayout->setSpacing(6);
-    m_modeLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_modeLayout->addWidget(m_binButton, 0, Qt::AlignLeft | Qt::AlignTop);
-    m_modeLayout->addWidget(m_simulatorButton, 0, Qt::AlignLeft | Qt::AlignTop);
-    m_modeLayout->addWidget(m_uartButton, 0, Qt::AlignLeft | Qt::AlignTop);
-
-    m_separator = new QFrame(this);
-    m_separator->setFrameShape(QFrame::VLine);
-    m_separator->setObjectName(QStringLiteral("SettingsSeparator"));
-
-    m_buttonLayout = new QBoxLayout(QBoxLayout::LeftToRight);
-    m_buttonLayout->setSpacing(6);
-    m_buttonLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_buttonLayout->addWidget(m_startButton, 0, Qt::AlignLeft | Qt::AlignTop);
-    m_buttonLayout->addWidget(m_stopButton, 0, Qt::AlignLeft | Qt::AlignTop);
-
-    m_layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
-    m_layout->setContentsMargins(10, 8, 10, 8);
-    m_layout->setSpacing(12);
-    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_layout->addLayout(m_modeLayout);
-    m_layout->addWidget(m_separator, 0, Qt::AlignLeft | Qt::AlignTop);
-    m_layout->addLayout(m_buttonLayout);
-    m_layout->addStretch(1);
+    auto *flow = createFlowPanel(this);
+    for (auto *button : {m_binButton, m_simulatorButton, m_uartButton, m_startButton, m_stopButton})
+        flow->addWidget(button);
 
     connect(m_startButton, &QToolButton::clicked, this, &FpgaStreamingPanel::startStreaming);
     connect(m_stopButton, &QToolButton::clicked, this, &FpgaStreamingPanel::stopStreaming);
@@ -268,16 +241,9 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     connect(m_uartButton, &QToolButton::toggled, this, &FpgaStreamingPanel::modeSelectionChanged);
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &FpgaStreamingPanel::invalidatePackets);
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &FpgaStreamingPanel::invalidatePackets);
-    updateAdaptiveLayout();
 }
 
 FpgaStreamingPanel::~FpgaStreamingPanel() { stopUartStreaming(); }
-
-void FpgaStreamingPanel::resizeEvent(QResizeEvent *event)
-{
-    BasePanel::resizeEvent(event);
-    updateAdaptiveLayout();
-}
 
 bool FpgaStreamingPanel::compilePackets(bool showError)
 {
@@ -386,7 +352,7 @@ bool FpgaStreamingPanel::simulatorModeActive() const
 
 bool FpgaStreamingPanel::configureUartStreaming()
 {
-    QSettings settings(QStringLiteral("Avionix"), QStringLiteral("Designer"));
+    auto settings = ApplicationSettings::create();
     UartStreamingDialog dialog(this);
     dialog.loadSettings(settings);
     if (dialog.exec() != QDialog::Accepted)
@@ -461,25 +427,4 @@ void FpgaStreamingPanel::invalidatePackets()
         m_updateScheduled = true;
         QTimer::singleShot(0, this, &FpgaStreamingPanel::transmitUartFrame);
     }
-}
-
-void FpgaStreamingPanel::updateAdaptiveLayout()
-{
-    if (!m_layout || !m_modeLayout || !m_buttonLayout || !m_separator)
-        return;
-
-    const bool vertical = shouldUseVerticalControls(this);
-    if (m_verticalLayout == vertical)
-        return;
-
-    m_verticalLayout = vertical;
-    const QBoxLayout::Direction direction = vertical ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight;
-    m_layout->setDirection(direction);
-    m_modeLayout->setDirection(direction);
-    m_buttonLayout->setDirection(direction);
-    m_separator->setFrameShape(vertical ? QFrame::HLine : QFrame::VLine);
-    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_modeLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_buttonLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    updateGeometry();
 }

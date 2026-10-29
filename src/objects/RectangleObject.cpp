@@ -1,3 +1,5 @@
+//RectangleObject - класс векторного прямоугольного объекта с заливкой и обводкой
+
 #include "RectangleObject.h"
 #include "BitParser.h"
 
@@ -7,6 +9,7 @@ RectangleObject::RectangleObject(QObject *parent) : BaseObject(parent), fillColo
 
 void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
+    enabled = BitParser::extract(hexInit, schema.value("enb").offset, schema.value("enb").size) != 0;
     //парсинг координат
     //если в XML сказано, что у прямоугольника есть параметр "x0"
     if (schema.contains("x0")) 
@@ -54,6 +57,7 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 
 void RectangleObject::draw(QPainter &painter)
 {
+    if (!enabled) return;
     QPen pen;
     //настройка пера для обводки
     if (strokeWidth <= 0.05 || strokeColor.alpha() == 0) {
@@ -114,19 +118,19 @@ void RectangleObject::moveBy(double dx, double dy)
 
 void RectangleObject::resizeBy(int edgeFlags, double dx, double dy)
 {
-    //edgeFlags (1=Left, 2=Right, 4=Top, 8=Bottom)
-    if (edgeFlags & 1) { // Left
+    // Флаги сторон: 1 — слева, 2 — справа, 4 — сверху, 8 — снизу.
+    if (edgeFlags & 1) { // Слева
         x += dx;
         width -= dx;
     }
-    if (edgeFlags & 2) { // Right
+    if (edgeFlags & 2) { // Справа
         width += dx;
     }
-    if (edgeFlags & 4) { // Top
+    if (edgeFlags & 4) { // Сверху
         y += dy;
         height -= dy;
     }
-    if (edgeFlags & 8) { // Bottom
+    if (edgeFlags & 8) { // Снизу
         height += dy;
     }
     
@@ -180,7 +184,7 @@ bool RectangleObject::setObjectProperty(const QString &name, const QString &valu
 QMap<QString, quint32> RectangleObject::serializeParams() const
 {
     return {
-        {"enb", isViewVisible() ? 1u : 0u},
+        {"enb", enabled ? 1u : 0u},
         {"x0", static_cast<quint32>(x)},
         {"y0", static_cast<quint32>(y)},
         {"w", static_cast<quint32>(width)},

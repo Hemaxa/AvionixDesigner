@@ -3,6 +3,7 @@
 #include "fpga/model/FpgaCompiledDocument.h"
 
 #include <QDomDocument>
+#include "FpgaSchemaRegistry.h"
 #include <QDomElement>
 #include <QRegularExpression>
 
@@ -47,20 +48,6 @@ QColor colorFromBgrAttribute(const QString &value)
     );
 }
 
-QString canonicalCompiledName(const QString &name)
-{
-    const QString normalized = name.trimmed().toLower();
-    if (normalized == QStringLiteral("rotation_object"))
-        return QStringLiteral("rotationobject");
-    if (normalized == QStringLiteral("static_group"))
-        return QStringLiteral("staticgroup");
-    if (normalized == QStringLiteral("ribonscale"))
-        return QStringLiteral("RibonScale");
-    if (normalized == QStringLiteral("aviahorizont"))
-        return QStringLiteral("aviagorizont");
-    return name;
-}
-
 FpgaMemoryKind memoryKindForObject(const QString &type)
 {
     if (type == QStringLiteral("rotationobject"))
@@ -85,7 +72,7 @@ QMap<QString, ParamSchema> parseSchemas(const QDomElement &root)
             });
             fieldEl = fieldEl.nextSiblingElement();
         }
-        schemas.insert(canonicalCompiledName(schemaEl.tagName()), schema);
+        schemas.insert(schemaEl.tagName(), schema);
         schemaEl = schemaEl.nextSiblingElement();
     }
     return schemas;
@@ -98,6 +85,8 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
         errorMessage->clear();
 
     FpgaCompiledDocument compiled;
+    if (!FpgaSchemaRegistry::instance()->validateXml(dom, errorMessage))
+        return compiled;
     const QDomElement root = dom.documentElement();
     if (root.isNull() || root.tagName() != QStringLiteral("project")) {
         if (errorMessage)
@@ -117,12 +106,7 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
     QDomElement objectEl = objectsEl.firstChildElement();
     while (!objectEl.isNull()) {
         FpgaCompiledObject object;
-        object.type = canonicalCompiledName(objectEl.tagName());
-        for (QDomNode node = objectEl.firstChild(); !node.isNull(); node = node.nextSibling()) {
-            if (node.isComment() && node.nodeValue().trimmed() == QStringLiteral("AvionixDesigner: 3D view left"))
-                object.leftAnchored = true;
-        }
-
+        object.type = objectEl.tagName();
         QDomElement childEl = objectEl.firstChildElement();
         while (!childEl.isNull()) {
             if (childEl.tagName() == QStringLiteral("init")) {

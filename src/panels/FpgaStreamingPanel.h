@@ -6,9 +6,6 @@
 #include "fpga/packets/FpgaPacket.h"
 #include "fpga/transport/FpgaUartTransport.h"
 
-class QBoxLayout;
-class QFrame;
-class QResizeEvent;
 class QToolButton;
 
 class FpgaStreamingPanel : public BasePanel
@@ -37,7 +34,6 @@ private slots:
     void transmitUartFrame();
 
 private:
-    void resizeEvent(QResizeEvent *event) override;
     bool compilePackets(bool showError = true);
     bool ensureCompiled();
     bool hasSelectedMode() const;
@@ -47,12 +43,7 @@ private:
     void stopUartStreaming();
     void setRunning(bool running);
     void invalidatePackets();
-    void updateAdaptiveLayout();
 
-    QBoxLayout *m_layout = nullptr;
-    QBoxLayout *m_modeLayout = nullptr;
-    QBoxLayout *m_buttonLayout = nullptr;
-    QFrame *m_separator = nullptr;
 
     QToolButton *m_binButton = nullptr;
     QToolButton *m_simulatorButton = nullptr;
@@ -68,5 +59,4 @@ private:
     bool m_hasBundle = false;
     bool m_running = false;
     bool m_uartStreaming = false;
-    bool m_verticalLayout = false;
 };

@@ -1,3 +1,5 @@
+//EditorProjectDocument - внутренняя модель проекта редактора
+
 #include "EditorProjectDocument.h"
 
 #include <QtGlobal>

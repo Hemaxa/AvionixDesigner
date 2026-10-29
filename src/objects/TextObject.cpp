@@ -1,3 +1,5 @@
+//TextObject - редакторский объект текста, экспортируемый в FPGA XML через font/text ресурсы
+
 #include "TextObject.h"
 
 #include "ProportionalResize.h"

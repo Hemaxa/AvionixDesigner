@@ -1,4 +1,4 @@
-//ViewportPanel - панель рабочей области прилосжения
+//ViewportPanel - панель рабочей области приложения
 
 #pragma once
 
@@ -104,6 +104,7 @@ private:
     bool m_dragHistoryRecorded = false;
     bool m_dragEditedObjects = false;
     QList<SnapGuide> m_activeSnapGuides;
+    QList<int> m_marqueeBaseSelection;
     QPointF m_marqueeStartPos;
     QPointF m_marqueeCurrentPos;
     

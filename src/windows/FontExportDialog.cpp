@@ -1,13 +1,17 @@
+//FontExportDialog - диалог выбора алфавитов, которые будут зашиты в font-ресурсы XML
+
 #include "FontExportDialog.h"
 
 #include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QLabel>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
 
 namespace {
+// Описание столбца с выбором набора символов для экспорта шрифта.
 struct AlphabetColumn
 {
     QString id;
@@ -35,7 +39,7 @@ FontExportDialog::FontExportDialog(const QList<FontExportDialogEntry> &entries, 
     setWindowTitle(QStringLiteral("Алфавиты шрифтов для XML"));
     setObjectName(QStringLiteral("FontExportDialog"));
     setModal(true);
-    setMinimumSize(820, 520);
+    setMinimumSize(640, 420);
     resize(900, 560);
 
     auto *layout = new QVBoxLayout(this);
@@ -63,7 +67,10 @@ FontExportDialog::FontExportDialog(const QList<FontExportDialogEntry> &entries, 
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setStretchLastSection(false);
-    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    // На узком окне столбцы доступны через прокрутку, а имя шрифта не исчезает.
+    m_table->horizontalHeader()->setMinimumSectionSize(70);
+    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_table->setColumnWidth(0, 220);
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     for (int column = 3; column < m_table->columnCount(); ++column)
@@ -82,6 +89,7 @@ FontExportDialog::FontExportDialog(const QList<FontExportDialogEntry> &entries, 
     layout->addWidget(m_table, 1);
 
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, this);
+    buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Отмена"));
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttonBox);

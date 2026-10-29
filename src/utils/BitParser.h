@@ -3,7 +3,7 @@
 #pragma once
 
 #include <QString>
-#include <QColor> //для преобразованного BRG в RGB
+#include <QColor> //для преобразованного BGR в RGB
 
 class BitParser 
 {

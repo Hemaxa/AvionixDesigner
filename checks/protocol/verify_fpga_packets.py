@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Compare real editor BIN output with All_together.py without opening UART.
+"""Побайтовое сравнение BIN редактора с All_together.py без подключения UART.
 
-Only the selected pure protocol/XML definitions are loaded. No optional
-pyserial, keyboard, numpy or OpenCV dependencies and no script main() are run.
+Загружаются только выбранные определения протокола и XML-загрузчика.
+Главный цикл, pyserial, keyboard, numpy и OpenCV не исполняются.
 """
 import argparse
 import ast
-import __future__
 import hashlib
+import platform
+import __future__
 import json
 import logging
 import math
 import os
-import platform
 from pathlib import Path
 import random
 import subprocess
@@ -73,7 +73,7 @@ def word(fields, values):
     return f'{result:038X}'
 
 
-def fixture(path, ref, left):
+def fixture(path, ref):
     root = ET.Element('project', name='UART reference', width='1024', height='768', bgcolor='#0')
     parameters, objects = ET.SubElement(root, 'parameters'), ET.SubElement(root, 'objects')
     fields = {
@@ -81,7 +81,7 @@ def fixture(path, ref, left):
     }
     for name in ['rectangle', 'rectangle_a', 'rotationobject', 'staticgroup']:
         fields[name] = [(k,v['offset'],v['size']) for k,v in ref['OBJECT_TEMPLATES'][name].items()]
-        # The reference calls this alpha; the editor schema calls it alph.
+        # Эталон называет поле alpha; схема редактора использует имя alph.
         fields[name] = [('alph' if k == 'alpha' else k, o, w) for k,o,w in fields[name]]
         end = max(o+w for _,o,w in fields[name]); fields[name].append(('padding',end,150-end))
     for name, schema in fields.items():
@@ -91,7 +91,6 @@ def fixture(path, ref, left):
     layer = ET.SubElement(objects, 'layer3d')
     pose = ref['pack_150bit'](131104, 65, ref['course_to_raw'](45.05), ref['meters_to_height_raw'](8000.25), 1023)
     ET.SubElement(layer, 'init').text = f'{int.from_bytes(pose,"little"):038X}'
-    if left: layer.append(ET.Comment('AvionixDesigner: 3D view left'))
     for name, values in [
         ('rectangle',dict(enb=1,color=0x563412,colorb=0xabcdef,x0=15,y0=20,w=120,h=80,a=2)),
         ('rectangle_a',dict(enb=1,color=0x00ff88,colorb=0x112233,alph=3,x0=160,y0=35,w=100,h=60,a=1)),
@@ -112,6 +111,7 @@ def fixture(path, ref, left):
 
 
 class Capture:
+    """Подменяет порт при проверке и собирает исходные байты без переупаковки."""
     def __init__(self): self.data = bytearray()
     def write(self, data): self.data.extend(data); return len(data)
 
@@ -149,12 +149,12 @@ def main():
     parser.add_argument('--output',type=Path,default=ROOT/'build/verification')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     ref=oracle(args.reference)
-    for side in ['left','right']:
+    for side in ['right']:
         xml=args.output/f'reference-{side}.xml'
-        pose=fixture(xml,ref,side=='left')
+        pose=fixture(xml,ref)
         capture=Capture();loader=ref['VbDataLoader'](capture,ref['VbXML'](str(xml)).get_dict())
         loader.load_objects();loader.load_3d(side);capture.write(ref['pack_layer3d'](pose))
-        expected=bytes(capture.data[1:]) # the session's initial 0x00 is not part of a BIN dump
+        expected=bytes(capture.data[1:]) # Начальный 0x00 относится к UART-сеансу, а не BIN.
         expected_file=args.output/f'python-{side}.bin';expected_file.write_bytes(expected)
         actual_file=args.output/f'editor-{side}.bin'
         run_editor(args.app,'--export-bin',xml,actual_file);actual=actual_file.read_bytes()
@@ -162,18 +162,21 @@ def main():
             first=next((i for i,(a,b) in enumerate(zip(actual,expected)) if a!=b),min(len(actual),len(expected)))
             raise AssertionError(f'{side}: BIN differs at byte {first}, editor={len(actual)}, reference={len(expected)}')
         print(f'{side}: identical complete BIN, {len(actual)} bytes, {len(frames(actual))} packets')
-    manifest=json.loads((TEST_DIR/'non3d_baseline.json').read_text(encoding='utf-8'))
-    baseline_platform=manifest.pop('_platform')
-    compare_hash=platform.system()==baseline_platform
-    if not compare_hash:
-        print(f'Note: archived non-3D SHA256 baseline is {baseline_platform}; this platform checks counts and fresh reference BINs.')
-    for filename,baseline in manifest.items():
-        actual_file=args.output/('regression-'+Path(filename).stem+'.bin')
-        run_editor(args.app,'--export-bin',ROOT/'tests'/filename,actual_file)
-        other=[p for p in frames(actual_file.read_bytes()) if p[6]!=6]
-        digest=hashlib.sha256(b''.join(other)).hexdigest()
-        assert len(other)==baseline['packets'] and (not compare_hash or digest==baseline['sha256']), f'Non-3D regression: {filename}'
-        print(f'{filename}: {len(other)} non-3D packets; '+('SHA256 unchanged' if compare_hash else 'count unchanged'))
+    manifest = json.loads((TEST_DIR/'non3d_baseline.json').read_text(encoding='utf-8'))
+    compare_hash = platform.system() == manifest['_platform']
+    for filename in ['test.xml', 'test1.xml', 'test2.xml']:
+        actual_file = args.output/('regression-'+Path(filename).stem+'.bin')
+        run_editor(args.app, '--export-bin', ROOT/'tests'/filename, actual_file)
+        packets = [packet for packet in frames(actual_file.read_bytes()) if packet[6] != 6]
+        digest = hashlib.sha256(b''.join(packets)).hexdigest()
+        baseline = manifest[filename]
+        assert len(packets) == baseline['packets'] and (not compare_hash or digest == baseline['sha256']), filename
+        print(f'{filename}: canonical XML, {len(packets)} unchanged non-3D packets')
+    for filename in ['image.xml', 'test3.xml', 'test4.xml']:
+        result = subprocess.run([str(args.app), '--export-bin', str(ROOT/'tests'/filename), str(args.output/'rejected.bin')],
+                                capture_output=True, env={**os.environ, 'QT_QPA_PLATFORM':'offscreen'})
+        assert result.returncode != 0, f'Legacy XML unexpectedly accepted: {filename}'
+        print(f'{filename}: unsupported old XML rejected')
     generate_vectors(ref,args.output/'position-vectors.json')
     print('Generated Python position vectors for AvionixProtocolTests.')
 

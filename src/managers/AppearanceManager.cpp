@@ -1,3 +1,5 @@
+//AppearanceManager - менеджер внешнего вида приложения
+
 #include "AppearanceManager.h"
 #include <QApplication>
 #include <QFile>

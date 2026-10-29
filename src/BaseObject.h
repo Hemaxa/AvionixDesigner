@@ -50,6 +50,8 @@ public:
     virtual void setResizeLocked(bool locked) { m_resizeLocked = locked; }
     virtual bool isViewVisible() const { return m_viewVisible; }
     virtual void setViewVisible(bool visible) { m_viewVisible = visible; emit changed(); }
+    bool isSelectionLocked() const { return m_selectionLocked; }
+    void setSelectionLocked(bool locked) { m_selectionLocked = locked; emit changed(); }
     virtual bool isExportEnabled() const { return m_exportEnabled; }
     virtual void setExportEnabled(bool enabled) { m_exportEnabled = enabled; emit changed(); }
     virtual QString editRestrictionHint() const { return m_editRestrictionHint; }
@@ -81,6 +83,7 @@ protected:
     void setValidationMessage(const QString &message) const { m_lastValidationMessage = message; }
 
 private:
+    bool m_selectionLocked = false;
     bool m_resizeLocked = false;
     bool m_importedHardwareObject = false;
     bool m_viewVisible = true;

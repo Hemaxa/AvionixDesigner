@@ -10,6 +10,7 @@ class QHBoxLayout;
 class QLabel;
 class QFrame;
 class QResizeEvent;
+class QKeyEvent;
 class QSpinBox;
 class QDoubleSpinBox;
 class QTimer;
@@ -26,6 +27,7 @@ public:
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void setAutopilotEnabled(bool enabled);
@@ -41,6 +43,10 @@ private:
     void syncAutopilotButtons();
     void applyControlScale();
     void updateAvailabilityOverlay();
+    bool handleControlKey(QKeyEvent *event, bool apply);
+    void adjustCourse(int direction, bool fast);
+    void adjustScreenY(int direction, bool fast);
+    void adjustAltitude(int direction, bool fast);
     QSpinBox* createValueSpin(const QString &objectName, int min, int max, int value, const QString &suffix = QString());
 
     ScreenWidget *m_screenWidget = nullptr;

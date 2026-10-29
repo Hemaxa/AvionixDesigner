@@ -1,3 +1,5 @@
+//ObjectPropertiesPanel - панель свойств выбранного объекта
+
 #include "ObjectPropertiesPanel.h"
 
 #include "BaseObject.h"
@@ -21,6 +23,7 @@
 #include <QIcon>
 
 namespace {
+// Выбирает редактор значения свойства: список для положения, шрифта и флагов.
 class PropertyValueDelegate : public QStyledItemDelegate
 {
 public:
@@ -307,7 +310,7 @@ void ObjectPropertiesPanel::onCellDoubleClicked(int row, int column)
         return;
 
     const QColor currentColor(valueItem->text());
-    const QColor selectedColor = QColorDialog::getColor(currentColor, this, tr("Выбор цвета"));
+    const QColor selectedColor = QColorDialog::getColor(currentColor, this, tr("Выбор цвета"), QColorDialog::DontUseNativeDialog);
     if (!selectedColor.isValid())
         return;
 

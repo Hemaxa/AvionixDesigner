@@ -1,3 +1,5 @@
+//ProjectManager - менеджер проекта, связывающий внутреннюю модель редактора с экспортом в XML
+
 #include <QFile>
 #include <QDomDocument>
 #include <QFileInfo>
@@ -8,7 +10,7 @@
 #include <QStringDecoder>
 #include <QImageReader>
 #include <QSvgRenderer>
-#include <QSettings>
+#include "ApplicationSettings.h"
 #include <QtMath>
 
 #include "ProjectManager.h"
@@ -561,6 +563,7 @@ ImageMaskComponent simplifyComponentForRotationObject(const ImageMaskComponent &
 void copyBaseFlags(const BaseObject *source, BaseObject *target)
 {
     target->setViewVisible(source->isViewVisible());
+    target->setSelectionLocked(source->isSelectionLocked());
     target->setExportEnabled(source->isExportEnabled());
     target->setImportedHardwareObject(source->isImportedHardwareObject());
     target->setResizeLocked(!source->canResize());
@@ -576,6 +579,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
 
     if (auto rect = dynamic_cast<RectangleObject*>(source.data())) {
         auto *clone = new RectangleObject();
+        clone->enabled = rect->enabled;
         clone->x = rect->x;
         clone->y = rect->y;
         clone->width = rect->width;
@@ -653,6 +657,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         rawClone = clone;
     } else if (auto rotation = dynamic_cast<RotationObject*>(source.data())) {
         auto *clone = new RotationObject();
+        clone->enabled = rotation->enabled;
         clone->left = rotation->left;
         clone->top = rotation->top;
         clone->right = rotation->right;
@@ -672,7 +677,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         }
         rawClone = clone;
     } else if (auto image = dynamic_cast<ImageObject*>(source.data())) {
-        auto *clone = new ImageObject();
+        auto *clone = new ImageObject(image->isRotationObject() ? ImageObject::Kind::Rotating : ImageObject::Kind::Static);
         clone->x = image->x;
         clone->y = image->y;
         clone->width = image->width;
@@ -781,9 +786,6 @@ QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const
         QDomElement initEl = doc.createElement("init");
         initEl.appendChild(doc.createTextNode(threeDView->serializeInit()));
         objEl.appendChild(initEl);
-        // Editor-only placement does not occupy bits or add hardware fields.
-        if (threeDView->isLeftAnchored())
-            objEl.appendChild(doc.createComment(QStringLiteral("AvionixDesigner: 3D view left")));
         return objEl;
     }
 
@@ -1133,11 +1135,9 @@ void appendParameterSchemas(QDomDocument &doc, QDomElement &root, const QSet<QSt
 }
 
 QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>> &objects,
-                                         const QStringList &objectTags,
-                                         const QMap<QString, QString> &schemaAliases)
+                                         const QStringList &objectTags)
 {
     QSet<QString> schemaNames;
-    auto *registry = FpgaSchemaRegistry::instance();
 
     for (int objIdx = objects.size() - 1; objIdx >= 0; --objIdx) {
         const auto &obj = objects[objIdx];
@@ -1145,7 +1145,7 @@ QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>>
             continue;
 
         if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
-            schemaNames.insert(image->hasRotation() ? QStringLiteral("rotationobject") : QStringLiteral("staticgroup"));
+            schemaNames.insert(image->isRotationObject() ? QStringLiteral("rotationobject") : QStringLiteral("staticgroup"));
             continue;
         }
 
@@ -1159,7 +1159,7 @@ QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>>
         if (tagName.isEmpty())
             continue;
 
-        schemaNames.insert(schemaAliases.value(tagName, registry->canonicalSchemaName(tagName)));
+        schemaNames.insert(tagName);
     }
 
     return schemaNames;
@@ -1181,7 +1181,7 @@ QDomElement createStaticGroupElementFromImageLayers(QDomDocument &doc,
         state.h = qMax(1, qRound(image->height));
         state.addr = 0;
         state.color = image->effectiveMaskColor();
-        state.enabled = image->isViewVisible();
+        state.enabled = true;
         group.states = {state};
         group.maskImages = {image->renderedImage()};
     } else {
@@ -1193,7 +1193,7 @@ QDomElement createStaticGroupElementFromImageLayers(QDomDocument &doc,
             state.h = qMax(1, component.bounds.height());
             state.addr = nextAddr;
             state.color = component.color;
-            state.enabled = image->isViewVisible();
+            state.enabled = true;
             group.states.append(state);
             group.maskImages.append(component.mask);
             nextAddr += state.w * state.h;
@@ -1233,7 +1233,6 @@ QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
                                                          const ImageMaskComponent &component)
 {
     RotationObject rotation;
-    rotation.setViewVisible(image->isViewVisible());
     rotation.xRot = qRound(image->x + image->width / 2.0);
     rotation.yRot = qRound(image->y + image->height / 2.0);
 
@@ -1257,7 +1256,7 @@ void appendCompiledImageElements(QDomDocument &doc,
                                  const ParamSchema &rotationSchema,
     const ImageObject *image)
 {
-    if (!image->hasRotation()) {
+    if (!image->isRotationObject()) {
         appendStaticGroupElementsFromImageLayers(doc, objectsEl, staticSchema, image);
         return;
     }
@@ -1543,33 +1542,6 @@ FpgaFont parseFontElement(const QDomElement &fontEl)
             const QString right = glyphEl.attribute("right");
             if (!left.isEmpty() && !right.isEmpty())
                 font.kerningPairs.insert(left.left(1) + right.left(1), glyphEl.attribute("delta", "0").toInt());
-        } else if (glyphEl.tagName() == QStringLiteral("digit")
-                   || glyphEl.tagName() == QStringLiteral("upper")
-                   || glyphEl.tagName() == QStringLiteral("lower")) {
-            const QString literal = glyphEl.attribute("literal");
-            if (!literal.isEmpty()) {
-                FpgaGlyph glyph;
-                glyph.literal = literal.front();
-                glyph.code = glyphEl.attribute("code", QString::number(glyph.literal.unicode())).toInt();
-                glyph.width = glyphEl.attribute("width", "0").toInt();
-                glyph.height = glyphEl.attribute("height", "0").toInt();
-                glyph.floater = glyphEl.attribute("floater", "0").toInt();
-                glyph.offset = glyphEl.attribute("offset", "0").toInt();
-                glyph.size = font.size;
-                glyph.advance = glyph.width;
-                glyph.bearingY = glyph.floater;
-                glyph.ascent = qMax(1, glyph.height + qMin(0, glyph.floater));
-                const QStringList rows = glyphEl.text().split('\n', Qt::SkipEmptyParts);
-                QStringList trimmedRows;
-                for (const QString &row : rows) {
-                    const QString trimmed = row.trimmed();
-                    if (!trimmed.isEmpty())
-                        trimmedRows.append(trimmed);
-                }
-                glyph.maskRows = trimmedRows.join('\n');
-                glyph = normalizedGlyph(glyph, glyph.literal, font.size);
-                insertGlyph(&font, glyph);
-            }
         }
         glyphEl = glyphEl.nextSiblingElement();
     }
@@ -1581,7 +1553,6 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                                       int canvasWidth,
                                       int canvasHeight,
                                       const QColor &backgroundColor,
-                                      const QMap<QString, QString> &schemaAliases,
                                       const QList<QSharedPointer<BaseObject>> &objects,
                                       const QStringList &objectTags,
                                       QMap<int, FpgaFont> *fontsOut)
@@ -1595,14 +1566,14 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     root.setAttribute("bgcolor", formatProjectColor(backgroundColor));
     doc.appendChild(root);
 
-    appendParameterSchemas(doc, root, collectCompiledSchemaNames(objects, objectTags, schemaAliases));
+    appendParameterSchemas(doc, root, collectCompiledSchemaNames(objects, objectTags));
 
     QDomElement objectsEl = doc.createElement("objects");
     root.appendChild(objectsEl);
 
     auto *registry = FpgaSchemaRegistry::instance();
-    // Export init words using the same current layouts written to <parameters>.
-    // Imported schemas are only for decoding the source document.
+    // Экспорт использует ту же актуальную раскладку init, что записывается в <parameters>.
+    // Импортированная схема нужна только для разбора исходного документа.
     const ParamSchema staticSchema = registry->buildSchema(QStringLiteral("staticgroup"));
     const ParamSchema rotationSchema = registry->buildSchema(QStringLiteral("rotationobject"));
     const ParamSchema fontSchema = registry->buildSchema(QStringLiteral("font"));
@@ -1697,7 +1668,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
             initEl.setAttribute("index", fontIndex);
             initEl.setAttribute("text", text->text);
             initEl.appendChild(doc.createTextNode(buildInitHex(textSchema, {
-                {"enb", text->isViewVisible() ? 1u : 0u},
+                {"enb", state.enabled ? 1u : 0u},
                 {"color", BitParser::colorToBgr(state.color)},
                 {"x", static_cast<quint32>(state.x)},
                 {"y", static_cast<quint32>(state.y)},
@@ -1716,7 +1687,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
         }
 
         const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
-        const QString schemaName = schemaAliases.value(tagName, registry->canonicalSchemaName(tagName));
+        const QString schemaName = tagName;
         const ParamSchema schema = registry->buildSchema(schemaName);
         if (tagName.isEmpty() || schema.isEmpty())
             continue;
@@ -1768,6 +1739,10 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     }
 
     auto *registry = FpgaSchemaRegistry::instance();
+    if (!registry->validateXml(doc, &m_lastErrorMessage)) {
+        emit logMessage(tr("ОШИБКА: %1").arg(m_lastErrorMessage));
+        return false;
+    }
     m_lastErrorMessage.clear();
     m_filePath = fileName;
     m_objects.clear();
@@ -1783,10 +1758,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     m_document->setProjectName(root.attribute("name", "Untitled"));
     m_document->setCanvasSize(root.attribute("width", "640").toInt(), root.attribute("height", "480").toInt());
     m_document->setBackgroundColor(Qt::black);
-    m_showGrid = root.attribute("grid", "0").toInt() != 0;
-    m_snapToCanvas = root.attribute("snap_screen", "1").toInt() != 0;
-    m_snapToGrid = root.attribute("snap_grid", "0").toInt() != 0;
-    m_snapToObjects = root.attribute("snap_objects", "0").toInt() != 0;
+    reloadGlobalSettings();
     
     //парсим цвет фона
     QString bgStr = root.attribute("bgcolor", "#0");
@@ -1803,20 +1775,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     //парсим схемы параметров и сохраняем для использования при сохранении
     QDomElement paramsEl = root.firstChildElement("parameters");
     m_schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
-    if (m_schemas.isEmpty()) {
-        for (const QString &schemaName : registry->defaultSchemaNames()) {
-            m_schemas.insert(schemaName, registry->buildSchema(schemaName));
-        }
-    } else {
-        for (const QString &schemaName : registry->defaultSchemaNames()) {
-            if (!m_schemas.contains(schemaName)) {
-                const ParamSchema schema = registry->buildSchema(schemaName);
-                if (!schema.isEmpty())
-                    m_schemas.insert(schemaName, schema);
-            }
-        }
-    }
-
     QDomElement objectsEl = root.firstChildElement("objects");
     QDomElement fontEl = objectsEl.firstChildElement("font");
     while (!fontEl.isNull()) {
@@ -1824,74 +1782,19 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
         m_fonts.insert(font.index, font);
         fontEl = fontEl.nextSiblingElement("font");
     }
-    QDomElement legacyFontsEl = root.firstChildElement("fonts");
-    fontEl = legacyFontsEl.firstChildElement("font");
-    while (!fontEl.isNull()) {
-        const FpgaFont font = parseFontElement(fontEl);
-        m_fonts.insert(font.index, font);
-        fontEl = fontEl.nextSiblingElement("font");
-    }
-    
-    //маппинг тегов на схемы параметров (для тегов без собственной схемы)
-    m_schemaAliases = registry->defaultSchemaAliases();
-    //m_schemaAliases["rectangle_e"] = "rectangle";
-    
     for (const QString &type : m_schemas.keys()) {
         emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(m_schemas[type].size()));
     }
     
     //парсим объекты
-    QDomNode objNode = objectsEl.isNull() ? root.firstChild() : objectsEl.firstChild();
+    QDomNode objNode = objectsEl.firstChild();
     
     while (!objNode.isNull()) {
         QDomElement objEl = objNode.toElement();
         QString tagName = objEl.tagName();
         
-        //определяем имя схемы (может отличаться от tagName)
-        QString schemaName = m_schemaAliases.value(tagName, tagName);
-        if (!m_schemas.contains(schemaName) && m_schemas.contains(tagName)) {
-            schemaName = tagName;
-        }
-        
-        if (tagName == QStringLiteral("image")) {
-            auto *image = new ImageObject();
-            image->x = objEl.attribute("x", "0").toDouble();
-            image->y = objEl.attribute("y", "0").toDouble();
-            image->width = objEl.attribute("width", "1").toDouble();
-            image->height = objEl.attribute("height", "1").toDouble();
-            image->rotationDegrees = objEl.attribute("rotation", "0").toDouble();
-            image->format = objEl.attribute("format", "raster");
-            image->sourceName = objEl.attribute("source_name");
-            image->maskColor = QColor(objEl.attribute("mask_color", "#FFFFFF"));
-            image->autoMaskColor = objEl.attribute("mask_color_auto", "1").toInt() != 0;
-            image->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
-            image->setExportEnabled(objEl.attribute("export", "1").toInt() != 0);
-            image->setSourcePayload(QByteArray::fromBase64(objEl.firstChildElement("source").text().toLatin1()));
-            QList<ImageColorLayer> layers;
-            QDomElement layerEl = objEl.firstChildElement("color_layers").firstChildElement("layer");
-            while (!layerEl.isNull()) {
-                ImageColorLayer layer;
-                layer.sourceColor = QColor(layerEl.attribute("source", "#FFFFFF"));
-                layer.maskColor = QColor(layerEl.attribute("color", layer.sourceColor.name()));
-                layer.autoMaskColor = layerEl.attribute("auto", "1").toInt() != 0;
-                layers.append(layer);
-                layerEl = layerEl.nextSiblingElement("layer");
-            }
-            if (!layers.isEmpty())
-                image->setColorLayers(layers);
-            m_objects.append(QSharedPointer<BaseObject>(image));
-            m_objectTags.append(QStringLiteral("image"));
-        }
-        else if (tagName == QStringLiteral("three_d_view")) {
-            auto *threeDView = new ThreeDViewObject();
-            threeDView->parse(objEl.firstChildElement("init").text(), m_schemas.value(QStringLiteral("layer3d")));
-            threeDView->parseExtraData(objEl);
-            threeDView->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
-            threeDView->setExportEnabled(true);
-            m_objects.append(QSharedPointer<BaseObject>(threeDView));
-            m_objectTags.append(QStringLiteral("three_d_view"));
-        }
-        else if (tagName == QStringLiteral("text")) {
+        const QString schemaName = tagName;
+        if (tagName == QStringLiteral("text")) {
             const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
             const QStringList characterCodes = parseCharacterCodes(objEl.firstChildElement("data").text());
             QDomElement initEl = objEl.firstChildElement("init");
@@ -1902,7 +1805,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 const int charCount = BitParser::extract(hex, textSchema["char_count"].offset, textSchema["char_count"].size);
                 auto *textObject = new TextObject();
                 const QString dataText = textFromCharacterCodes(characterCodes, charOffset, charCount);
-                textObject->text = dataText.isEmpty() ? initEl.attribute("text") : dataText;
+                textObject->text = dataText;
                 textObject->fontIndex = fontIndex;
                 if (!textObject->states.isEmpty()) {
                     GroupState &state = textObject->states[0];
@@ -1922,32 +1825,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             }
         }
         else if (tagName == QStringLiteral("font")) {
-            // Font resources are parsed before object creation and are not scene objects.
-        }
-        else if (tagName == QStringLiteral("symbols")) {
-            const int fontIndex = objEl.attribute("font_index", "0").toInt();
-            const FpgaFont font = m_fonts.value(fontIndex);
-            QDomElement symbolEl = objEl.firstChildElement("symbol");
-            while (!symbolEl.isNull()) {
-                auto *textObject = new TextObject();
-                textObject->text = symbolEl.attribute("text");
-                textObject->fontIndex = fontIndex;
-                textObject->fontFamily = font.name.isEmpty() ? QStringLiteral("Arial") : font.name;
-                textObject->pixelSize = font.size > 0 ? font.size : 14;
-                const QColor fill(symbolEl.attribute("fill_color", "#FFFFFF"));
-                if (!textObject->states.isEmpty()) {
-                    QDomElement overallEl = symbolEl.firstChildElement("overal");
-                    GroupState &state = textObject->states[0];
-                    state.x = overallEl.attribute("left", "0").toInt();
-                    state.y = overallEl.attribute("top", "0").toInt();
-                    state.color = fill.isValid() ? fill : QColor(Qt::white);
-                    state.enabled = true;
-                }
-                textObject->setFontAtlas(font, true);
-                m_objects.append(QSharedPointer<BaseObject>(textObject));
-                m_objectTags.append(QStringLiteral("text"));
-                symbolEl = symbolEl.nextSiblingElement("symbol");
-            }
+            // Ресурсы шрифтов разбираются до создания объектов и не входят в список объектов сцены.
         }
         else if (m_schemas.contains(schemaName)) {
             QStringList initHexList;
@@ -1961,23 +1839,16 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             QString hexInit = initHexList.isEmpty() ? QString() : initHexList.first();
             
             //создаем объект через фабрику
-            const QString canonicalTag = registry->canonicalObjectTag(tagName);
             BaseObject *obj = ObjectsManager::instance()->createObject(tagName);
-            if (!obj && canonicalTag != tagName)
-                obj = ObjectsManager::instance()->createObject(canonicalTag);
-            if (!obj && schemaName != tagName && schemaName != canonicalTag)
-                obj = ObjectsManager::instance()->createObject(schemaName);
-            
+
             if (obj && !hexInit.isEmpty()) {
                 obj->parse(hexInit, m_schemas[schemaName]);
                 if (auto rotation = dynamic_cast<RotationObject*>(obj))
                     rotation->setHardwareLayersFromInitHex(initHexList, m_schemas[schemaName]);
                 obj->parseExtraData(objEl);
-                obj->setViewVisible(objEl.attribute("visible", "1").toInt() != 0);
-                obj->setExportEnabled(objEl.attribute("export", "1").toInt() != 0);
                 
                 m_objects.append(QSharedPointer<BaseObject>(obj));
-                m_objectTags.append(canonicalTag);
+                m_objectTags.append(tagName);
                 
             }
         }
@@ -2014,7 +1885,6 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_groups.clear();
     m_nextGroupId = 1;
     clearHistory();
-    m_schemaAliases = registry->defaultSchemaAliases();
     m_fonts.clear();
 
     m_schemas.clear();
@@ -2115,18 +1985,11 @@ void ProjectManager::registerStandardTypes()
     //регистрируем типы объектов
     om->registerType("rectangle", []() { return new RectangleObject(); });
     om->registerType("rectangle_a", []() { return new RectangleObject(); });
-    //om->registerType("rectangle_e", []() { return new RectangleObject(); });
-    om->registerType("dashed_line", []() { return new DashedLineObject(); });
+    om->registerType("dashline", []() { return new DashedLineObject(); });
     om->registerType("RibonScale", []() { return new RibbonScaleObject(); });
-    om->registerType("ribonscale", []() { return new RibbonScaleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
-    om->registerType("rotation_object", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
-    om->registerType("static_group", []() { return new StaticGroupObject(); });
-    om->registerType("image", []() { return new ImageObject(); });
-    om->registerType("aviagorizont", []() { return new AviaHorizonObject(); });
     om->registerType("aviahorizont", []() { return new AviaHorizonObject(); });
-    om->registerType("three_d_view", []() { return new ThreeDViewObject(); });
     om->registerType("layer3d", []() { return new ThreeDViewObject(); });
     om->registerType("text", []() { return new TextObject(); });
 }
@@ -2140,7 +2003,7 @@ int ProjectManager::addObject(const QString &typeName)
         return -1;
     }
 
-    if (registry->canonicalSchemaName(typeName.trimmed().toLower()) == QStringLiteral("layer3d")) {
+    if (typeName == QStringLiteral("layer3d")) {
         for (int i = 0; i < m_objects.size(); ++i) {
             if (dynamic_cast<ThreeDViewObject*>(m_objects[i].data())) {
                 emit logMessage(tr("3D-вид уже добавлен в сцену"));
@@ -2256,7 +2119,7 @@ int ProjectManager::addObject(const QString &typeName)
         staticGroup->maskImages = {mask};
     }
 
-    const QString schemaName = registry->canonicalSchemaName(typeName);
+    const QString schemaName = typeName;
     if (!m_schemas.contains(schemaName)) {
         ParamSchema schema = registry->buildSchema(schemaName);
         if (!schema.isEmpty()) {
@@ -2265,7 +2128,7 @@ int ProjectManager::addObject(const QString &typeName)
     }
 
     recordHistory();
-    insertObjectAtFront(rawObject, registry->canonicalObjectTag(typeName));
+    insertObjectAtFront(rawObject, typeName);
 
     emit projectChanged();
     emit logMessage(tr("Добавлен объект: %1").arg(typeName));
@@ -2798,6 +2661,33 @@ bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
     return true;
 }
 
+bool ProjectManager::setObjectSelectionLocked(int index, bool locked)
+{
+    const auto object = getObjectAt(index);
+    if (!object || object->isSelectionLocked() == locked)
+        return false;
+    recordHistory();
+    object->setSelectionLocked(locked);
+    emit projectChanged();
+    return true;
+}
+
+bool ProjectManager::setGroupSelectionLocked(int groupId, bool locked)
+{
+    const auto members = groupMembers(groupId);
+    bool changed = false;
+    for (int member : members) {
+        const auto object = getObjectAt(member);
+        if (object && object->isSelectionLocked() != locked) {
+            if (!changed) recordHistory();
+            object->setSelectionLocked(locked);
+            changed = true;
+        }
+    }
+    if (changed) emit projectChanged();
+    return changed;
+}
+
 bool ProjectManager::setObjectViewVisible(int index, bool visible)
 {
     if (index < 0 || index >= m_objects.size())
@@ -2889,7 +2779,6 @@ QDomDocument ProjectManager::buildCompiledFpgaXml() const
         m_document->canvasWidth(),
         m_document->canvasHeight(),
         m_document->backgroundColor(),
-        m_schemaAliases,
         m_objects,
         m_objectTags,
         &generatedFonts
@@ -2928,7 +2817,7 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile)
     return true;
 }
 
-int ProjectManager::importImageAsStaticGroup(const QString &fileName)
+int ProjectManager::importImage(const QString &fileName, bool rotating)
 {
     if (!m_document->hasCanvas()) {
         emit logMessage(tr("Сначала создайте или откройте проект"));
@@ -2937,7 +2826,7 @@ int ProjectManager::importImageAsStaticGroup(const QString &fileName)
 
     QImage image;
     const QString suffix = QFileInfo(fileName).suffix().toLower();
-    auto *imageObject = new ImageObject();
+    auto *imageObject = new ImageObject(rotating ? ImageObject::Kind::Rotating : ImageObject::Kind::Static);
     if (suffix == QStringLiteral("svg")) {
         QSvgRenderer renderer(fileName);
         QFile svgFile(fileName);
@@ -3054,7 +2943,7 @@ QColor ProjectManager::snapObjectGuideColor() const { return m_snapObjectGuideCo
 
 void ProjectManager::reloadGlobalSettings()
 {
-    QSettings settings("Avionix", "Designer");
+    auto settings = ApplicationSettings::create();
     m_gridStep = qBound(1, settings.value("gridStep", 10).toInt(), 1000);
     
     QString colorStr = settings.value("gridColor", "#3778b4c8").toString();

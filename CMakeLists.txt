@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 1.0.6 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.7 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg SerialPort)
 
@@ -47,8 +47,6 @@ qt_add_executable(AvionixDesigner
     src/managers/ObjectsManager.cpp
     src/managers/AppearanceManager.h
     src/managers/AppearanceManager.cpp
-    src/managers/PanelsManager.h
-    src/managers/PanelsManager.cpp
     
     # Панели
     src/panels/ViewportPanel.h
@@ -128,10 +126,27 @@ qt_add_executable(AvionixDesigner
     src/utils/XmlReader.h
     src/utils/ProportionalResize.h
     src/utils/AircraftPositionMapping.h
+    src/utils/FlowLayout.h
+    src/utils/ElidedLabel.h
+    src/utils/ApplicationSettings.h
+    src/utils/ApplicationLanguage.h
     
     # Ресурсы
     res/resources.qrc
 )
+
+# Встраиваем перевод Qt: установщик не зависит от языка Windows и внешних .qm.
+find_file(AVIONIX_QT_RUSSIAN_TRANSLATION qtbase_ru.qm
+    HINTS "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_TRANSLATIONS}"
+          "${QT6_INSTALL_PREFIX}/translations"
+          "${QT_INTERNAL_ABSOLUTE_TRANSLATIONS_DIR}"
+    REQUIRED
+)
+configure_file("${AVIONIX_QT_RUSSIAN_TRANSLATION}"
+    "${CMAKE_CURRENT_BINARY_DIR}/translations/qtbase_ru.qm" COPYONLY)
+configure_file(res/translations.qrc.in
+    "${CMAKE_CURRENT_BINARY_DIR}/translations.qrc" @ONLY)
+target_sources(AvionixDesigner PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/translations.qrc")
 
 target_link_libraries(AvionixDesigner
     PRIVATE
@@ -175,10 +190,8 @@ set_target_properties(AvionixDesigner PROPERTIES
 option(AVIONIX_BUILD_TESTS "Build protocol and UART integration checks" OFF)
 if(AVIONIX_BUILD_TESTS)
     enable_testing()
-    add_subdirectory(tests/protocol)
+    add_subdirectory(checks/protocol)
 endif()
-
-file(COPY ${CMAKE_SOURCE_DIR}/res DESTINATION ${CMAKE_BINARY_DIR})
 
 include(GNUInstallDirs)
 

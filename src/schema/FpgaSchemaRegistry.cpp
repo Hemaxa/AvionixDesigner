@@ -1,5 +1,10 @@
+//FpgaSchemaRegistry - единая точка описания XML/FPGA-схем и UI-каталога объектов
+
 #include "FpgaSchemaRegistry.h"
 #include "fpga/model/Layer3dFormat.h"
+#include <QDomDocument>
+#include <QRegularExpression>
+#include <QSet>
 
 namespace {
 QList<FpgaSchemaField> layer3dFields()
@@ -167,40 +172,70 @@ FpgaSchemaRegistry* FpgaSchemaRegistry::instance()
     return &registry;
 }
 
-QString FpgaSchemaRegistry::canonicalSchemaName(const QString &typeName) const
+bool FpgaSchemaRegistry::validateXml(const QDomDocument &document, QString *errorMessage) const
 {
-    const QString normalized = typeName.trimmed().toLower();
-    if (normalized == "aviahorizont")
-        return QStringLiteral("aviagorizont");
-    if (normalized == "text")
-        return QStringLiteral("staticgroup");
-    if (normalized == "ribonscale")
-        return QStringLiteral("RibonScale");
-    if (normalized == "rotation_object")
-        return QStringLiteral("rotationobject");
-    if (normalized == "static_group")
-        return QStringLiteral("staticgroup");
-    if (normalized == "three_d_view")
-        return QStringLiteral("layer3d");
-    return typeName;
-}
+    if (errorMessage) errorMessage->clear();
+    auto fail = [errorMessage](const QString &message) {
+        if (errorMessage) *errorMessage = message;
+        return false;
+    };
+    const auto root = document.documentElement();
+    if (root.tagName() != QStringLiteral("project")
+        || root.attribute("width").toInt() <= 0 || root.attribute("height").toInt() <= 0)
+        return fail(QStringLiteral("Ожидается <project> с положительными width и height."));
+    const auto parameters = root.firstChildElement("parameters");
+    const auto objects = root.firstChildElement("objects");
+    if (parameters.isNull() || objects.isNull())
+        return fail(QStringLiteral("В XML необходимы разделы <parameters> и <objects>."));
+    for (auto child = root.firstChildElement(); !child.isNull(); child = child.nextSiblingElement()) {
+        if (child != parameters && child != objects)
+            return fail(QStringLiteral("Недопустимый раздел XML: <%1>.").arg(child.tagName()));
+    }
 
-QString FpgaSchemaRegistry::canonicalObjectTag(const QString &typeName) const
-{
-    const QString normalized = typeName.trimmed().toLower();
-    if (normalized == "aviahorizont")
-        return QStringLiteral("aviagorizont");
-    if (normalized == "text")
-        return QStringLiteral("staticgroup");
-    if (normalized == "ribonscale")
-        return QStringLiteral("RibonScale");
-    if (normalized == "rotation_object")
-        return QStringLiteral("rotationobject");
-    if (normalized == "static_group")
-        return QStringLiteral("staticgroup");
-    if (normalized == "three_d_view")
-        return QStringLiteral("layer3d");
-    return typeName;
+    QSet<QString> schemas;
+    for (auto schema = parameters.firstChildElement(); !schema.isNull(); schema = schema.nextSiblingElement()) {
+        const QString name = schema.tagName();
+        const auto expected = fieldsForSchema(name);
+        if (expected.isEmpty() || schemas.contains(name))
+            return fail(QStringLiteral("Неизвестная или повторная схема <%1>.").arg(name));
+        schemas.insert(name);
+        auto field = schema.firstChildElement();
+        for (const auto &definition : expected) {
+            if (field.isNull() || field.tagName() != definition.name
+                || field.attribute("offset").toInt() != definition.offset
+                || field.attribute("size").toInt() != definition.size)
+                return fail(QStringLiteral("Схема <%1> не соответствует формату: ожидается %2 (offset=%3, size=%4).")
+                    .arg(name, definition.name).arg(definition.offset).arg(definition.size));
+            field = field.nextSiblingElement();
+        }
+        if (!field.isNull())
+            return fail(QStringLiteral("Лишний параметр в схеме <%1>: %2.").arg(name, field.tagName()));
+    }
+
+    const QRegularExpression initPattern(QStringLiteral("^[0-3][0-9A-Fa-f]{37}$"));
+    int layerCount = 0;
+    for (auto object = objects.firstChildElement(); !object.isNull(); object = object.nextSiblingElement()) {
+        const QString name = object.tagName();
+        if (!schemas.contains(name))
+            return fail(QStringLiteral("Неизвестный тип объекта или отсутствует схема: <%1>.").arg(name));
+        if (name == QStringLiteral("layer3d") && ++layerCount > 1)
+            return fail(QStringLiteral("В проекте допускается только один layer3d."));
+        if (object.firstChildElement("init").isNull())
+            return fail(QStringLiteral("У объекта <%1> отсутствует <init>.").arg(name));
+        for (auto child = object.firstChildElement(); !child.isNull(); child = child.nextSiblingElement()) {
+            const QString tag = child.tagName();
+            if (tag == QStringLiteral("init")) {
+                if (!initPattern.match(child.text().trimmed()).hasMatch())
+                    return fail(QStringLiteral("Некорректное 150-битное слово <init> объекта <%1>.").arg(name));
+            } else if (tag == QStringLiteral("data")) {
+                if (name != "staticgroup" && name != "rotationobject" && name != "font" && name != "text")
+                    return fail(QStringLiteral("Объект <%1> не поддерживает <data>.").arg(name));
+            } else if (name != QStringLiteral("font") || tag != QStringLiteral("kerning")) {
+                return fail(QStringLiteral("Недопустимый элемент <%1> в объекте <%2>.").arg(tag, name));
+            }
+        }
+    }
+    return true;
 }
 
 QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schemaName) const
@@ -211,13 +246,13 @@ QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schema
         return rectangleFields();
     if (schemaName == "rectangle_a")
         return rectangleAlphaFields();
-    if (schemaName == "rotationobject" || schemaName == "rotation_object")
+    if (schemaName == "rotationobject")
         return rotationObjectFields();
-    if (schemaName == "staticgroup" || schemaName == "static_group")
+    if (schemaName == "staticgroup")
         return staticGroupFields();
-    if (schemaName == "aviagorizont")
+    if (schemaName == "aviahorizont")
         return aviaHorizonFields();
-    if (schemaName == "dashed_line")
+    if (schemaName == "dashline")
         return dashedLineFields();
     if (schemaName == "RibonScale")
         return ribbonScaleFields();
@@ -240,7 +275,7 @@ ParamSchema FpgaSchemaRegistry::buildSchema(const QString &schemaName) const
 
 QStringList FpgaSchemaRegistry::orderedSchemaNames() const
 {
-    return {"layer3d", "rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviagorizont", "dashed_line", "RibonScale", "font", "text"};
+    return {"layer3d", "rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviahorizont", "dashline", "RibonScale", "font", "text"};
 }
 
 QStringList FpgaSchemaRegistry::defaultSchemaNames() const
@@ -248,27 +283,16 @@ QStringList FpgaSchemaRegistry::defaultSchemaNames() const
     return orderedSchemaNames();
 }
 
-QMap<QString, QString> FpgaSchemaRegistry::defaultSchemaAliases() const
-{
-    return {
-        {"aviahorizont", "aviagorizont"},
-        {"ribonscale", "RibonScale"},
-        {"rotation_object", "rotationobject"},
-        {"static_group", "staticgroup"},
-        {"three_d_view", "layer3d"}
-    };
-}
-
 QList<EditorObjectDescriptor> FpgaSchemaRegistry::editorObjectCatalog() const
 {
     return {
         {"rectangle", QStringLiteral("Прямоугольник"), QStringLiteral(":/icons/icons/library/rectangle.svg"), true, true},
-        {"dashed_line", QStringLiteral("Штриховая линия"), QStringLiteral(":/icons/icons/library/dashedline.svg"), true, true},
-        {"ribonscale", QStringLiteral("Ленточная шкала"), QStringLiteral(":/icons/icons/library/ribonscale.svg"), true, true},
-        {"aviagorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
-        {"three_d_view", QStringLiteral("3D вид"), QStringLiteral(":/icons/icons/library/three-d-view.svg"), true, true},
+        {"dashline", QStringLiteral("Штриховая линия"), QStringLiteral(":/icons/icons/library/dashedline.svg"), true, true},
+        {"RibonScale", QStringLiteral("Ленточная шкала"), QStringLiteral(":/icons/icons/library/ribonscale.svg"), true, true},
+        {"aviahorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
+        {"layer3d", QStringLiteral("3D вид"), QStringLiteral(":/icons/icons/library/three-d-view.svg"), true, true},
         {"text", QStringLiteral("Текст"), QStringLiteral(":/icons/icons/library/text.svg"), true, true},
-        {"staticgroup", QStringLiteral("static_group"), QStringLiteral(":/icons/icons/library/staticgroup.svg"), false, false},
-        {"rotationobject", QStringLiteral("rotation_object"), QStringLiteral(":/icons/icons/library/rotationgroup.svg"), false, false}
+        {"staticgroup", QStringLiteral("Статическое изображение"), QStringLiteral(":/icons/icons/library/static-image.svg"), false, false},
+        {"rotationobject", QStringLiteral("Вращающееся изображение"), QStringLiteral(":/icons/icons/library/rotating-image.svg"), false, false}
     };
 }

@@ -45,8 +45,8 @@ public:
     bool exportToFpgaXml(const QString &targetFile);
     //собирает строгий XML-формат для ПЛИС в памяти без записи на диск
     QDomDocument buildCompiledFpgaXml() const;
-    //импортирует изображение как static_group с растровыми масками
-    int importImageAsStaticGroup(const QString &fileName);
+    //импортирует статическое или вращающееся изображение с прежней обработкой масок
+    int importImage(const QString &fileName, bool rotating = false);
 
     //регистрирует стандартные типы объектов редактора
     void registerStandardTypes();
@@ -81,6 +81,7 @@ public:
     bool renameGroup(int groupId, const QString &name);
     //задаёт видимость всех объектов редакторской группы
     bool setGroupViewVisible(int groupId, bool visible);
+    bool setGroupSelectionLocked(int groupId, bool locked);
     //задаёт участие всех объектов редакторской группы в XML-экспорте
     bool setGroupExportEnabled(int groupId, bool enabled);
     //задаёт пользовательское имя объекта для списка объектов
@@ -103,6 +104,7 @@ public:
     bool alignObject(int index, ObjectAlignment alignment);
     //задаёт видимость объекта на холсте редактора
     bool setObjectViewVisible(int index, bool visible);
+    bool setObjectSelectionLocked(int index, bool locked);
     //задаёт участие объекта в XML-экспорте
     bool setObjectExportEnabled(int index, bool enabled);
     //фиксирует начало интерактивного редактирования объекта для истории действий
@@ -212,7 +214,6 @@ private:
     QList<ObjectGroup> m_groups;
     int m_nextGroupId = 1;
     QMap<QString, ParamSchema> m_schemas;
-    QMap<QString, QString> m_schemaAliases;
     QMap<int, FpgaFont> m_fonts;
     QList<ProjectSnapshot> m_undoStack;
     QList<ProjectSnapshot> m_redoStack;

@@ -1,3 +1,5 @@
+//NewProjectDialog - диалог создания нового проекта
+
 #include "NewProjectDialog.h"
 
 #include <QColorDialog>
@@ -127,7 +129,7 @@ QColor NewProjectDialog::backgroundColor() const
 
 void NewProjectDialog::chooseBackgroundColor()
 {
-    const QColor selectedColor = QColorDialog::getColor(m_backgroundColor, this, QStringLiteral("Цвет фона"));
+    const QColor selectedColor = QColorDialog::getColor(m_backgroundColor, this, QStringLiteral("Цвет фона"), QColorDialog::DontUseNativeDialog);
     if (!selectedColor.isValid())
         return;
 

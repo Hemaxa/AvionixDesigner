@@ -13,7 +13,10 @@
         <file>icons/library/three-d-view.svg</file>
         <file>icons/objects/aircraft-position-dot.svg</file>
         <file>icons/library/text.svg</file>
-        <file>icons/library/import-image.svg</file>
+        <file>icons/library/static-image.svg</file>
+        <file>icons/library/rotating-image.svg</file>
+        <file>icons/list/lock-on.svg</file>
+        <file>icons/list/lock-off.svg</file>
         <file>icons/list/eye-on.svg</file>
         <file>icons/list/eye-off.svg</file>
         <file>icons/settings/grid.svg</file>
@@ -32,6 +35,7 @@
         <file>icons/aircraft-position/autopilot-button-off.svg</file>
         <file>icons/aircraft-position/autopilot-button-on.svg</file>
         <file>icons/aircraft-position/aircraft.svg</file>
+        <file>icons/aircraft-position/radar.svg</file>
         <file>icons/aircraft-position/screen.svg</file>
         <file>icons/aircraft-position/screen-y-up.svg</file>
         <file>icons/aircraft-position/screen-y-up-pressed.svg</file>

@@ -145,7 +145,7 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaCompiledDocument &documen
         }
     }
 
-    // Initial scene upload precedes the 3D side command and first pose.
+    // После загрузки сцены идут команда стороны 3D-вида и первое положение самолета.
     for (int i = 0; i < document.objects.size(); ++i) {
         const auto &object = document.objects[i];
         if (object.type != QStringLiteral("layer3d") || object.iparams.isEmpty()) continue;
@@ -183,8 +183,8 @@ QByteArray FpgaPacketCompiler::memoryPayload(int memId, int address, const QByte
 
 QByteArray FpgaPacketCompiler::layer3dPayload(const QByteArray &data)
 {
-    // XML stores an integer in the usual hex order; pack_150bit in FrameGUI
-    // sends its 19 bytes little-endian. Other parameter packets stay unchanged.
+    // XML хранит число в обычном порядке HEX; эталон pack_150bit передает
+    // 19 байт от младшего к старшему. Порядок байтов остальных объектов не меняется.
     QByteArray payload = data;
     std::reverse(payload.begin(), payload.end());
     return payload;

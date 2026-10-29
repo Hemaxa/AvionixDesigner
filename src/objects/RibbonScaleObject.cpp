@@ -1,3 +1,5 @@
+//RibbonScaleObject - объект аппаратной ленточной шкалы
+
 #include "RibbonScaleObject.h"
 
 #include "BitParser.h"

@@ -14,7 +14,6 @@ public:
     explicit ThreeDViewObject(QObject *parent = nullptr);
 
     void parse(const QString &hexInit, const ParamSchema &schema) override;
-    void parseExtraData(const QDomElement &element) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
     QString getDisplayName() const override;
@@ -42,8 +41,8 @@ private:
     QRectF viewRect() const;
     QFont annotationFont() const;
 
-    // Keep raw fields (including fractional course/height and reserved bits)
-    // intact until the corresponding control is changed.
+    // Сырые поля, включая дробные части курса и высоты и резервные биты,
+    // сохраняются до изменения соответствующего параметра.
     QString m_initHex = QString(Layer3dFormat::hexLength, QLatin1Char('0'));
     QSvgRenderer m_markerRenderer;
     bool m_leftAnchored = false;

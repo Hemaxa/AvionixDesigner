@@ -8,6 +8,8 @@
 
 #include "BaseObject.h"
 
+class QDomDocument;
+
 struct FpgaSchemaField
 {
     QString name; //имя параметра в аппаратной схеме
@@ -31,10 +33,8 @@ public:
     //возвращает единственный экземпляр реестра схем
     static FpgaSchemaRegistry* instance();
 
-    //возвращает каноническое имя схемы параметров для типа объекта
-    QString canonicalSchemaName(const QString &typeName) const;
-    //возвращает каноническое имя XML-тега объекта для типа объекта
-    QString canonicalObjectTag(const QString &typeName) const;
+    // Проверяет единственный поддерживаемый формат без псевдонимов и старых схем.
+    bool validateXml(const QDomDocument &document, QString *errorMessage = nullptr) const;
 
     //возвращает поля схемы в аппаратном порядке
     QList<FpgaSchemaField> fieldsForSchema(const QString &schemaName) const;
@@ -45,9 +45,6 @@ public:
     QStringList orderedSchemaNames() const;
     //возвращает схемы, которые должны присутствовать в новом проекте
     QStringList defaultSchemaNames() const;
-    //возвращает стандартные псевдонимы имён схем
-    QMap<QString, QString> defaultSchemaAliases() const;
-
     //возвращает каталог объектов, доступных в интерфейсе редактора
     QList<EditorObjectDescriptor> editorObjectCatalog() const;
 

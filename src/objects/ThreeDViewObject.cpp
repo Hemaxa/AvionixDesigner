@@ -1,3 +1,5 @@
+//ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС
+
 #include "ThreeDViewObject.h"
 
 #include "BitParser.h"
@@ -9,8 +11,8 @@
 #include <QtMath>
 
 namespace {
-// Draw in a fixed design space, then scale the entire view together. This
-// avoids a minimum font size becoming oversized when a small canvas is zoomed.
+// Сначала рисуем в фиксированной системе координат, затем масштабируем весь вид.
+// Так подписи не становятся непропорционально крупными на маленьком холсте.
 constexpr double kReferenceSide = 768.0;
 }
 
@@ -27,66 +29,11 @@ ThreeDViewObject::ThreeDViewObject(QObject *parent)
 
 void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
-    if (schema.contains(QStringLiteral("course")) && schema.contains(QStringLiteral("height"))) {
-        m_initHex = hexInit.simplified().remove(QLatin1Char(' '))
-            .rightJustified(Layer3dFormat::hexLength, QLatin1Char('0'))
-            .right(Layer3dFormat::hexLength).toUpper();
-        // A 38-digit container has two unused high bits above the 150-bit word.
-        m_initHex[0] = QLatin1Char("0123"[m_initHex.left(1).toUInt(nullptr, 16) & 3]);
-        const ParamSchema current = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d"));
-        const QString source = m_initHex;
-        for (const QString &name : {QStringLiteral("x"), QStringLiteral("y"),
-                                   QStringLiteral("course"), QStringLiteral("height"),
-                                   QStringLiteral("yscreen")}) {
-            const ParamInfo target = current.value(name);
-            const ParamInfo original = schema.value(name, target);
-            if (name == QStringLiteral("yscreen")) {
-                BitParser::inject(m_initHex, target.offset, target.size,
-                                  schema.contains(name) ? BitParser::extract(source, original.offset, original.size)
-                                      : schema.contains("pitch") ? BitParser::extract(source, schema["pitch"].offset, schema["pitch"].size)
-                                      : Layer3dFormat::defaultScreenY);
-            } else if (name == QStringLiteral("x") || name == QStringLiteral("y")) {
-                // Current coordinates are unsigned Q13.6. Older 17-bit
-                // layouts stored signed whole meters.
-                const int raw = original.size == Layer3dFormat::coordinateBits
-                    ? int(BitParser::extract(source, original.offset, original.size))
-                    : qBound(Layer3dFormat::minPosition,
-                             int(BitParser::extractSigned(source, original.offset, original.size)),
-                             Layer3dFormat::maxPosition) * Layer3dFormat::coordinateUnitsPerPoint;
-                BitParser::inject(m_initHex, target.offset, target.size,
-                                  qMin(raw, Layer3dFormat::maxPosition * Layer3dFormat::coordinateUnitsPerPoint));
-            } else if (name == QStringLiteral("course")) {
-                BitParser::inject(m_initHex, target.offset, target.size,
-                                  BitParser::extract(source, original.offset, original.size));
-            } else {
-                int value = BitParser::extractSigned(source, original.offset, original.size);
-                if (name == QStringLiteral("height")) {
-                    const int clamped = qBound(Layer3dFormat::minHeightRaw, value, Layer3dFormat::maxHeightRaw);
-                    if (clamped != value)
-                        emit ProjectManager::instance()->logMessage(QStringLiteral(
-                            "Высота из старого XML ограничена диапазоном нового 17-битного поля layer3d."));
-                    value = clamped;
-                }
-                BitParser::inject(m_initHex, target.offset, target.size, static_cast<quint32>(value));
-            }
-        }
-    } else if (schema.contains(QStringLiteral("enb"))) {
-        // Older XML describes only the on-screen layer origin, not the aircraft.
-        const ParamInfo field = schema.value(QStringLiteral("enb"));
-        setViewVisible(BitParser::extract(hexInit, field.offset, field.size) != 0);
-        if (schema.contains("x0")) {
-            const auto origin = schema.value("x0");
-            m_leftAnchored = BitParser::extract(hexInit, origin.offset, origin.size) < 512;
-        }
-    }
-}
-
-void ThreeDViewObject::parseExtraData(const QDomElement &element)
-{
-    for (QDomNode node = element.firstChild(); !node.isNull(); node = node.nextSibling()) {
-        if (node.isComment() && node.nodeValue().trimmed() == QStringLiteral("AvionixDesigner: 3D view left"))
-            m_leftAnchored = true;
-    }
+    Q_UNUSED(schema);
+    m_initHex = hexInit.simplified().remove(QLatin1Char(' '))
+        .rightJustified(Layer3dFormat::hexLength, QLatin1Char('0'))
+        .right(Layer3dFormat::hexLength).toUpper();
+    m_initHex[0] = QLatin1Char("0123"[m_initHex.left(1).toUInt(nullptr, 16) & 3]);
 }
 
 void ThreeDViewObject::draw(QPainter &painter)

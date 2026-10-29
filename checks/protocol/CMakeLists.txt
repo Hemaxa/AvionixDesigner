@@ -1,7 +1,16 @@
 find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
 get_target_property(protocol_sources AvionixDesigner SOURCES)
 list(REMOVE_ITEM protocol_sources src/main.cpp ${APP_PLATFORM_ICON_RESOURCE})
-list(TRANSFORM protocol_sources PREPEND "${PROJECT_SOURCE_DIR}/")
+# Основные исходники относительные, сгенерированный ресурс переводов абсолютный.
+set(protocol_absolute_sources)
+foreach(source IN LISTS protocol_sources)
+    if(IS_ABSOLUTE "${source}")
+        list(APPEND protocol_absolute_sources "${source}")
+    else()
+        list(APPEND protocol_absolute_sources "${PROJECT_SOURCE_DIR}/${source}")
+    endif()
+endforeach()
+set(protocol_sources ${protocol_absolute_sources})
 qt_add_executable(AvionixProtocolTests ProtocolTests.cpp ${protocol_sources})
 get_target_property(protocol_includes AvionixDesigner INCLUDE_DIRECTORIES)
 target_include_directories(AvionixProtocolTests PRIVATE ${protocol_includes})
@@ -13,7 +22,9 @@ find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
 add_test(NAME packet_reference COMMAND ${Python3_EXECUTABLE} -B "${CMAKE_CURRENT_SOURCE_DIR}/verify_fpga_packets.py"
     --app $<TARGET_FILE:AvionixDesigner> --output ${PROJECT_BINARY_DIR}/verification)
 add_test(NAME protocol_runtime COMMAND AvionixProtocolTests)
-set_tests_properties(protocol_runtime PROPERTIES DEPENDS packet_reference ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+set_tests_properties(packet_reference PROPERTIES FIXTURES_SETUP reference_vectors TIMEOUT 60)
+set_tests_properties(protocol_runtime PROPERTIES FIXTURES_REQUIRED reference_vectors TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 if(UNIX AND NOT APPLE)
     find_library(UTIL_LIBRARY util)

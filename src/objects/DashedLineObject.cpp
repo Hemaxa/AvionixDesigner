@@ -1,3 +1,5 @@
+//DashedLineObject - объект аппаратной штриховой линии
+
 #include "DashedLineObject.h"
 
 #include "BitParser.h"
@@ -20,13 +22,9 @@ void DashedLineObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
     if (schema.contains("Enable"))
         enabled = BitParser::extract(hexInit, schema["Enable"].offset, schema["Enable"].size) != 0;
-    else if (schema.contains("enable"))
-        enabled = BitParser::extract(hexInit, schema["enable"].offset, schema["enable"].size) != 0;
 
     if (schema.contains("Color"))
         color = BitParser::parseColor(BitParser::extract(hexInit, schema["Color"].offset, schema["Color"].size));
-    else if (schema.contains("color"))
-        color = BitParser::parseColor(BitParser::extract(hexInit, schema["color"].offset, schema["color"].size));
 
     if (schema.contains("xo"))
         x0 = BitParser::extract(hexInit, schema["xo"].offset, schema["xo"].size);
@@ -41,13 +39,13 @@ void DashedLineObject::parse(const QString &hexInit, const ParamSchema &schema)
     y1 = y0 + (bRaw / 256.0) * dt;
 
     const int stepPowMinus1 = schema.contains("StepPow") ? BitParser::extract(hexInit, schema["StepPow"].offset, schema["StepPow"].size)
-                                                         : (schema.contains("StepPow-1") ? BitParser::extract(hexInit, schema["StepPow-1"].offset, schema["StepPow-1"].size) : 3);
+                                                         : 3;
     dashPeriod = 1 << (qBound(0, stepPowMinus1, 7) + 1);
     dashLength = schema.contains("Length") ? BitParser::extract(hexInit, schema["Length"].offset, schema["Length"].size) + 1
-                                           : (schema.contains("Length-1") ? BitParser::extract(hexInit, schema["Length-1"].offset, schema["Length-1"].size) + 1 : 8);
+                                           : 8;
     dashPhase = schema.contains("Phase") ? BitParser::extract(hexInit, schema["Phase"].offset, schema["Phase"].size) : 0;
     lineWidth = schema.contains("Width") ? BitParser::extract(hexInit, schema["Width"].offset, schema["Width"].size) + 1
-                                         : (schema.contains("Width-1") ? BitParser::extract(hexInit, schema["Width-1"].offset, schema["Width-1"].size) + 1 : 2);
+                                         : 2;
 }
 
 void DashedLineObject::draw(QPainter &painter)

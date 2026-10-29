@@ -10,6 +10,7 @@ class RectangleObject : public BaseObject
     Q_OBJECT
     
 public:
+    bool enabled = true;
     //параметры объекта
     double x = 0; //координата X
     double y = 0; //координата Y

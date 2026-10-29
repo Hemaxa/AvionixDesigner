@@ -1,3 +1,5 @@
+//SettingsWindow - окно настроек приложения
+
 #include "SettingsWindow.h"
 #include "AppearanceManager.h"
 #include "ProjectManager.h"
@@ -11,7 +13,7 @@
 #include <QIcon>
 #include <QPushButton>
 #include <QLabel>
-#include <QSettings>
+#include "ApplicationSettings.h"
 #include <QListWidget>
 #include <QScrollArea>
 #include <QStackedWidget>
@@ -25,7 +27,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
     setWindowTitle("Настройки");
     setObjectName("SettingsWindow");
     setModal(true);
-    setMinimumSize(760, 560);
+    setMinimumSize(720, 480);
     resize(820, 600);
 
     createWidgets();
@@ -41,7 +43,7 @@ void SettingsWindow::createWidgets()
     contentLayout->setSpacing(18);
 
     m_listWidget = new QListWidget(this);
-    m_listWidget->setFixedWidth(220);
+    m_listWidget->setFixedWidth(180);
     m_listWidget->addItem("Настройки");
     m_listWidget->addItem("Горячие клавиши");
 
@@ -60,6 +62,7 @@ void SettingsWindow::createWidgets()
     generalLayout->setVerticalSpacing(14);
     generalLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     generalLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    generalLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
     m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
     generalLayout->addRow(m_autoLoadCheck);
@@ -73,6 +76,7 @@ void SettingsWindow::createWidgets()
     formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     formLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     formLayout->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
+    formLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
     m_gridStepSpin = new QSpinBox(this);
     m_gridStepSpin->setObjectName(QStringLiteral("GridStepSpin"));
@@ -110,7 +114,11 @@ void SettingsWindow::createWidgets()
 
     settingsLayout->addWidget(snapGroup);
     settingsLayout->addStretch();
-    m_stackedWidget->addWidget(settingsWidget);
+    auto *settingsScroll = new QScrollArea(this);
+    settingsScroll->setWidgetResizable(true);
+    settingsScroll->setFrameShape(QFrame::NoFrame);
+    settingsScroll->setWidget(settingsWidget);
+    m_stackedWidget->addWidget(settingsScroll);
 
     // Вкладка "Горячие клавиши"
     auto *hotkeysScroll = new QScrollArea(this);
@@ -123,6 +131,7 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->setHorizontalSpacing(22);
     hotkeysLayout->setVerticalSpacing(12);
     hotkeysLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    hotkeysLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
     hotkeysLayout->addRow(new QLabel("<b>Файл:</b>", this));
     hotkeysLayout->addRow("Создать проект:", new QLabel("Ctrl+N", this));
@@ -167,6 +176,20 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Симулятор ПЛИС:", new QLabel("Ctrl+Alt+F", this));
     hotkeysLayout->addRow("UART:", new QLabel("Ctrl+Alt+U", this));
 
+    hotkeysLayout->addRow(new QLabel("<br><b>Позиционирование самолета:</b>", this));
+    hotkeysLayout->addRow("Курс ±0,05°:", new QLabel("← / →", this));
+    hotkeysLayout->addRow("Курс ±1°:", new QLabel("Shift + ← / →", this));
+    hotkeysLayout->addRow("Тангаж ±1 (yscreen):", new QLabel("↑ / ↓", this));
+    hotkeysLayout->addRow("Тангаж ±10:", new QLabel("Shift + ↑ / ↓", this));
+    hotkeysLayout->addRow("Высота ±0,25 м:", new QLabel("+ / − (также =)", this));
+    hotkeysLayout->addRow("Высота ±10 м:", new QLabel("Shift + (+ / − / =)", this));
+    hotkeysLayout->addRow("Высота ±100 м (на ползунке):", new QLabel("Page Up / Page Down", this));
+    auto *aircraftHint = new QLabel("Клавиши действуют при фокусе в панели позиционирования. "
+        "В числовых полях сохраняется обычное редактирование. На основной клавиатуре «=» "
+        "даёт точный набор высоты, Shift+= — ускоренный.", this);
+    aircraftHint->setWordWrap(true);
+    hotkeysLayout->addRow(aircraftHint);
+
     hotkeysScroll->setWidget(hotkeysWidget);
     m_stackedWidget->addWidget(hotkeysScroll);
 
@@ -186,6 +209,7 @@ void SettingsWindow::createWidgets()
     bottomLayout->addStretch();
 
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, this);
+    buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Отмена"));
     bottomLayout->addWidget(buttonBox);
     mainLayout->addLayout(bottomLayout);
 
@@ -199,7 +223,7 @@ void SettingsWindow::chooseColor(QColor *targetColor, QPushButton *button, const
     if (!targetColor || !button)
         return;
 
-    const QColor selectedColor = QColorDialog::getColor(*targetColor, this, title, QColorDialog::ShowAlphaChannel);
+    const QColor selectedColor = QColorDialog::getColor(*targetColor, this, title, QColorDialog::ShowAlphaChannel | QColorDialog::DontUseNativeDialog);
     if (selectedColor.isValid()) {
         *targetColor = selectedColor;
         updateColorButtonIcon(button, selectedColor);
@@ -225,7 +249,7 @@ void SettingsWindow::updateColorButtonIcon(QPushButton *button, const QColor &co
 
 void SettingsWindow::loadSettings()
 {
-    QSettings settings("Avionix", "Designer");
+    auto settings = ApplicationSettings::create();
     m_autoLoadCheck->setChecked(settings.value("autoLoad", false).toBool());
 
     m_gridStepSpin->setValue(qBound(1, settings.value("gridStep", 10).toInt(), 1000));
@@ -241,7 +265,7 @@ void SettingsWindow::loadSettings()
 
 void SettingsWindow::saveSettings()
 {
-    QSettings settings("Avionix", "Designer");
+    auto settings = ApplicationSettings::create();
     settings.setValue("autoLoad", m_autoLoadCheck->isChecked());
     settings.setValue("gridStep", m_gridStepSpin->value());
     settings.setValue("gridColor", m_currentGridColor.name(QColor::HexArgb));
@@ -257,7 +281,7 @@ void SettingsWindow::saveSettings()
 
 void SettingsWindow::resetAllSettings()
 {
-    QSettings settings("Avionix", "Designer");
+    auto settings = ApplicationSettings::create();
     settings.clear();
 
     AppearanceManager::instance()->applyAvionixTheme();

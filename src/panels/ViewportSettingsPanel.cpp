@@ -1,16 +1,16 @@
+//ViewportSettingsPanel - компактная панель параметров рабочей области
+
 #include "ViewportSettingsPanel.h"
 
 #include "ProjectManager.h"
+#include "FlowLayout.h"
 
-#include <QBoxLayout>
 #include <QColorDialog>
-#include <QFrame>
 #include <QIcon>
 #include <QLabel>
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
-#include <QResizeEvent>
 #include <QSizePolicy>
 #include <QSpinBox>
 #include <QToolButton>
@@ -46,26 +46,13 @@ QIcon createColorSwatchIcon(const QColor &color)
     painter.drawRoundedRect(QRectF(3, 3, 22, 22), 5, 5);
     return QIcon(pixmap);
 }
-
-bool shouldUseVerticalControls(const QWidget *widget)
-{
-    return widget && widget->height() > widget->width() * 1.15;
-}
 }
 
 ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("ViewportSettingsPanel");
 
-    m_layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
-    m_layout->setContentsMargins(10, 8, 10, 8);
-    m_layout->setSpacing(12);
-    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-
-    // --- Левый столбец: рабочая область ---
-    m_canvasLayout = new QBoxLayout(QBoxLayout::LeftToRight);
-    m_canvasLayout->setSpacing(6);
-    m_canvasLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    auto *flow = createFlowPanel(this);
 
     m_widthSpin = new QSpinBox(this);
     m_widthSpin->setRange(1, 8192);
@@ -73,11 +60,11 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_widthSpin->setMinimumWidth(56);
     m_widthSpin->setMaximumWidth(72);
     m_widthSpin->setToolTip(QStringLiteral("Ширина холста (px)"));
-    m_canvasLayout->addWidget(m_widthSpin, 0, Qt::AlignLeft | Qt::AlignTop);
+    flow->addWidget(m_widthSpin);
 
     auto *multiplyLabel = new QLabel("×", this);
     multiplyLabel->setObjectName("SettingsFieldLabel");
-    m_canvasLayout->addWidget(multiplyLabel, 0, Qt::AlignLeft | Qt::AlignTop);
+    flow->addWidget(multiplyLabel);
 
     m_heightSpin = new QSpinBox(this);
     m_heightSpin->setRange(1, 8192);
@@ -85,39 +72,24 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_heightSpin->setMinimumWidth(56);
     m_heightSpin->setMaximumWidth(72);
     m_heightSpin->setToolTip(QStringLiteral("Высота холста (px)"));
-    m_canvasLayout->addWidget(m_heightSpin, 0, Qt::AlignLeft | Qt::AlignTop);
+    flow->addWidget(m_heightSpin);
 
     m_bgColorButton = new QPushButton(this);
     m_bgColorButton->setObjectName("SettingsColorButton");
     m_bgColorButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_bgColorButton->setToolTip(QStringLiteral("Цвет фона"));
-    m_canvasLayout->addWidget(m_bgColorButton, 0, Qt::AlignLeft | Qt::AlignTop);
-
-    m_layout->addLayout(m_canvasLayout);
-
-    // --- Разделитель ---
-    m_separator = new QFrame(this);
-    m_separator->setFrameShape(QFrame::VLine);
-    m_separator->setObjectName("SettingsSeparator");
-    m_layout->addWidget(m_separator, 0, Qt::AlignLeft | Qt::AlignTop);
-
-    // --- Правый столбец: привязки ---
-    m_snapLayout = new QBoxLayout(QBoxLayout::LeftToRight);
-    m_snapLayout->setSpacing(6);
-    m_snapLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    flow->addWidget(m_bgColorButton);
 
     m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), this, QStringLiteral("Shift+V"));
     m_snapCanvasButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-screen.svg"), QStringLiteral("Привязка к границам экрана"), this, QStringLiteral("Shift+C"));
     m_snapGridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-grid.svg"), QStringLiteral("Привязка к сетке"), this, QStringLiteral("Shift+G"));
     m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к другим объектам"), this, QStringLiteral("Shift+O"));
 
-    m_snapLayout->addWidget(m_gridButton, 0, Qt::AlignLeft | Qt::AlignTop);
-    m_snapLayout->addWidget(m_snapCanvasButton, 0, Qt::AlignLeft | Qt::AlignTop);
-    m_snapLayout->addWidget(m_snapGridButton, 0, Qt::AlignLeft | Qt::AlignTop);
-    m_snapLayout->addWidget(m_snapObjectsButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    flow->addWidget(m_gridButton);
+    flow->addWidget(m_snapCanvasButton);
+    flow->addWidget(m_snapGridButton);
+    flow->addWidget(m_snapObjectsButton);
 
-    m_layout->addLayout(m_snapLayout);
-    m_layout->addStretch();
 
     connect(m_bgColorButton, &QPushButton::clicked, this, &ViewportSettingsPanel::onChangeBgColor);
     connect(m_widthSpin, &QSpinBox::editingFinished, this, &ViewportSettingsPanel::onCanvasSizeEdited);
@@ -130,13 +102,6 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &ViewportSettingsPanel::refreshInfo);
 
     refreshInfo();
-    updateAdaptiveLayout();
-}
-
-void ViewportSettingsPanel::resizeEvent(QResizeEvent *event)
-{
-    BasePanel::resizeEvent(event);
-    updateAdaptiveLayout();
 }
 
 void ViewportSettingsPanel::refreshInfo()
@@ -167,7 +132,7 @@ void ViewportSettingsPanel::onChangeBgColor()
 {
     auto *project = ProjectManager::instance();
     const QColor current = project->getBackgroundColor();
-    const QColor selected = QColorDialog::getColor(current, this, "Цвет фона");
+    const QColor selected = QColorDialog::getColor(current, this, "Цвет фона", QColorDialog::DontUseNativeDialog);
     if (!selected.isValid() || selected == current)
         return;
 
@@ -209,25 +174,4 @@ void ViewportSettingsPanel::onToggleSnapObjects(bool enabled)
 {
     if (!m_refreshing)
         ProjectManager::instance()->setSnapToObjects(enabled);
-}
-
-void ViewportSettingsPanel::updateAdaptiveLayout()
-{
-    if (!m_layout || !m_canvasLayout || !m_snapLayout || !m_separator)
-        return;
-
-    const bool vertical = shouldUseVerticalControls(this);
-    if (m_verticalLayout == vertical)
-        return;
-
-    m_verticalLayout = vertical;
-    const QBoxLayout::Direction direction = vertical ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight;
-    m_layout->setDirection(direction);
-    m_canvasLayout->setDirection(direction);
-    m_snapLayout->setDirection(direction);
-    m_separator->setFrameShape(vertical ? QFrame::HLine : QFrame::VLine);
-    m_layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_canvasLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_snapLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    updateGeometry();
 }

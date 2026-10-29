@@ -4,10 +4,7 @@
 
 #include "BasePanel.h"
 
-#include <QList>
-
-class QBoxLayout;
-class QResizeEvent;
+class FlowLayout;
 class QToolButton;
 
 class ObjectLibraryPanel : public BasePanel
@@ -19,15 +16,11 @@ public:
 
 signals:
     void objectRequested(const QString &typeName);
-    void imageImportRequested();
+    void imageImportRequested(bool rotating);
 
 private:
-    void resizeEvent(QResizeEvent *event) override;
     void createButtons();
     QToolButton* createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title);
-    void updateAdaptiveLayout();
 
-    QBoxLayout *m_rowLayout = nullptr;
-    QList<QToolButton*> m_libraryCards;
-    bool m_verticalLayout = false;
+    FlowLayout *m_rowLayout = nullptr;
 };

@@ -8,6 +8,7 @@
 
 class FpgaScreenWidget;
 class QLabel;
+class QScrollArea;
 
 class FpgaSimulatorPanel : public BasePanel
 {
@@ -24,4 +25,5 @@ private:
     FpgaSimulator m_simulator;
     FpgaScreenWidget *m_screenWidget = nullptr;
     QLabel *m_warningsLabel = nullptr;
+    QScrollArea *m_warningsScroll = nullptr;
 };

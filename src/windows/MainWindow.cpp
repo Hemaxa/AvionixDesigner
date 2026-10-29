@@ -1,3 +1,5 @@
+//MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели
+
 #include "MainWindow.h"
 
 #include "AircraftPositionPanel.h"
@@ -25,11 +27,13 @@
 #include <QFileDialog>
 #include <QMenu>
 #include <QMenuBar>
+#include <QLayout>
 #include <QMessageBox>
 #include <QPointF>
 #include <QSet>
-#include <QSettings>
+#include "ApplicationSettings.h"
 #include <QScreen>
+#include <QScrollArea>
 #include <QTimer>
 
 #include <algorithm>
@@ -38,7 +42,6 @@ namespace {
 constexpr int kDefaultFpgaSimulatorDockWidth = 620;
 constexpr int kDefaultFpgaSimulatorDockHeight = 420;
 constexpr int kDefaultAircraftPositionDockWidth = 1030;
-constexpr int kMinimumAircraftPositionDockWidth = 950;
 constexpr int kDefaultAircraftPositionDockHeight = 460;
 
 QString fontExportKey(const QString &family, int pixelSize) {
@@ -99,7 +102,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
                  ~QMainWindow::AllowTabbedDocks &
                  ~QMainWindow::GroupedDragging);
 
-  QSettings settings("Avionix", "Designer");
+  auto settings = ApplicationSettings::create();
   AppearanceManager::instance()->applyAvionixTheme();
 
   createWidgets();
@@ -158,7 +161,7 @@ void MainWindow::onOpenFile() {
       return;
     }
 
-    QSettings settings("Avionix", "Designer");
+    auto settings = ApplicationSettings::create();
     settings.setValue("lastProject", fileName);
     m_objectList->refreshList();
     m_objectList->selectRows({});
@@ -202,22 +205,22 @@ void MainWindow::onSaveFileAs() {
       QMessageBox::warning(this, tr("Не удалось сохранить XML"), project->lastErrorMessage());
       return;
     }
-    QSettings settings("Avionix", "Designer");
+    auto settings = ApplicationSettings::create();
     settings.setValue("lastProject", fileName);
     updateWindowTitle();
   }
 }
 
-void MainWindow::onImportImage() {
+void MainWindow::onImportImage(bool rotating) {
   const QString fileName = QFileDialog::getOpenFileName(
-      this, "Добавить изображение", QString(),
+      this, rotating ? "Добавить вращающееся изображение" : "Добавить статическое изображение", QString(),
       "Изображения (*.png *.jpg *.jpeg *.bmp *.svg)");
 
   if (fileName.isEmpty())
     return;
 
   const int index =
-      ProjectManager::instance()->importImageAsStaticGroup(fileName);
+      ProjectManager::instance()->importImage(fileName, rotating);
   if (index < 0)
     return;
 
@@ -346,7 +349,7 @@ void MainWindow::showEvent(QShowEvent *event) {
 
   if (!m_initialSizesSet) {
     m_initialSizesSet = true;
-    QSettings settings("Avionix", "Designer");
+    auto settings = ApplicationSettings::create();
     if (!settings.contains("windowState")) {
       QTimer::singleShot(0, this, &MainWindow::setupDockSizes);
     }
@@ -365,7 +368,17 @@ void MainWindow::setupDockSizes() {
   resizeDocks({m_objectListDock, m_objectPropertiesDock},
               {objectListHeight, objectPropsHeight}, Qt::Vertical);
 
-  const int bottomHeight = qMax(96, static_cast<int>(windowH * 0.14));
+  // Стартовая высота вмещает перенесенные строки, а не обрезает их посередине.
+  int bottomHeight = 96;
+  const QList<QWidget *> tools = {m_viewportSettings, m_objectLibrary, m_fpgaStreaming};
+  const QList<double> fractions = {0.28, 0.46, 0.26};
+  for (int i = 0; i < tools.size(); ++i) {
+    auto *scroll = tools[i]->findChild<QScrollArea *>();
+    if (scroll && scroll->widget() && scroll->widget()->layout())
+      bottomHeight = qMax(bottomHeight, scroll->widget()->layout()->heightForWidth(
+          qMax(110, int(windowW * fractions[i]) - 24)) + 34);
+  }
+  bottomHeight = qMin(bottomHeight, windowH / 3);
   resizeDocks({m_viewportSettingsDock}, {bottomHeight}, Qt::Vertical);
   resizeDocks(
       {m_viewportSettingsDock, m_objectLibraryDock, m_fpgaStreamingDock},
@@ -382,9 +395,7 @@ void MainWindow::applyDefaultFloatingDockSizes() {
   const QPoint anchor = frameGeometry().topLeft() + QPoint(80, 90);
   const QSize simulatorSize(kDefaultFpgaSimulatorDockWidth,
                             kDefaultFpgaSimulatorDockHeight);
-  const QSize aircraftSize(qMax(kDefaultAircraftPositionDockWidth,
-                                kMinimumAircraftPositionDockWidth),
-                           kDefaultAircraftPositionDockHeight);
+  const QSize aircraftSize(kDefaultAircraftPositionDockWidth, kDefaultAircraftPositionDockHeight);
   const QPoint aircraftPosition =
       clampedDockPosition(availableGeometry, aircraftSize, anchor);
   QPoint simulatorPosition =
@@ -420,9 +431,6 @@ void MainWindow::createMenus() {
       createAction("Сохранить", QKeySequence::Save, this, SLOT(onSaveFile())));
   fileMenu->addAction(createAction("Сохранить как...", QKeySequence::SaveAs,
                                    this, SLOT(onSaveFileAs())));
-  fileMenu->addAction(createAction("Добавить изображение...",
-                                   QKeySequence("Ctrl+I"), this,
-                                   SLOT(onImportImage())));
   fileMenu->addSeparator();
   fileMenu->addAction(
       createAction("Выход", QKeySequence::Quit, this, SLOT(close())));
@@ -515,6 +523,13 @@ void MainWindow::createMenus() {
                     QKeySequence(QString("Alt+%1").arg(shortcutIndex)),
                     descriptor.typeName);
     ++shortcutIndex;
+  }
+
+  for (bool rotating : {false, true}) {
+    auto *action = objectsMenu->addAction(rotating ? "Добавить вращающееся изображение..." : "Добавить статическое изображение...");
+    action->setIcon(QIcon(rotating ? ":/icons/icons/library/rotating-image.svg" : ":/icons/icons/library/static-image.svg"));
+    action->setShortcut(QKeySequence(rotating ? "Ctrl+Shift+I" : "Ctrl+I"));
+    connect(action, &QAction::triggered, this, [this, rotating]() { onImportImage(rotating); });
   }
 
   QMenu *viewMenu = menuBar()->addMenu("Вид");
@@ -657,7 +672,7 @@ void MainWindow::connectSignals() {
   connect(m_viewport, &ViewportPanel::imageDropped, this,
           [this](const QString &fileName) {
             const int index =
-                ProjectManager::instance()->importImageAsStaticGroup(fileName);
+                ProjectManager::instance()->importImage(fileName);
             if (index < 0)
               return;
 
@@ -706,13 +721,13 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 }
 
 void MainWindow::saveLayoutSettings() {
-  QSettings settings("Avionix", "Designer");
+  auto settings = ApplicationSettings::create();
   settings.setValue("windowGeometry", saveGeometry());
   settings.setValue("windowState", saveState());
 }
 
 void MainWindow::restoreLayoutSettings() {
-  QSettings settings("Avionix", "Designer");
+  auto settings = ApplicationSettings::create();
   if (settings.contains("windowGeometry")) {
     restoreGeometry(settings.value("windowGeometry").toByteArray());
     if (!restoreState(settings.value("windowState").toByteArray())) {
@@ -723,7 +738,7 @@ void MainWindow::restoreLayoutSettings() {
 }
 
 void MainWindow::resetToDefaultLayout() {
-  QSettings settings("Avionix", "Designer");
+  auto settings = ApplicationSettings::create();
   settings.remove("windowGeometry");
   settings.remove("windowState");
 
@@ -752,7 +767,7 @@ void MainWindow::resetToDefaultLayout() {
 }
 
 void MainWindow::scheduleFpgaSimulatorUpdate() {
-  // The software simulator does not render the FPGA terrain layer.
+  // Программный симулятор не отрисовывает аппаратный слой рельефа.
   if (ProjectManager::instance()->isAircraftStateChange()) return;
   if (!m_fpgaSimulatorLiveActive || !m_fpgaSimulatorDock ||
       !m_fpgaSimulatorDock->isVisible())
@@ -787,7 +802,7 @@ void MainWindow::createObjectOfType(const QString &typeName) {
   const int index = project->addObject(typeName);
   if (index < 0)
     return;
-  if (groupId >= 0 && typeName != QStringLiteral("three_d_view"))
+  if (groupId >= 0 && typeName != QStringLiteral("layer3d"))
     project->addObjectToGroup(groupId, index, false);
 
   m_objectList->refreshList();
@@ -805,7 +820,7 @@ void MainWindow::createObjectAtPosition(const QString &typeName,
   const int index = project->addObject(typeName, pos.x(), pos.y());
   if (index < 0)
     return;
-  if (groupId >= 0 && typeName != QStringLiteral("three_d_view"))
+  if (groupId >= 0 && typeName != QStringLiteral("layer3d"))
     project->addObjectToGroup(groupId, index, false);
 
   m_objectList->refreshList();

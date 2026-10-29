@@ -26,6 +26,7 @@ class RotationObject : public BaseObject
     Q_OBJECT
     
 public:
+    bool enabled = true;
     //параметры объекта
     double left = 0; //левая граница
     double top = 0; //верхняя граница

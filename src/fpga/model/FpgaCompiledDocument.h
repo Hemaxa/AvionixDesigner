@@ -19,6 +19,7 @@ enum class FpgaMemoryKind
     RotationTiles
 };
 
+// Объект после экспорта: слова init, маска и назначенные индексы параметров/памяти.
 struct FpgaCompiledObject
 {
     QString type;
@@ -32,6 +33,7 @@ struct FpgaCompiledObject
     FpgaMemoryKind memoryKind = FpgaMemoryKind::None;
 };
 
+// Подготовленный кадр со схемами; общий вход для компилятора пакетов и симулятора.
 struct FpgaCompiledDocument
 {
     QString projectName;
