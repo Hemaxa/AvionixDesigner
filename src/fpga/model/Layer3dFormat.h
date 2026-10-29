@@ -1,9 +1,10 @@
+// Layer3dFormat — разрядность полей 3D-вида, масштабы и преобразования в формат ПЛИС.
 #pragma once
 
 #include <QtGlobal>
 #include <cmath>
 
-// tests/protocol/All_together.py / SlowParameters. Coordinates are map points, NOT meters.
+// Эталон: checks/protocol/All_together.py / SlowParameters. Координаты заданы в точках карты.
 namespace Layer3dFormat {
 constexpr int xOffset = 0;
 constexpr int yOffset = 19;
@@ -21,7 +22,7 @@ constexpr int coordinateFractionBits = 6;
 constexpr int coordinateUnitsPerPoint = 1 << coordinateFractionBits;
 constexpr double metersPerPoint = 32.0;
 constexpr int minPosition = 0;
-constexpr int maxPosition = 8191; // editor working area, including fractional movement
+constexpr int maxPosition = 8191; // предел рабочей области, включая дробное перемещение
 constexpr int maxCoordinateRaw = (1 << coordinateBits) - 1;
 constexpr int minScreenY = 0;
 constexpr int maxScreenY = (1 << screenYBits) - 1;
@@ -37,7 +38,7 @@ constexpr double minHeight = minHeightRaw / double(heightUnitsPerMeter);
 constexpr double maxHeight = maxHeightRaw / double(heightUnitsPerMeter);
 constexpr double heightStep = 1.0 / heightUnitsPerMeter;
 
-// Python round(): ties to even, independent of the CPU rounding mode.
+// Как Python round(): ровная половина округляется к четному независимо от режима процессора.
 inline qint64 roundRaw(double value)
 {
     const double lower = std::floor(value);
@@ -68,6 +69,15 @@ inline quint32 positionToRaw(double points)
 inline double movementInPoints(double speedKmh, double seconds)
 {
     return speedKmh / 3.6 * seconds / metersPerPoint;
+}
+// Переход через край рабочей области сохраняет дробный остаток перемещения.
+// Ручной ввод и XML по-прежнему ограничены диапазоном 0…8191.
+inline double wrappedPosition(double points)
+{
+    if (!qIsFinite(points)) return minPosition;
+    if (points >= minPosition && points <= maxPosition) return points;
+    double result = std::fmod(points, double(maxPosition - minPosition));
+    return result < 0 ? result + maxPosition : result;
 }
 static_assert(xOffset + coordinateBits == yOffset);
 static_assert(yOffset + coordinateBits == courseOffset);

@@ -1,6 +1,9 @@
+//SelectionToolStrip - компактная вертикальная панель быстрых действий над выделением
+
 #include "SelectionToolStrip.h"
 
 #include <QIcon>
+#include <QScrollArea>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <utility>
@@ -8,9 +11,19 @@
 SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("SelectionToolStrip");
-    setFixedWidth(64);
+    setFixedWidth(80);
 
-    auto *layout = new QVBoxLayout(this);
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    auto *scroll = new QScrollArea(this);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *body = new QWidget;
+    auto *layout = new QVBoxLayout(body);
+    layout->setSizeConstraint(QLayout::SetMinimumSize);
+    scroll->setWidget(body);
+    outer->addWidget(scroll);
     layout->setContentsMargins(4, 8, 4, 8);
     layout->setSpacing(8);
 

@@ -1,3 +1,5 @@
+//StaticGroupObject - класс группы статических растровых объектов с несколькими состояниями
+
 #include "StaticGroupObject.h"
 #include "BitParser.h"
 #include "ProportionalResize.h"

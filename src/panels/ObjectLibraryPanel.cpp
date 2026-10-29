@@ -1,8 +1,10 @@
+//ObjectLibraryPanel - компактная библиотека добавления поддерживаемых объектов
+
 #include "ObjectLibraryPanel.h"
 
 #include "FpgaSchemaRegistry.h"
+#include "FlowLayout.h"
 
-#include <QBoxLayout>
 #include <QDrag>
 #include <QIcon>
 #include <QMap>
@@ -10,7 +12,6 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
-#include <QResizeEvent>
 #include <QSizePolicy>
 #include <QToolButton>
 
@@ -34,11 +35,6 @@ QIcon createPlaceholderIcon(const QString &glyph)
     return QIcon(pixmap);
 }
 
-bool shouldUseVerticalControls(const QWidget *widget)
-{
-    return widget && widget->height() > widget->width() * 1.15;
-}
-
 QString toolTipWithShortcut(const QString &text, const QString &shortcutText)
 {
     if (shortcutText.isEmpty())
@@ -46,6 +42,7 @@ QString toolTipWithShortcut(const QString &text, const QString &shortcutText)
     return QStringLiteral("%1 (%2)").arg(text, shortcutText);
 }
 
+// Кнопка библиотеки передает идентификатор типа при перетаскивании на холст.
 class DraggableToolButton : public QToolButton
 {
 public:
@@ -91,28 +88,12 @@ ObjectLibraryPanel::ObjectLibraryPanel(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("ObjectLibraryPanel");
 
-    auto *mainLayout = new QBoxLayout(QBoxLayout::TopToBottom, this);
-    mainLayout->setContentsMargins(6, 6, 6, 6);
-    mainLayout->setSpacing(6);
-
+    m_rowLayout = createFlowPanel(this);
     createButtons();
-    mainLayout->addLayout(m_rowLayout);
-    mainLayout->addStretch(1);
-    updateAdaptiveLayout();
-}
-
-void ObjectLibraryPanel::resizeEvent(QResizeEvent *event)
-{
-    BasePanel::resizeEvent(event);
-    updateAdaptiveLayout();
 }
 
 void ObjectLibraryPanel::createButtons()
 {
-    m_rowLayout = new QBoxLayout(QBoxLayout::LeftToRight);
-    m_rowLayout->setSpacing(8);
-    m_rowLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-
     QList<EditorObjectDescriptor> items;
     QMap<QString, QString> shortcutsByType;
     int shortcutIndex = 1;
@@ -129,14 +110,12 @@ void ObjectLibraryPanel::createButtons()
         const auto &item = items[i];
         QToolButton *card = createLibraryCard(item.typeName, item.iconPath, item.title);
         card->setToolTip(toolTipWithShortcut(item.title, shortcutsByType.value(item.typeName)));
-        m_libraryCards.append(card);
-        m_rowLayout->addWidget(card, 0, Qt::AlignLeft | Qt::AlignTop);
+        m_rowLayout->addWidget(card);
     }
 
     QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
     imageButton->setToolTip(toolTipWithShortcut(QStringLiteral("Добавить изображение"), QStringLiteral("Ctrl+I")));
-    m_libraryCards.append(imageButton);
-    m_rowLayout->addWidget(imageButton, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_rowLayout->addWidget(imageButton);
 }
 
 QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title)
@@ -169,19 +148,4 @@ QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, cons
     });
 
     return button;
-}
-
-void ObjectLibraryPanel::updateAdaptiveLayout()
-{
-    if (!m_rowLayout)
-        return;
-
-    const bool vertical = shouldUseVerticalControls(this);
-    if (m_verticalLayout == vertical)
-        return;
-
-    m_verticalLayout = vertical;
-    m_rowLayout->setDirection(vertical ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
-    m_rowLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    updateGeometry();
 }

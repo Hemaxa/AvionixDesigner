@@ -1,3 +1,5 @@
+//ProjectManager - менеджер проекта, связывающий внутреннюю модель редактора с экспортом в XML
+
 #include <QFile>
 #include <QDomDocument>
 #include <QFileInfo>
@@ -8,7 +10,7 @@
 #include <QStringDecoder>
 #include <QImageReader>
 #include <QSvgRenderer>
-#include <QSettings>
+#include "ApplicationSettings.h"
 #include <QtMath>
 
 #include "ProjectManager.h"
@@ -781,7 +783,7 @@ QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const
         QDomElement initEl = doc.createElement("init");
         initEl.appendChild(doc.createTextNode(threeDView->serializeInit()));
         objEl.appendChild(initEl);
-        // Editor-only placement does not occupy bits or add hardware fields.
+        // Редакторское положение не занимает биты и не добавляет аппаратные поля.
         if (threeDView->isLeftAnchored())
             objEl.appendChild(doc.createComment(QStringLiteral("AvionixDesigner: 3D view left")));
         return objEl;
@@ -1601,8 +1603,8 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
     root.appendChild(objectsEl);
 
     auto *registry = FpgaSchemaRegistry::instance();
-    // Export init words using the same current layouts written to <parameters>.
-    // Imported schemas are only for decoding the source document.
+    // Экспорт использует ту же актуальную раскладку init, что записывается в <parameters>.
+    // Импортированная схема нужна только для разбора исходного документа.
     const ParamSchema staticSchema = registry->buildSchema(QStringLiteral("staticgroup"));
     const ParamSchema rotationSchema = registry->buildSchema(QStringLiteral("rotationobject"));
     const ParamSchema fontSchema = registry->buildSchema(QStringLiteral("font"));
@@ -1834,7 +1836,6 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     
     //маппинг тегов на схемы параметров (для тегов без собственной схемы)
     m_schemaAliases = registry->defaultSchemaAliases();
-    //m_schemaAliases["rectangle_e"] = "rectangle";
     
     for (const QString &type : m_schemas.keys()) {
         emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(m_schemas[type].size()));
@@ -1922,7 +1923,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             }
         }
         else if (tagName == QStringLiteral("font")) {
-            // Font resources are parsed before object creation and are not scene objects.
+            // Ресурсы шрифтов разбираются до создания объектов и не входят в список объектов сцены.
         }
         else if (tagName == QStringLiteral("symbols")) {
             const int fontIndex = objEl.attribute("font_index", "0").toInt();
@@ -2115,7 +2116,6 @@ void ProjectManager::registerStandardTypes()
     //регистрируем типы объектов
     om->registerType("rectangle", []() { return new RectangleObject(); });
     om->registerType("rectangle_a", []() { return new RectangleObject(); });
-    //om->registerType("rectangle_e", []() { return new RectangleObject(); });
     om->registerType("dashed_line", []() { return new DashedLineObject(); });
     om->registerType("RibonScale", []() { return new RibbonScaleObject(); });
     om->registerType("ribonscale", []() { return new RibbonScaleObject(); });
@@ -3054,7 +3054,7 @@ QColor ProjectManager::snapObjectGuideColor() const { return m_snapObjectGuideCo
 
 void ProjectManager::reloadGlobalSettings()
 {
-    QSettings settings("Avionix", "Designer");
+    auto settings = ApplicationSettings::create();
     m_gridStep = qBound(1, settings.value("gridStep", 10).toInt(), 1000);
     
     QString colorStr = settings.value("gridColor", "#3778b4c8").toString();

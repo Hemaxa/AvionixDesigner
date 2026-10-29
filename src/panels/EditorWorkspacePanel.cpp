@@ -1,3 +1,5 @@
+//EditorWorkspacePanel - центральная рабочая область с холстом и вертикальной панелью действий
+
 #include "EditorWorkspacePanel.h"
 
 #include "SelectionToolStrip.h"

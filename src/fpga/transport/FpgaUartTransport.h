@@ -1,3 +1,4 @@
+// FpgaUartTransport — постоянный UART-сеанс с загрузкой сцены и последними координатами.
 #pragma once
 
 #include "fpga/packets/FpgaPacket.h"
@@ -10,13 +11,13 @@ struct FpgaUartConfig
     QString portName;
     qint32 loadBaudRate = 921600;
     qint32 baudRate = 115200;
-    int intervalMs = 20; // start-to-start; zero means no extra pause
+    int intervalMs = 20; // между началами пакетов; ноль отключает дополнительную паузу
     bool writeInitialZero = true;
     int writeTimeoutMs = 5000;
 };
 
-// One port per session, exclusively owned by the worker thread. Only one
-// pending scene and one latest pose are retained; stale poses never accumulate.
+// Порт принадлежит рабочему потоку на весь сеанс. В очереди остаются только
+// одна ожидающая сцена и последнее положение; устаревшие положения не накапливаются.
 class FpgaUartTransport : public QThread
 {
     Q_OBJECT

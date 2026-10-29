@@ -1,3 +1,5 @@
+//ObjectsManager - менеджер создания объектов по принципу фабрики
+
 #include "ObjectsManager.h"
 
 ObjectsManager* ObjectsManager::instance()

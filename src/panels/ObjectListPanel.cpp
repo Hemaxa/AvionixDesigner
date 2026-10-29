@@ -1,5 +1,8 @@
+//ObjectListPanel - панель со списком объектов проекта
+
 #include "ObjectListPanel.h"
 #include "ProjectManager.h"
+#include "ElidedLabel.h"
 #include <QAbstractItemModel>
 #include <QCheckBox>
 #include <QHBoxLayout>
@@ -71,7 +74,7 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
   // создаем виджет списка
   m_listWidget = new QListWidget(this);
   m_listWidget->setObjectName("ObjectListWidget");
-  m_listWidget->setMinimumWidth(180);
+  m_listWidget->setMinimumWidth(220);
   m_listWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_listWidget->setDragEnabled(true);
   m_listWidget->setAcceptDrops(true);
@@ -151,21 +154,20 @@ void ObjectListPanel::refreshList() {
     eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
-    auto *label = new QLabel(text, rowWidget);
+    auto *label = new ElidedLabel(text, rowWidget);
     label->setObjectName("ObjectListRowLabel");
     label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     label->setWordWrap(false);
     label->setMinimumHeight(24);
-    label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     label->setToolTip(text);
     rowLayout->addWidget(label, 1, Qt::AlignVCenter);
 
-    auto *typeLabel = new QLabel(typeText, rowWidget);
+    auto *typeLabel = new ElidedLabel(typeText, rowWidget);
     typeLabel->setObjectName("ObjectListTypeLabel");
     typeLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
     typeLabel->setToolTip(typeText);
     typeLabel->setMinimumHeight(24);
-    typeLabel->setMinimumWidth(82);
+    typeLabel->setFixedWidth(84);
     rowLayout->addWidget(typeLabel, 0, Qt::AlignVCenter);
 
     auto *exportCheck = new QCheckBox(rowWidget);
@@ -232,19 +234,18 @@ void ObjectListPanel::refreshList() {
     eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
-    auto *label = new QLabel(group.name, rowWidget);
+    auto *label = new ElidedLabel(group.name, rowWidget);
     label->setObjectName("ObjectListRowLabel");
     label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     label->setMinimumHeight(24);
-    label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     label->setToolTip(group.name);
     rowLayout->addWidget(label, 1, Qt::AlignVCenter);
 
-    auto *typeLabel = new QLabel(QStringLiteral("group"), rowWidget);
+    auto *typeLabel = new ElidedLabel(QStringLiteral("group"), rowWidget);
     typeLabel->setObjectName("ObjectListTypeLabel");
     typeLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
     typeLabel->setMinimumHeight(24);
-    typeLabel->setMinimumWidth(82);
+    typeLabel->setFixedWidth(84);
     rowLayout->addWidget(typeLabel, 0, Qt::AlignVCenter);
 
     auto *exportCheck = new QCheckBox(rowWidget);

@@ -1,3 +1,5 @@
+//ImageObject - редактируемый источник изображения до экспорта в растровую маску ПЛИС
+
 #include "ImageObject.h"
 
 #include <QBuffer>
@@ -125,8 +127,8 @@ QList<PaletteEntry> mergeWeakAntialiasColors(const QList<PaletteEntry> &entries)
     if (entries.size() < 2)
         return entries;
 
-    // SVG/raster antialiasing often creates dark edge colors between real fills.
-    // Keep strong source colors separate, but fold weaker nearby colors into them.
+    // Сглаживание SVG и растра создает промежуточные цвета на границах заливок.
+    // Основные цвета сохраняются отдельно, а близкие промежуточные оттенки объединяются с ними.
     QList<PaletteEntry> weighted = entries;
     std::sort(weighted.begin(), weighted.end(), [](const PaletteEntry &a, const PaletteEntry &b) {
         if (a.weight != b.weight)

@@ -1,3 +1,5 @@
+//ObjectPropertiesPanel - панель свойств выбранного объекта
+
 #include "ObjectPropertiesPanel.h"
 
 #include "BaseObject.h"
@@ -21,6 +23,7 @@
 #include <QIcon>
 
 namespace {
+// Выбирает редактор значения свойства: список для положения, шрифта и флагов.
 class PropertyValueDelegate : public QStyledItemDelegate
 {
 public:

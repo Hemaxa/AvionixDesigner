@@ -1,4 +1,4 @@
-//ViewportPanel - панель рабочей области прилосжения
+//ViewportPanel - панель рабочей области приложения
 
 #pragma once
 

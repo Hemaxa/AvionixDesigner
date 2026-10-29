@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Compare real editor BIN output with All_together.py without opening UART.
+"""Побайтовое сравнение BIN редактора с All_together.py без подключения UART.
 
-Only the selected pure protocol/XML definitions are loaded. No optional
-pyserial, keyboard, numpy or OpenCV dependencies and no script main() are run.
+Загружаются только выбранные определения протокола и XML-загрузчика.
+Главный цикл, pyserial, keyboard, numpy и OpenCV не исполняются.
 """
 import argparse
 import ast
@@ -81,7 +81,7 @@ def fixture(path, ref, left):
     }
     for name in ['rectangle', 'rectangle_a', 'rotationobject', 'staticgroup']:
         fields[name] = [(k,v['offset'],v['size']) for k,v in ref['OBJECT_TEMPLATES'][name].items()]
-        # The reference calls this alpha; the editor schema calls it alph.
+        # Эталон называет поле alpha; схема редактора использует имя alph.
         fields[name] = [('alph' if k == 'alpha' else k, o, w) for k,o,w in fields[name]]
         end = max(o+w for _,o,w in fields[name]); fields[name].append(('padding',end,150-end))
     for name, schema in fields.items():
@@ -112,6 +112,7 @@ def fixture(path, ref, left):
 
 
 class Capture:
+    """Подменяет порт при проверке и собирает исходные байты без переупаковки."""
     def __init__(self): self.data = bytearray()
     def write(self, data): self.data.extend(data); return len(data)
 
@@ -154,7 +155,7 @@ def main():
         pose=fixture(xml,ref,side=='left')
         capture=Capture();loader=ref['VbDataLoader'](capture,ref['VbXML'](str(xml)).get_dict())
         loader.load_objects();loader.load_3d(side);capture.write(ref['pack_layer3d'](pose))
-        expected=bytes(capture.data[1:]) # the session's initial 0x00 is not part of a BIN dump
+        expected=bytes(capture.data[1:]) # Начальный 0x00 относится к UART-сеансу, а не BIN.
         expected_file=args.output/f'python-{side}.bin';expected_file.write_bytes(expected)
         actual_file=args.output/f'editor-{side}.bin'
         run_editor(args.app,'--export-bin',xml,actual_file);actual=actual_file.read_bytes()

@@ -1,3 +1,5 @@
+// FpgaUartTransport — постоянный UART-сеанс с загрузкой сцены и последними координатами.
+
 #include "fpga/transport/FpgaUartTransport.h"
 #include <QElapsedTimer>
 #include <QMutexLocker>
@@ -125,8 +127,8 @@ void FpgaUartTransport::run()
                     error = port.errorString(); return false;
                 }
             }
-            // Drain the driver too, especially BEFORE switching baud rate.
-            // This can block, hence the port and all I/O live off the GUI thread.
+            // Перед сменой скорости нужно дождаться опустошения также и буфера драйвера.
+            // Ожидание может блокировать поток, поэтому весь ввод/вывод вынесен из потока интерфейса.
 #ifdef Q_OS_WIN
             if (!FlushFileBuffers(reinterpret_cast<HANDLE>(port.handle()))) {
                 error = QStringLiteral("Не удалось завершить передачу UART (%1).").arg(GetLastError());

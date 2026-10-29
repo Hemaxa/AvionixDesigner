@@ -13,7 +13,9 @@ find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
 add_test(NAME packet_reference COMMAND ${Python3_EXECUTABLE} -B "${CMAKE_CURRENT_SOURCE_DIR}/verify_fpga_packets.py"
     --app $<TARGET_FILE:AvionixDesigner> --output ${PROJECT_BINARY_DIR}/verification)
 add_test(NAME protocol_runtime COMMAND AvionixProtocolTests)
-set_tests_properties(protocol_runtime PROPERTIES DEPENDS packet_reference ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+set_tests_properties(packet_reference PROPERTIES FIXTURES_SETUP reference_vectors TIMEOUT 60)
+set_tests_properties(protocol_runtime PROPERTIES FIXTURES_REQUIRED reference_vectors TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 if(UNIX AND NOT APPLE)
     find_library(UTIL_LIBRARY util)

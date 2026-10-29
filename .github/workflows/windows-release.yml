@@ -65,8 +65,20 @@ jobs:
         run: cmake --build build --config Release --parallel
 
       - name: Verify protocol against Python
+        id: protocol
         shell: pwsh
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error
+
+      - name: Upload protocol diagnostics on failure
+        if: failure() && steps.protocol.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocol-diagnostics
+          if-no-files-found: ignore
+          path: |
+            build/Testing/Temporary/
+            build/verification/
+            build/checks/protocol/**/*.png
 
       - name: Package installer
         shell: pwsh

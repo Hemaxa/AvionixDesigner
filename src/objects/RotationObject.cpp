@@ -1,3 +1,5 @@
+//RotationObject - класс растрового объекта с маской и поддержкой вращения
+
 #include "RotationObject.h"
 #include "BitParser.h"
 #include "ProportionalResize.h"

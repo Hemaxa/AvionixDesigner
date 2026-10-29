@@ -1,3 +1,5 @@
+//ViewportPanel - панель рабочей области приложения
+
 #include "ViewportPanel.h"
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
@@ -761,19 +763,19 @@ int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, b
         return qAbs(pos.x() - x) <= half && qAbs(pos.y() - y) <= half;
     };
     
-    if (canRotate && isHit(rect.center().x(), rect.top() - baseSize * 3)) return 100; // Rotate enum
+    if (canRotate && isHit(rect.center().x(), rect.top() - baseSize * 3)) return 100; // Идентификаторы направлений курсора изменения размеров.
 
     if (!canResize)
         return 0;
 
-    if (isHit(rect.left(), rect.top())) return 1 | 4;         // Top-Left
-    if (isHit(rect.center().x(), rect.top())) return 4;       // Top
-    if (isHit(rect.right(), rect.top())) return 2 | 4;        // Top-Right
-    if (isHit(rect.right(), rect.center().y())) return 2;     // Right
-    if (isHit(rect.right(), rect.bottom())) return 2 | 8;     // Bottom-Right
-    if (isHit(rect.center().x(), rect.bottom())) return 8;    // Bottom
-    if (isHit(rect.left(), rect.bottom())) return 1 | 8;      // Bottom-Left
-    if (isHit(rect.left(), rect.center().y())) return 1;      // Left
+    if (isHit(rect.left(), rect.top())) return 1 | 4;         // Сверху слева
+    if (isHit(rect.center().x(), rect.top())) return 4;       // Сверху
+    if (isHit(rect.right(), rect.top())) return 2 | 4;        // Сверху справа
+    if (isHit(rect.right(), rect.center().y())) return 2;     // Справа
+    if (isHit(rect.right(), rect.bottom())) return 2 | 8;     // Снизу справа
+    if (isHit(rect.center().x(), rect.bottom())) return 8;    // Снизу
+    if (isHit(rect.left(), rect.bottom())) return 1 | 8;      // Снизу слева
+    if (isHit(rect.left(), rect.center().y())) return 1;      // Слева
     
     return 0; // Нет попадания
 }

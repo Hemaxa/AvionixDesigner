@@ -11,6 +11,7 @@
 #include <algorithm>
 
 namespace {
+// Метрики глифа и адрес его маски в памяти симулятора.
 struct SimGlyph
 {
     uint code = 0;
@@ -25,6 +26,7 @@ struct SimGlyph
     int maskSize = 0;
 };
 
+// Загруженный ресурс шрифта вместе с глифами, масками и кернингом.
 struct SimFont
 {
     int index = 0;

@@ -1,3 +1,5 @@
+//AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта
+
 #include "AviaHorizonObject.h"
 
 #include "BitParser.h"

@@ -6,11 +6,7 @@
 
 #include <QColor>
 
-class QBoxLayout;
-class QFrame;
-class QLabel;
 class QPushButton;
-class QResizeEvent;
 class QSpinBox;
 class QToolButton;
 
@@ -37,13 +33,7 @@ private slots:
     void onToggleSnapObjects(bool enabled);
 
 private:
-    void resizeEvent(QResizeEvent *event) override;
-    void updateAdaptiveLayout();
 
-    QBoxLayout *m_layout = nullptr;
-    QBoxLayout *m_canvasLayout = nullptr;
-    QBoxLayout *m_snapLayout = nullptr;
-    QFrame *m_separator = nullptr;
     QPushButton *m_bgColorButton = nullptr;
     QSpinBox *m_widthSpin = nullptr;
     QSpinBox *m_heightSpin = nullptr;
@@ -51,6 +41,5 @@ private:
     QToolButton *m_snapCanvasButton = nullptr;
     QToolButton *m_snapGridButton = nullptr;
     QToolButton *m_snapObjectsButton = nullptr;
-    bool m_verticalLayout = false;
     bool m_refreshing = false;
 };

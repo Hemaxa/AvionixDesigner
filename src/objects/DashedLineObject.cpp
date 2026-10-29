@@ -1,3 +1,5 @@
+//DashedLineObject - объект аппаратной штриховой линии
+
 #include "DashedLineObject.h"
 
 #include "BitParser.h"

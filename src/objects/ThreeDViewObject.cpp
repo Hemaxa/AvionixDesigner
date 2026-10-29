@@ -1,3 +1,5 @@
+//ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС
+
 #include "ThreeDViewObject.h"
 
 #include "BitParser.h"
@@ -9,8 +11,8 @@
 #include <QtMath>
 
 namespace {
-// Draw in a fixed design space, then scale the entire view together. This
-// avoids a minimum font size becoming oversized when a small canvas is zoomed.
+// Сначала рисуем в фиксированной системе координат, затем масштабируем весь вид.
+// Так подписи не становятся непропорционально крупными на маленьком холсте.
 constexpr double kReferenceSide = 768.0;
 }
 
@@ -31,7 +33,7 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
         m_initHex = hexInit.simplified().remove(QLatin1Char(' '))
             .rightJustified(Layer3dFormat::hexLength, QLatin1Char('0'))
             .right(Layer3dFormat::hexLength).toUpper();
-        // A 38-digit container has two unused high bits above the 150-bit word.
+        // В контейнере из 38 HEX-символов два старших бита не входят в 150-битное слово.
         m_initHex[0] = QLatin1Char("0123"[m_initHex.left(1).toUInt(nullptr, 16) & 3]);
         const ParamSchema current = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d"));
         const QString source = m_initHex;
@@ -46,8 +48,8 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
                                       : schema.contains("pitch") ? BitParser::extract(source, schema["pitch"].offset, schema["pitch"].size)
                                       : Layer3dFormat::defaultScreenY);
             } else if (name == QStringLiteral("x") || name == QStringLiteral("y")) {
-                // Current coordinates are unsigned Q13.6. Older 17-bit
-                // layouts stored signed whole meters.
+                // Текущие координаты — беззнаковая фиксированная точка Q13.6.
+                // Старая 17-битная раскладка хранила знаковые целые метры.
                 const int raw = original.size == Layer3dFormat::coordinateBits
                     ? int(BitParser::extract(source, original.offset, original.size))
                     : qBound(Layer3dFormat::minPosition,
@@ -71,7 +73,7 @@ void ThreeDViewObject::parse(const QString &hexInit, const ParamSchema &schema)
             }
         }
     } else if (schema.contains(QStringLiteral("enb"))) {
-        // Older XML describes only the on-screen layer origin, not the aircraft.
+        // В старом XML задана только экранная позиция слоя, а не положение самолета.
         const ParamInfo field = schema.value(QStringLiteral("enb"));
         setViewVisible(BitParser::extract(hexInit, field.offset, field.size) != 0);
         if (schema.contains("x0")) {

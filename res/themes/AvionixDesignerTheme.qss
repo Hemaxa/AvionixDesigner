@@ -500,7 +500,7 @@ QPushButton#ColorSwatchButton {
 }
 
 QDialog#SettingsWindow QListWidget {
-    min-width: 220px;
+    min-width: 180px;
 }
 
 QDialog#SettingsWindow QListWidget::item {
@@ -539,7 +539,7 @@ QDialogButtonBox QPushButton {
     min-width: 84px;
 }
 
-/* Equal settings rows without the generic dialog's extra vertical padding. */
+/* Одинаковая высота полей настроек без лишних отступов общего стиля диалогов. */
 QDialog#SettingsWindow QSpinBox,
 QDialog#SettingsWindow QDoubleSpinBox,
 QDialog#SettingsWindow QCheckBox,

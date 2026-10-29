@@ -1,3 +1,5 @@
+//FpgaSchemaRegistry - единая точка описания XML/FPGA-схем и UI-каталога объектов
+
 #include "FpgaSchemaRegistry.h"
 #include "fpga/model/Layer3dFormat.h"
 

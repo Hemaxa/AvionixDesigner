@@ -1,3 +1,5 @@
+//PanelsManager - менеджер панелей приложения
+
 #include "PanelsManager.h"
 #include "ProjectManager.h"
 #include "ViewportPanel.h"

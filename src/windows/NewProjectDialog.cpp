@@ -1,3 +1,5 @@
+//NewProjectDialog - диалог создания нового проекта
+
 #include "NewProjectDialog.h"
 
 #include <QColorDialog>

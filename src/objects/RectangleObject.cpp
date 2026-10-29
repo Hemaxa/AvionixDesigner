@@ -1,3 +1,5 @@
+//RectangleObject - класс векторного прямоугольного объекта с заливкой и обводкой
+
 #include "RectangleObject.h"
 #include "BitParser.h"
 
@@ -114,19 +116,19 @@ void RectangleObject::moveBy(double dx, double dy)
 
 void RectangleObject::resizeBy(int edgeFlags, double dx, double dy)
 {
-    //edgeFlags (1=Left, 2=Right, 4=Top, 8=Bottom)
-    if (edgeFlags & 1) { // Left
+    // Флаги сторон: 1 — слева, 2 — справа, 4 — сверху, 8 — снизу.
+    if (edgeFlags & 1) { // Слева
         x += dx;
         width -= dx;
     }
-    if (edgeFlags & 2) { // Right
+    if (edgeFlags & 2) { // Справа
         width += dx;
     }
-    if (edgeFlags & 4) { // Top
+    if (edgeFlags & 4) { // Сверху
         y += dy;
         height -= dy;
     }
-    if (edgeFlags & 8) { // Bottom
+    if (edgeFlags & 8) { // Снизу
         height += dy;
     }
     

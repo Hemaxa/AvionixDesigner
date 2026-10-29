@@ -4,6 +4,7 @@
 #include "AppearanceManager.h"
 #include "ObjectsManager.h"
 #include "MainWindow.h"
+#include "ApplicationSettings.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include "fpga/transport/FpgaPacketDump.h"
 
@@ -12,7 +13,8 @@
 #include <QString>
 #include <QCommandLineParser>
 #include <QTextStream>
-#include <cstring>
+#include <QTemporaryDir>
+#include <memory>
 
 #ifndef APP_VERSION
 #define APP_VERSION "1.0.0"
@@ -21,13 +23,26 @@
 //главная функция приложения
 int main(int argc, char *argv[])
 {
+    bool commandLineExport = false;
     for (int i = 1; i < argc; ++i) {
-        if ((!std::strcmp(argv[i], "--export-bin") || !std::strcmp(argv[i], "--export-xml"))
-            && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
-            qputenv("QT_QPA_PLATFORM", "offscreen");
+        const QString argument = QString::fromLocal8Bit(argv[i]);
+        if (argument == QStringLiteral("--export-bin") || argument.startsWith(QStringLiteral("--export-bin="))
+            || argument == QStringLiteral("--export-xml") || argument.startsWith(QStringLiteral("--export-xml="))) {
+            commandLineExport = true;
+            if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
+        }
     }
     //создание приложения Qt
     QApplication app(argc, argv);
+    std::unique_ptr<QTemporaryDir> exportSettings;
+    if (commandLineExport && qEnvironmentVariableIsEmpty("AVIONIX_SETTINGS_FILE")) {
+        exportSettings = std::make_unique<QTemporaryDir>();
+        if (!exportSettings->isValid()) {
+            QTextStream(stderr) << "Cannot create a temporary settings profile.\n";
+            return 1;
+        }
+        qputenv("AVIONIX_SETTINGS_FILE",exportSettings->filePath("designer.ini").toUtf8());
+    }
     
     //мета-информация о приложении
     app.setApplicationName("Avionix Designer");
