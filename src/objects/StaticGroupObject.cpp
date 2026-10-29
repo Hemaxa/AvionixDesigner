@@ -160,7 +160,7 @@ QString StaticGroupObject::getTypeName() const
 
 QString StaticGroupObject::getDisplayName() const
 {
-    return "static_group";
+    return QStringLiteral("Статическое изображение");
 }
 
 QList<QPair<QString, QString>> StaticGroupObject::getProperties() const

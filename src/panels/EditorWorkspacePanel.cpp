@@ -19,7 +19,7 @@ EditorWorkspacePanel::EditorWorkspacePanel(QWidget *parent) : QWidget(parent)
     m_selectionToolStrip = new SelectionToolStrip(this);
 
     layout->addWidget(m_viewport, 1);
-    layout->addWidget(m_selectionToolStrip, 0, Qt::AlignTop);
+    layout->addWidget(m_selectionToolStrip);
 }
 
 ViewportPanel* EditorWorkspacePanel::viewport() const

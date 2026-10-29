@@ -44,6 +44,8 @@ constexpr double kCourseStep = 0.05;
 constexpr double kFastCourseStep = 1.0;
 constexpr double kFastAltitudeStep = 10.0;
 constexpr int kFastScreenYStep = 10;
+constexpr double kMinAircraftSizeRatio = 0.08;
+constexpr double kMaxAircraftSizeRatio = 0.10;
 
 const QString kSliderThumbIcon =
     QStringLiteral(":/icons/icons/aircraft-position/slider-thumb.svg");
@@ -51,6 +53,8 @@ const QString kScreenIcon =
     QStringLiteral(":/icons/icons/aircraft-position/screen.svg");
 const QString kAircraftIcon =
     QStringLiteral(":/icons/icons/aircraft-position/aircraft.svg");
+const QString kRadarIcon =
+    QStringLiteral(":/icons/icons/aircraft-position/radar.svg");
 const QString kAltitudeTrackIcon =
     QStringLiteral(":/icons/icons/aircraft-position/altitude-track.svg");
 const QString kCourseBaseIcon =
@@ -132,10 +136,11 @@ class AircraftPositionPanel::ScreenWidget : public QWidget {
 public:
   explicit ScreenWidget(QWidget *parent = nullptr)
       : QWidget(parent), m_screenRenderer(kScreenIcon),
-        m_aircraftRenderer(kAircraftIcon) {
+        m_aircraftRenderer(kAircraftIcon), m_radarRenderer(kRadarIcon) {
     setObjectName(QStringLiteral("AircraftPositionScreen"));
     m_screenRenderer.setAspectRatioMode(Qt::KeepAspectRatio);
     m_aircraftRenderer.setAspectRatioMode(Qt::KeepAspectRatio);
+    m_radarRenderer.setAspectRatioMode(Qt::KeepAspectRatio);
     setMinimumSize(240, 240);
     setFocusPolicy(Qt::StrongFocus);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -163,22 +168,26 @@ protected:
         fittedRect(rect(), QSizeF(1.0, 1.0));
     drawSvg(&painter, m_screenRenderer, screenRect);
 
-    const double aircraftHeight =
-        screenRect.height() *
-        (0.16 + 0.04 * qBound(kMinAltitude, m_altitude, kMaxAltitude)
-                           / static_cast<double>(kMaxAltitude));
-    const double aircraftWidth = aircraftHeight * 0.48;
-    const QRectF aircraftRect(-aircraftWidth * 0.5, -aircraftHeight * 0.54,
-                              aircraftWidth, aircraftHeight);
-    // Размещаем повернутый самолет с учетом его габаритов у границ карты.
-    const QRectF rotatedBounds = QTransform().rotate(90.0 - m_course).mapRect(aircraftRect);
+    const double aircraftSize = screenRect.height() *
+        (kMinAircraftSizeRatio + (kMaxAircraftSizeRatio - kMinAircraftSizeRatio) *
+         qBound(kMinAltitude, m_altitude, kMaxAltitude) / kMaxAltitude);
+    const QRectF aircraftRect(-aircraftSize * 0.5, -aircraftSize * 0.5,
+                               aircraftSize, aircraftSize);
+    // Постоянный отступ вмещает самолет при любом курсе и высоте.
+    // Центр зависит только от координат; радар может выходить за край карты.
+    const double marginDiameter = screenRect.height() * kMaxAircraftSizeRatio * std::sqrt(2.0);
     const QPointF aircraftCenter = AircraftPositionMapping::center(
-        screenRect, m_x, m_y, rotatedBounds.size()) - rotatedBounds.center();
+        screenRect, m_x, m_y, marginDiameter);
 
     painter.save();
     painter.setClipRect(screenRect);
     painter.translate(aircraftCenter);
     painter.rotate(90.0 - m_course);
+    // Вершина конуса радара начинается у носа, оба слоя вращаются вокруг центра самолета.
+    const double radarHeight = aircraftSize * 128.0 / 118.0;
+    drawSvg(&painter, m_radarRenderer,
+            QRectF(-aircraftSize * 0.5, aircraftRect.top() - radarHeight,
+                   aircraftSize, radarHeight));
     drawSvg(&painter, m_aircraftRenderer, aircraftRect);
     painter.restore();
 
@@ -191,6 +200,7 @@ protected:
 private:
   QSvgRenderer m_screenRenderer;
   QSvgRenderer m_aircraftRenderer;
+  QSvgRenderer m_radarRenderer;
   double m_x = 0;
   double m_y = 0;
   double m_altitude = 0.0;

@@ -39,7 +39,9 @@ public:
     QString sourceName;
     QString format = QStringLiteral("raster");
 
-    explicit ImageObject(QObject *parent = nullptr);
+    enum class Kind { Static, Rotating };
+    explicit ImageObject(Kind kind = Kind::Static, QObject *parent = nullptr);
+    bool isRotationObject() const { return m_kind == Kind::Rotating; }
 
     void setRasterImage(const QImage &image, const QString &name);
     void setSvgData(const QByteArray &data, const QString &name, const QSize &defaultSize);
@@ -61,7 +63,7 @@ public:
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
-    bool supportsRotationHandle() const override { return canResize(); }
+    bool supportsRotationHandle() const override { return isRotationObject() && canResize(); }
     bool contains(const QPointF &point) const override;
 
     void moveBy(double dx, double dy) override;
@@ -70,6 +72,7 @@ public:
     bool setObjectProperty(const QString &name, const QString &value) override;
 
 private:
+    const Kind m_kind;
     void rebuildColorLayers();
     QImage m_sourceImage;
     QByteArray m_sourceBytes;

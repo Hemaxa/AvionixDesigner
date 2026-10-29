@@ -5,6 +5,7 @@
 #include "ObjectsManager.h"
 #include "MainWindow.h"
 #include "ApplicationSettings.h"
+#include "ApplicationLanguage.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include "fpga/transport/FpgaPacketDump.h"
 
@@ -33,7 +34,12 @@ int main(int argc, char *argv[])
         }
     }
     //создание приложения Qt
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
+    if (!installRussianTranslation(app)) {
+        QTextStream(stderr) << "Не удалось загрузить русский перевод Qt.\n";
+        return 1;
+    }
     std::unique_ptr<QTemporaryDir> exportSettings;
     if (commandLineExport && qEnvironmentVariableIsEmpty("AVIONIX_SETTINGS_FILE")) {
         exportSettings = std::make_unique<QTemporaryDir>();

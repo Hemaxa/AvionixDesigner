@@ -12,6 +12,7 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("SelectionToolStrip");
     setFixedWidth(80);
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);

@@ -603,11 +603,11 @@ QImage FpgaSimulator::renderFrame() const
                 const QString layerParamHex = bytesToHex(m_parameters.value(object.startParamIndex + i));
                 renderRotationObject(&frame, layerParamHex, m_rotationMemory.value(object.memId), schema);
             }
-        } else if (object.type == QStringLiteral("aviagorizont") || object.type == QStringLiteral("aviahorizont")) {
-            renderAviaHorizon(&frame, paramHex, document.schemas.value(QStringLiteral("aviagorizont")));
-        } else if (object.type == QStringLiteral("dashed_line")) {
-            renderDashedLine(&frame, paramHex, document.schemas.value(QStringLiteral("dashed_line")));
-        } else if (object.type == QStringLiteral("RibonScale") || object.type == QStringLiteral("ribonscale")) {
+        } else if (object.type == QStringLiteral("aviahorizont")) {
+            renderAviaHorizon(&frame, paramHex, document.schemas.value(QStringLiteral("aviahorizont")));
+        } else if (object.type == QStringLiteral("dashline")) {
+            renderDashedLine(&frame, paramHex, document.schemas.value(QStringLiteral("dashline")));
+        } else if (object.type == QStringLiteral("RibonScale")) {
             renderRibbonScale(&frame, paramHex, document.schemas.value(QStringLiteral("RibonScale")));
         }
     }

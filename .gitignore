@@ -58,3 +58,7 @@ compile_commands.json
 /FrameGUI
 .DS_Store
 /docs/FrameGUI
+
+# Python check caches
+__pycache__/
+*.pyc

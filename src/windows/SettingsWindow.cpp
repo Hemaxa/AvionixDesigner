@@ -223,7 +223,7 @@ void SettingsWindow::chooseColor(QColor *targetColor, QPushButton *button, const
     if (!targetColor || !button)
         return;
 
-    const QColor selectedColor = QColorDialog::getColor(*targetColor, this, title, QColorDialog::ShowAlphaChannel);
+    const QColor selectedColor = QColorDialog::getColor(*targetColor, this, title, QColorDialog::ShowAlphaChannel | QColorDialog::DontUseNativeDialog);
     if (selectedColor.isValid()) {
         *targetColor = selectedColor;
         updateColorButtonIcon(button, selectedColor);

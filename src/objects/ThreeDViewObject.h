@@ -14,7 +14,6 @@ public:
     explicit ThreeDViewObject(QObject *parent = nullptr);
 
     void parse(const QString &hexInit, const ParamSchema &schema) override;
-    void parseExtraData(const QDomElement &element) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
     QString getDisplayName() const override;

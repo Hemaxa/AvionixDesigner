@@ -38,6 +38,7 @@ RotationObjectLayer layerFromInit(const QString &hexInit, const ParamSchema &sch
 
 void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
+    enabled = BitParser::extract(hexInit, schema.value("enb").offset, schema.value("enb").size) != 0;
     //парсинг центра вращения (пиксельные координаты)
     if (schema.contains("xrot")) 
         xRot = BitParser::extract(hexInit, schema["xrot"].offset, schema["xrot"].size);
@@ -133,7 +134,7 @@ QString RotationObject::getTypeName() const
 
 QString RotationObject::getDisplayName() const
 {
-    return "rotation_object";
+    return QStringLiteral("Вращающееся изображение");
 }
 
 double RotationObject::getAngleDegrees() const
@@ -314,7 +315,7 @@ QMap<QString, quint32> RotationObject::serializeParams() const
 {
     const int width = qMax(1, qRound(right - left));
     return {
-        {"enb", isViewVisible() ? 1u : 0u},
+        {"enb", enabled ? 1u : 0u},
         {"xrot", static_cast<quint32>(xRot)},
         {"yrot", static_cast<quint32>(yRot)},
         {"top", static_cast<quint32>(static_cast<qint32>(top))},
@@ -323,8 +324,8 @@ QMap<QString, quint32> RotationObject::serializeParams() const
         {"right", static_cast<quint32>(static_cast<qint32>(right))},
         {"sq", static_cast<quint32>(qCeil(width / 8.0))},
         {"color", BitParser::colorToBgr(color)},
-        {"sin", static_cast<quint32>(sinVal)},
-        {"cos", static_cast<quint32>(cosVal)}
+        {"sin", static_cast<quint32>(static_cast<qint32>(sinVal))},
+        {"cos", static_cast<quint32>(static_cast<qint32>(cosVal))}
     };
 }
 
@@ -338,7 +339,7 @@ QList<QMap<QString, quint32>> RotationObject::serializeLayerParams() const
     for (const RotationObjectLayer &layer : m_layers) {
         const int width = qMax(1, qRound(layer.right - layer.left));
         params.append({
-            {"enb", layer.enabled && isViewVisible() ? 1u : 0u},
+            {"enb", layer.enabled ? 1u : 0u},
             {"xrot", static_cast<quint32>(layer.xRot)},
             {"yrot", static_cast<quint32>(layer.yRot)},
             {"top", static_cast<quint32>(static_cast<qint32>(layer.top))},
@@ -347,8 +348,8 @@ QList<QMap<QString, quint32>> RotationObject::serializeLayerParams() const
             {"right", static_cast<quint32>(static_cast<qint32>(layer.right))},
             {"sq", static_cast<quint32>(qCeil(width / 8.0))},
             {"color", BitParser::colorToBgr(layer.color)},
-            {"sin", static_cast<quint32>(layer.sinVal)},
-            {"cos", static_cast<quint32>(layer.cosVal)}
+            {"sin", static_cast<quint32>(static_cast<qint32>(layer.sinVal))},
+            {"cos", static_cast<quint32>(static_cast<qint32>(layer.cosVal))}
         });
     }
     return params;
@@ -386,12 +387,13 @@ RotationObjectLayer RotationObject::currentLayer() const
     layer.sinVal = sinVal;
     layer.cosVal = cosVal;
     layer.color = color;
-    layer.enabled = isViewVisible();
+    layer.enabled = enabled;
     return layer;
 }
 
 void RotationObject::applyLayerToPublicFields(const RotationObjectLayer &layer)
 {
+    enabled = layer.enabled;
     left = layer.left;
     top = layer.top;
     right = layer.right;

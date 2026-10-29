@@ -3,6 +3,7 @@
 #include "ObjectListPanel.h"
 #include "ProjectManager.h"
 #include "ElidedLabel.h"
+#include "RectangleObject.h"
 #include <QAbstractItemModel>
 #include <QCheckBox>
 #include <QHBoxLayout>
@@ -16,6 +17,7 @@
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QScrollBar>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -29,13 +31,17 @@ QString typeLabelForObject(const BaseObject *object) {
   if (!object)
     return {};
 
+  if (const auto *rectangle = dynamic_cast<const RectangleObject *>(object))
+    return rectangle->usesAlpha() ? QStringLiteral("rectangle_a") : QStringLiteral("rectangle");
+
   const QString typeName = object->getTypeName();
   static const QMap<QString, QString> labels = {
-      {QStringLiteral("StaticGroup"), QStringLiteral("static_group")},
-      {QStringLiteral("RotationObject"), QStringLiteral("rotation_object")},
-      {QStringLiteral("DashedLine"), QStringLiteral("dashed_line")},
-      {QStringLiteral("RibbonScale"), QStringLiteral("ribbon_scale")},
-      {QStringLiteral("AviaHorizon"), QStringLiteral("avia_horizon")},
+      {QStringLiteral("StaticGroup"), QStringLiteral("staticgroup")},
+      {QStringLiteral("RotationObject"), QStringLiteral("rotationobject")},
+      {QStringLiteral("DashedLine"), QStringLiteral("dashline")},
+      {QStringLiteral("RibbonScale"), QStringLiteral("RibonScale")},
+      {QStringLiteral("AviaHorizon"), QStringLiteral("aviahorizont")},
+      {QStringLiteral("ThreeDView"), QStringLiteral("layer3d")},
       {QStringLiteral("Text"), QStringLiteral("text")},
       {QStringLiteral("Rectangle"), QStringLiteral("rectangle")},
       {QStringLiteral("image"), QStringLiteral("image")}};
@@ -60,6 +66,45 @@ QString objectDisplayName(const QSharedPointer<BaseObject> &object) {
   return object->customName().isEmpty() ? object->getDisplayName()
                                         : object->customName();
 }
+
+QToolButton *createLockButton(QWidget *parent, QHBoxLayout *layout, bool locked) {
+  auto *button = new QToolButton(parent);
+  button->setObjectName("ObjectListIconButton");
+  button->setProperty("selectionLock", true);
+  button->setCheckable(true);
+  button->setChecked(locked);
+  button->setIcon(QIcon(locked ? ":/icons/icons/list/lock-on.svg"
+                               : ":/icons/icons/list/lock-off.svg"));
+  button->setToolTip(locked ? QStringLiteral("Разрешить выделение")
+                            : QStringLiteral("Заблокировать выделение"));
+  button->setFixedSize(30, 30);
+  button->setIconSize(QSize(24, 24));
+  layout->addWidget(button, 0, Qt::AlignVCenter);
+  return button;
+}
+
+QCheckBox *addExportControls(QWidget *parent, QHBoxLayout *layout,
+                            const QString &type, const QString &toolTip, bool enabled) {
+  auto *typeLabel = new QLabel(type, parent);
+  typeLabel->setObjectName("ObjectListTypeLabel");
+  typeLabel->setTextFormat(Qt::PlainText);
+  typeLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
+  typeLabel->setToolTip(type);
+  typeLabel->setMinimumHeight(24);
+  // Учитываем реальный шрифт темы, в том числе на Windows и при масштабировании.
+  typeLabel->ensurePolished();
+  typeLabel->setFixedWidth(typeLabel->sizeHint().width());
+  layout->addWidget(typeLabel, 0, Qt::AlignVCenter);
+
+  auto *check = new QCheckBox(parent);
+  check->setObjectName("ObjectExportCheck");
+  check->setToolTip(toolTip);
+  check->setChecked(enabled);
+  check->ensurePolished();
+  check->setFixedSize(check->sizeHint().width(), 30);
+  layout->addWidget(check, 0, Qt::AlignRight | Qt::AlignVCenter);
+  return check;
+}
 } // namespace
 
 ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
@@ -74,6 +119,7 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
   // создаем виджет списка
   m_listWidget = new QListWidget(this);
   m_listWidget->setObjectName("ObjectListWidget");
+  m_listWidget->viewport()->setObjectName("ObjectListViewport");
   m_listWidget->setMinimumWidth(220);
   m_listWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_listWidget->setDragEnabled(true);
@@ -81,6 +127,7 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
   m_listWidget->setDropIndicatorShown(true);
   m_listWidget->setDragDropMode(QAbstractItemView::InternalMove);
   m_listWidget->setDefaultDropAction(Qt::MoveAction);
+  m_listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   layout->addWidget(m_listWidget);
 
   // подключаем сигналы
@@ -106,6 +153,7 @@ void ObjectListPanel::refreshList() {
   auto pm = ProjectManager::instance();
   const auto &objects = pm->getObjects();
   const QList<ProjectManager::ObjectGroup> groups = pm->objectGroups();
+  int minimumRowWidth = 0;
   QMap<int, ProjectManager::ObjectGroup> groupByFirstMember;
   QSet<int> groupedMembers;
   for (const auto &group : groups) {
@@ -131,6 +179,8 @@ void ObjectListPanel::refreshList() {
     item->setData(GroupIdRole, -1);
     item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled |
                    Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
+    if (obj->isSelectionLocked())
+      item->setFlags(item->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsDragEnabled);
     m_listWidget->addItem(item);
 
     auto *rowWidget = new QWidget(m_listWidget);
@@ -154,28 +204,26 @@ void ObjectListPanel::refreshList() {
     eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
+    auto *lockButton = createLockButton(rowWidget, rowLayout, obj->isSelectionLocked());
+    connect(lockButton, &QToolButton::clicked, this, [this, index](bool locked) {
+      ProjectManager::instance()->setObjectSelectionLocked(index, locked);
+      refreshList();
+      onSelectionChanged();
+    });
+
     auto *label = new ElidedLabel(text, rowWidget);
     label->setObjectName("ObjectListRowLabel");
     label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     label->setWordWrap(false);
     label->setMinimumHeight(24);
+    label->setMinimumWidth(40);
     label->setToolTip(text);
     rowLayout->addWidget(label, 1, Qt::AlignVCenter);
 
-    auto *typeLabel = new ElidedLabel(typeText, rowWidget);
-    typeLabel->setObjectName("ObjectListTypeLabel");
-    typeLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
-    typeLabel->setToolTip(typeText);
-    typeLabel->setMinimumHeight(24);
-    typeLabel->setFixedWidth(84);
-    rowLayout->addWidget(typeLabel, 0, Qt::AlignVCenter);
-
-    auto *exportCheck = new QCheckBox(rowWidget);
-    exportCheck->setObjectName("ObjectExportCheck");
-    exportCheck->setToolTip(QStringLiteral("Экспортировать в XML"));
-    exportCheck->setChecked(obj->isExportEnabled());
-    exportCheck->setFixedSize(30, 30);
-    rowLayout->addWidget(exportCheck, 0, Qt::AlignVCenter);
+    auto *exportCheck = addExportControls(rowWidget, rowLayout, typeText,
+        QStringLiteral("Экспортировать в XML"), obj->isExportEnabled());
+    rowWidget->ensurePolished();
+    minimumRowWidth = qMax(minimumRowWidth, rowLayout->minimumSize().width());
 
     item->setSizeHint(QSize(0, 42));
     m_listWidget->setItemWidget(item, rowWidget);
@@ -197,12 +245,14 @@ void ObjectListPanel::refreshList() {
   auto addGroupRow = [&](const ProjectManager::ObjectGroup &group) {
     const QList<int> members = group.members;
     bool anyVisible = false;
+    bool allLocked = !members.isEmpty();
     bool allExportEnabled = !members.isEmpty();
     for (int member : members) {
       const auto object = pm->getObjectAt(member);
       if (!object)
         continue;
       anyVisible = anyVisible || object->isViewVisible();
+      allLocked = allLocked && object->isSelectionLocked();
       allExportEnabled = allExportEnabled && object->isExportEnabled();
     }
 
@@ -212,6 +262,8 @@ void ObjectListPanel::refreshList() {
     item->setData(GroupIdRole, group.id);
     item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled |
                    Qt::ItemIsDropEnabled);
+    if (allLocked)
+      item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
     m_listWidget->addItem(item);
 
     auto *rowWidget = new QWidget(m_listWidget);
@@ -234,26 +286,25 @@ void ObjectListPanel::refreshList() {
     eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
+    auto *lockButton = createLockButton(rowWidget, rowLayout, allLocked);
+    connect(lockButton, &QToolButton::clicked, this, [this, groupId = group.id](bool locked) {
+      ProjectManager::instance()->setGroupSelectionLocked(groupId, locked);
+      refreshList();
+      onSelectionChanged();
+    });
+
     auto *label = new ElidedLabel(group.name, rowWidget);
     label->setObjectName("ObjectListRowLabel");
     label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     label->setMinimumHeight(24);
+    label->setMinimumWidth(40);
     label->setToolTip(group.name);
     rowLayout->addWidget(label, 1, Qt::AlignVCenter);
 
-    auto *typeLabel = new ElidedLabel(QStringLiteral("group"), rowWidget);
-    typeLabel->setObjectName("ObjectListTypeLabel");
-    typeLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
-    typeLabel->setMinimumHeight(24);
-    typeLabel->setFixedWidth(84);
-    rowLayout->addWidget(typeLabel, 0, Qt::AlignVCenter);
-
-    auto *exportCheck = new QCheckBox(rowWidget);
-    exportCheck->setObjectName("ObjectExportCheck");
-    exportCheck->setToolTip(QStringLiteral("Экспортировать группу в XML"));
-    exportCheck->setChecked(allExportEnabled);
-    exportCheck->setFixedSize(30, 30);
-    rowLayout->addWidget(exportCheck, 0, Qt::AlignVCenter);
+    auto *exportCheck = addExportControls(rowWidget, rowLayout, QStringLiteral("Группа"),
+        QStringLiteral("Экспортировать группу в XML"), allExportEnabled);
+    rowWidget->ensurePolished();
+    minimumRowWidth = qMax(minimumRowWidth, rowLayout->minimumSize().width());
 
     item->setSizeHint(QSize(0, 40));
     m_listWidget->setItemWidget(item, rowWidget);
@@ -292,6 +343,12 @@ void ObjectListPanel::refreshList() {
     addObjectRow(i, false);
   }
 
+  // Оставляем место для рамки, отступов строк и вертикальной прокрутки.
+  // При сужении сокращается имя, а тип и флажок остаются целыми.
+  const int listChromeWidth = 2 * m_listWidget->frameWidth() + 16
+      + m_listWidget->verticalScrollBar()->sizeHint().width();
+  m_listWidget->setMinimumWidth(qMax(220, minimumRowWidth + listChromeWidth));
+
   int currentRow = -1;
   QSet<int> selectedSet(preservedSelection.begin(), preservedSelection.end());
   for (int row = 0; row < m_listWidget->count(); ++row) {
@@ -299,7 +356,7 @@ void ObjectListPanel::refreshList() {
     if (item->data(KindRole).toInt() != static_cast<int>(RowKind::Object))
       continue;
     const int objectIndex = item->data(ObjectIndexRole).toInt();
-    if (!selectedSet.contains(objectIndex))
+    if (!selectedSet.contains(objectIndex) || !(item->flags() & Qt::ItemIsSelectable))
       continue;
     item->setSelected(true);
     if (currentRow < 0)
@@ -324,7 +381,7 @@ void ObjectListPanel::selectRows(const QList<int> &indexes) {
         item->data(KindRole).toInt() != static_cast<int>(RowKind::Object))
       continue;
     const int objectIndex = item->data(ObjectIndexRole).toInt();
-    if (!selectedSet.contains(objectIndex))
+    if (!selectedSet.contains(objectIndex) || !(item->flags() & Qt::ItemIsSelectable))
       continue;
     item->setSelected(true);
     if (currentRow < 0)
@@ -342,6 +399,8 @@ void ObjectListPanel::onRowChanged(int row) {
   if (m_listWidget->selectedItems().size() <= 1) {
     const auto *item = m_listWidget->item(row);
     if (!item)
+      return;
+    if (!(item->flags() & Qt::ItemIsSelectable))
       return;
     emit objectSelected(item->data(KindRole).toInt() ==
                                 static_cast<int>(RowKind::Object)
@@ -447,7 +506,8 @@ QList<int> ObjectListPanel::selectedObjectIndexes() const {
 
     if (item->data(KindRole).toInt() == static_cast<int>(RowKind::Object)) {
       const int index = item->data(ObjectIndexRole).toInt();
-      if (index >= 0 && !seen.contains(index)) {
+      const auto object = project->getObjectAt(index);
+      if (object && !object->isSelectionLocked() && !seen.contains(index)) {
         seen.insert(index);
         indexes.append(index);
       }
@@ -457,7 +517,8 @@ QList<int> ObjectListPanel::selectedObjectIndexes() const {
     const QList<int> members =
         project->groupMembers(item->data(GroupIdRole).toInt());
     for (int index : members) {
-      if (index >= 0 && !seen.contains(index)) {
+      const auto object = project->getObjectAt(index);
+      if (object && !object->isSelectionLocked() && !seen.contains(index)) {
         seen.insert(index);
         indexes.append(index);
       }

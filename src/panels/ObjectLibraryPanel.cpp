@@ -113,15 +113,20 @@ void ObjectLibraryPanel::createButtons()
         m_rowLayout->addWidget(card);
     }
 
-    QToolButton *imageButton = createLibraryCard(QStringLiteral("__image__"), QStringLiteral(":/icons/icons/library/import-image.svg"), QStringLiteral("Добавить изображение"));
-    imageButton->setToolTip(toolTipWithShortcut(QStringLiteral("Добавить изображение"), QStringLiteral("Ctrl+I")));
-    m_rowLayout->addWidget(imageButton);
+    for (bool rotating : {false, true}) {
+        const QString type = rotating ? QStringLiteral("__rotating_image__") : QStringLiteral("__static_image__");
+        const QString title = rotating ? QStringLiteral("Добавить вращающееся изображение") : QStringLiteral("Добавить статическое изображение");
+        const QString icon = rotating ? QStringLiteral(":/icons/icons/library/rotating-image.svg") : QStringLiteral(":/icons/icons/library/static-image.svg");
+        auto *button = createLibraryCard(type, icon, title);
+        button->setToolTip(toolTipWithShortcut(title, rotating ? QStringLiteral("Ctrl+Shift+I") : QStringLiteral("Ctrl+I")));
+        m_rowLayout->addWidget(button);
+    }
 }
 
 QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, const QString &iconPath, const QString &title)
 {
     QToolButton *button;
-    if (typeName != QStringLiteral("__image__")) {
+    if (!typeName.startsWith(QStringLiteral("__"))) {
         button = new DraggableToolButton(typeName, this);
     } else {
         button = new QToolButton(this);
@@ -140,8 +145,8 @@ QToolButton* ObjectLibraryPanel::createLibraryCard(const QString &typeName, cons
     button->setIcon(icon);
 
     connect(button, &QToolButton::clicked, this, [this, typeName]() {
-        if (typeName == QStringLiteral("__image__")) {
-            emit imageImportRequested();
+        if (typeName.startsWith(QStringLiteral("__"))) {
+            emit imageImportRequested(typeName == QStringLiteral("__rotating_image__"));
             return;
         }
         emit objectRequested(typeName);

@@ -36,6 +36,8 @@ QWidget {
 #EditorWorkspacePanel,
 #SelectionToolStrip,
 #ObjectListPanel,
+#ObjectListWidget,
+#ObjectListViewport,
 #ObjectPropertiesPanel,
 #ObjectLibraryPanel,
 #ViewportSettingsPanel,
@@ -138,10 +140,6 @@ QListWidget {
     border-radius: 8px;
     outline: none;
     padding: 4px;
-}
-
-#ObjectListWidget {
-    min-width: 180px;
 }
 
 QListWidget::item {

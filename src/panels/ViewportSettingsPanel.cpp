@@ -132,7 +132,7 @@ void ViewportSettingsPanel::onChangeBgColor()
 {
     auto *project = ProjectManager::instance();
     const QColor current = project->getBackgroundColor();
-    const QColor selected = QColorDialog::getColor(current, this, "Цвет фона");
+    const QColor selected = QColorDialog::getColor(current, this, "Цвет фона", QColorDialog::DontUseNativeDialog);
     if (!selected.isValid() || selected == current)
         return;
 

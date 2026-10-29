@@ -1,5 +1,16 @@
 // ProtocolTests — сравнение формата ПЛИС, движения, клавиш, компоновки и UART-сеанса.
 #include "AircraftPositionPanel.h"
+#include "ApplicationLanguage.h"
+#include "EditorWorkspacePanel.h"
+#include "ViewportPanel.h"
+#include "ImageObject.h"
+#include "RotationObject.h"
+#include "StaticGroupObject.h"
+#include "RectangleObject.h"
+#include "fpga/FpgaProjectPacketBuilder.h"
+#include <QColorDialog>
+#include <QMenuBar>
+#include <QMenu>
 #include "AppearanceManager.h"
 #include "ApplicationSettings.h"
 #include "FlowLayout.h"
@@ -96,6 +107,7 @@ private slots:
         qputenv("AVIONIX_SETTINGS_FILE",m_settings.filePath("designer.ini").toUtf8());
         auto location=ApplicationSettings::create();
         QVERIFY2(location.fileName().startsWith(m_settings.path()),qPrintable(location.fileName()));
+        QVERIFY(installRussianTranslation(*qApp));
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
     }
@@ -124,7 +136,7 @@ private slots:
     void modelAndHistory() {
         auto *p = ProjectManager::instance();
         QVERIFY(p->createNewProject("3D test",1920,1080,Qt::black));
-        QVERIFY(p->addObject("three_d_view") >= 0);
+        QVERIFY(p->addObject("layer3d") >= 0);
         auto *view = p->threeDViewObject();
         QCOMPARE(view->aircraftScreenY(),1023);
         const auto revision=p->sceneRevision();
@@ -159,16 +171,215 @@ private slots:
         QVERIFY(p->loadFromFile(temp.filePath("reserved.xml")));
         QCOMPARE(p->threeDViewObject()->serializeInit(),withReserved);
     }
-    void legacyScreenField() {
-        auto schema=FpgaSchemaRegistry::instance()->buildSchema("layer3d");
-        schema.insert("pitch",schema.take("yscreen"));
-        QString hex(38,'0');BitParser::inject(hex,74,10,512);
-        ThreeDViewObject view;view.parse(hex,schema);
-        QCOMPARE(view.aircraftScreenY(),512);
-        ParamSchema origin;origin.insert("enb",{0,1});origin.insert("x0",{1,12});
-        view.parse("1",origin);
-        QDomDocument dom;auto element=dom.createElement("layer3d");view.parseExtraData(element);
-        QVERIFY(view.isLeftAnchored());
+    void strictXmlAndEditorFlags() {
+        auto *p = ProjectManager::instance();
+        QVERIFY(p->createNewProject("Strict XML", 640, 480, Qt::black));
+        for (const auto &type : {"aviahorizont", "dashline", "rectangle", "rectangle_a", "RibonScale", "staticgroup", "rotationobject", "layer3d", "text"})
+            QVERIFY(p->addObject(type) >= 0);
+        const auto baseline = p->buildCompiledFpgaXml();
+        QString error;
+        QVERIFY2(FpgaSchemaRegistry::instance()->validateXml(baseline, &error), qPrintable(error));
+        const auto compiled = FpgaCompiledDocument::fromDomDocument(baseline, &error);
+        QVERIFY2(compiled.isValid(), qPrintable(error));
+        const int objectCount = p->getObjectCount();
+        const int group = p->groupObjects({0, 1, 1, 2});
+        QVERIFY(group >= 0);
+        QCOMPARE(p->groupMembers(group).size(), 3);
+        QVERIFY(p->setGroupSelectionLocked(group, true));
+        QVERIFY(p->setGroupViewVisible(group, false));
+        for (int i = 0; i < objectCount; ++i) {
+            p->setObjectViewVisible(i, false);
+            p->setObjectSelectionLocked(i, true);
+        }
+        // Группы, видимость и замочки не меняют даже биты init.
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), baseline.toByteArray());
+        p->threeDViewObject()->setLeftAnchored(true);
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), baseline.toByteArray());
+        const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(bundle.document.objects.first().leftAnchored);
+        QTemporaryDir temp;
+        QVERIFY(p->saveToFile(temp.filePath("scene.xml")));
+        QVERIFY2(p->loadFromFile(temp.filePath("scene.xml")), qPrintable(p->lastErrorMessage()));
+        QCOMPARE(p->getObjectCount(), objectCount);
+        QVERIFY(p->objectGroups().isEmpty());
+        for (const auto &object : p->getObjects()) {
+            QVERIFY(object->isViewVisible());
+            QVERIFY(!object->isSelectionLocked());
+        }
+        QVERIFY(!p->threeDViewObject()->isLeftAnchored());
+        const auto reloaded = FpgaCompiledDocument::fromDomDocument(p->buildCompiledFpgaXml(), &error);
+        QCOMPARE(reloaded.objects.size(), compiled.objects.size());
+        for (int i = 0; i < compiled.objects.size(); ++i) {
+            // Порядок пар кернинга в XML не меняет их смысл.
+            QCOMPARE(reloaded.objects[i].type, compiled.objects[i].type);
+            QCOMPARE(reloaded.objects[i].iparams, compiled.objects[i].iparams);
+            QCOMPARE(reloaded.objects[i].data, compiled.objects[i].data);
+            QCOMPARE(reloaded.objects[i].kerningPairs, compiled.objects[i].kerningPairs);
+        }
+        const QList<QPair<QString, QString>> oldNames = {
+            {"aviahorizont", "aviagorizont"}, {"aviahorizont", "aviaGorizont"},
+            {"dashline", "dashed_line"}, {"dashline", "DASHED_line"},
+            {"rotationobject", "rotation_object"}, {"staticgroup", "static_group"},
+            {"RibonScale", "ribonscale"}, {"layer3d", "three_d_view"}
+        };
+        for (const auto &names : oldNames) {
+            auto xml = baseline.toString();
+            xml.replace(names.first, names.second);
+            QDomDocument invalid; QVERIFY(invalid.setContent(xml));
+            QVERIFY(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error));
+            QVERIFY(!error.isEmpty());
+            QVERIFY(!FpgaCompiledDocument::fromDomDocument(invalid, &error).isValid());
+            QFile file(temp.filePath("invalid.xml")); QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(xml.toUtf8()); file.close();
+            QVERIFY(!p->loadFromFile(file.fileName()));
+            QCOMPARE(p->getObjectCount(), objectCount); // Не стираем открытый проект при отказе.
+            QVERIFY(p->addObject(names.second) < 0);
+        }
+        auto oldSchema = baseline.toString(); oldSchema.replace("yscreen", "pitch");
+        QDomDocument invalid; QVERIFY(invalid.setContent(oldSchema));
+        QVERIFY(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error));
+    }
+    void imageKindsAndMasks() {
+        auto *p = ProjectManager::instance();
+        QTemporaryDir temp;
+        QImage image(16, 16, QImage::Format_ARGB32); image.fill(Qt::white);
+        const QString png = temp.filePath("mask.png"); QVERIFY(image.save(png));
+        const QString svg = temp.filePath("mask.svg");
+        QFile source(svg); QVERIFY(source.open(QIODevice::WriteOnly));
+        source.write("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='white'/></svg>"); source.close();
+        for (const QString &path : {png, svg}) {
+            QVERIFY(p->createNewProject("Images", 640, 480, Qt::black));
+            QVERIFY(p->importImage(path, false) >= 0);
+            QVERIFY(p->importImage(path, true) >= 0);
+            auto *rotating = dynamic_cast<ImageObject *>(p->getObjectAt(0).data());
+            auto *fixed = dynamic_cast<ImageObject *>(p->getObjectAt(1).data());
+            QVERIFY(rotating && fixed);
+            QCOMPARE(rotating->rotationDegrees, 0.0);
+            QVERIFY(rotating->supportsRotationHandle()); QVERIFY(!fixed->supportsRotationHandle());
+            fixed->setRotation(45); QCOMPARE(fixed->rotationDegrees, 0.0);
+            QVERIFY(!fixed->setObjectProperty("Поворот (°)", "45"));
+            auto dom = p->buildCompiledFpgaXml();
+            QCOMPARE(dom.elementsByTagName("rotationobject").size(), 2); // схема и объект
+            QCOMPARE(dom.elementsByTagName("staticgroup").size(), 2);
+            const auto mask = dom.documentElement().firstChildElement("objects").firstChildElement("rotationobject").firstChildElement("data").text();
+            for (int angle : {0, 90, 180, 270, 360}) {
+                rotating->setRotation(angle);
+                dom = p->buildCompiledFpgaXml();
+                const auto element = dom.documentElement().firstChildElement("objects").firstChildElement("rotationobject");
+                QCOMPARE(element.firstChildElement("data").text(), mask);
+                const QString hex = element.firstChildElement("init").text();
+                QCOMPARE(BitParser::extractSigned(hex, 105, 18), qRound(qSin(qDegreesToRadians(double(angle))) * 65536));
+                QCOMPARE(BitParser::extractSigned(hex, 123, 18), qRound(qCos(qDegreesToRadians(double(angle))) * 65536));
+            }
+            const auto baseline = p->buildCompiledFpgaXml().toByteArray();
+            p->groupObjects({0, 1}); p->setGroupViewVisible(p->objectGroups().first().id, false);
+            QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), baseline);
+            QVERIFY(p->copyObjects({0, 1})); QCOMPARE(p->pasteObjects().size(), 2);
+            QVERIFY(dynamic_cast<ImageObject *>(p->getObjectAt(0).data())->isRotationObject());
+            QVERIFY(!dynamic_cast<ImageObject *>(p->getObjectAt(1).data())->isRotationObject());
+            QVERIFY(p->undo()); QVERIFY(p->redo());
+            QVERIFY(p->saveToFile(temp.filePath("images.xml")));
+            QVERIFY2(p->loadFromFile(temp.filePath("images.xml")), qPrintable(p->lastErrorMessage()));
+            QCOMPARE(p->getObjectCount(), 4);
+            QVERIFY(dynamic_cast<RotationObject *>(p->getObjectAt(0).data()));
+            QVERIFY(dynamic_cast<StaticGroupObject *>(p->getObjectAt(1).data()));
+        }
+    }
+    void selectionAndLocks() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Selection", 640, 480, Qt::black);
+        p->addObject("aviahorizont"); p->addObject("rectangle"); p->addObject("rectangle");
+        auto *a = dynamic_cast<RectangleObject *>(p->getObjectAt(0).data());
+        auto *b = dynamic_cast<RectangleObject *>(p->getObjectAt(1).data());
+        a->x = 60; a->y = 70; a->width = 80; a->height = 60;
+        b->x = 280; b->y = 70; b->width = 80; b->height = 60;
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); QTest::qWait(5);
+        auto point = [](double x, double y) { return QPoint(qRound(16 + x * 0.95), qRound(12 + y * 0.95)); };
+        QObject::connect(&viewport, &ViewportPanel::selectionChanged, &viewport, &ViewportPanel::setSelectedIndexes);
+        QTest::mouseClick(&viewport, Qt::LeftButton, Qt::NoModifier, point(100,100));
+        QCOMPARE(viewport.getSelectedIndexes(), QList<int>{0});
+        QTest::mouseClick(&viewport, Qt::LeftButton, Qt::ShiftModifier, point(320,100));
+        QCOMPARE(viewport.getSelectedIndexes(), (QList<int>{0,1}));
+        QTest::mouseClick(&viewport, Qt::LeftButton, Qt::ControlModifier, point(100,100));
+        QCOMPARE(viewport.getSelectedIndexes(), QList<int>{1});
+        QVERIFY(p->setObjectSelectionLocked(1, true)); QVERIFY(viewport.getSelectedIndexes().isEmpty());
+        QVERIFY(p->setObjectSelectionLocked(2, true)); // Фон нельзя захватить рамкой.
+        QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, point(30,30));
+        QTest::mouseMove(&viewport, point(400,200));
+        QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, point(400,200));
+        QCOMPARE(viewport.getSelectedIndexes(), QList<int>{0});
+        const int group = p->groupObjects({0,1}); QVERIFY(group >= 0);
+        viewport.setSelectedIndexes({});
+        QTest::mouseClick(&viewport, Qt::LeftButton, Qt::NoModifier, point(100,100));
+        QCOMPARE(viewport.getSelectedIndexes(), QList<int>{0}); // Замок члена группы учитывается.
+        ObjectListPanel list; list.refreshList(); list.show(); QTest::qWait(1);
+        int locks = 0;
+        for (auto *button : list.findChildren<QToolButton *>()) if (button->property("selectionLock").toBool()) ++locks;
+        QCOMPARE(locks, 4); // Три объекта и группа.
+        QVERIFY(p->setGroupSelectionLocked(group, true)); QVERIFY(viewport.getSelectedIndexes().isEmpty());
+        QVERIFY(p->undo()); QVERIFY(!p->getObjectAt(0)->isSelectionLocked()); QVERIFY(p->getObjectAt(1)->isSelectionLocked());
+        QVERIFY(p->redo()); QVERIFY(p->getObjectAt(0)->isSelectionLocked());
+        list.refreshList(); list.selectRows({0,1,2});
+        QVERIFY(list.findChild<QListWidget *>()->selectedItems().isEmpty());
+        auto *widget = list.findChild<QListWidget *>();
+        for (auto *button : widget->itemWidget(widget->item(0))->findChildren<QToolButton *>()) {
+            if (button->property("selectionLock").toBool()) { button->click(); break; }
+        }
+        QVERIFY(!p->getObjectAt(0)->isSelectionLocked()); QVERIFY(!p->getObjectAt(1)->isSelectionLocked());
+    }
+    void toolbarAndRussianDialogs() {
+        EditorWorkspacePanel workspace; workspace.resize(760, 360); workspace.show(); QTest::qWait(5);
+        auto *strip = workspace.selectionToolStrip();
+        QCOMPARE(strip->geometry().bottom(), workspace.viewport()->geometry().bottom());
+        QCOMPARE(strip->height(), workspace.viewport()->height());
+        auto *scroll = strip->findChild<QScrollArea *>(); QVERIFY(scroll);
+        QVERIFY(scroll->verticalScrollBar()->maximum() > 0);
+        workspace.resize(760, 1400); QTest::qWait(5);
+        QCOMPARE(strip->height(), workspace.viewport()->height());
+        QCOMPARE(scroll->verticalScrollBar()->maximum(), 0);
+        QColorDialog color; color.setOption(QColorDialog::DontUseNativeDialog); color.show(); QTest::qWait(5);
+        bool russian = false;
+        for (auto *label : color.findChildren<QLabel *>()) {
+            russian = russian || label->text().contains(QStringLiteral("цвет"), Qt::CaseInsensitive);
+            QVERIFY(!label->text().contains("Basic colors"));
+        }
+        QVERIFY(russian);
+        color.grab().save(QCoreApplication::applicationDirPath()+"/russian-colors.png");
+        MainWindow window;
+        auto menus = window.menuBar()->findChildren<QMenu *>(QString(), Qt::FindDirectChildrenOnly);
+        int imports = 0;
+        for (auto *menu : menus) for (auto *action : menu->actions()) {
+            if (action->text().contains(QStringLiteral("изображение"))) {
+                QCOMPARE(menu->title(), QStringLiteral("Объекты")); ++imports;
+            }
+        }
+        QCOMPARE(imports, 2);
+    }
+    void aircraftPivotAtEdges() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Pivot", 1024,768,Qt::black); p->addObject("layer3d");
+        AircraftPositionPanel panel; panel.resize(1030,438); panel.show(); QTest::qWait(5);
+        auto *map = panel.findChild<QWidget *>("AircraftPositionScreen"); QVERIFY(map);
+        for (double x : {0.,8191.}) for (double y : {0.,8191.}) {
+            QPointF center;
+            bool first = true;
+            for (double altitude : {0.,16000.}) for (double course : {0.,90.,180.,270.}) {
+                p->setAircraftState(x,y,altitude,course,1023); QTest::qWait(1);
+                const auto image = map->grab().toImage();
+                QRect bounds;
+                for (int row=0;row<image.height();++row) for (int col=0;col<image.width();++col) {
+                    const QColor c = image.pixelColor(col,row);
+                    if (c.red()<25 && c.green()>175 && c.blue()>210)
+                        bounds = bounds.united(QRect(col,row,1,1));
+                }
+                QVERIFY(!bounds.isEmpty());
+                QVERIFY(bounds.left()>0 && bounds.top()>0 && bounds.right()<image.width()-1 && bounds.bottom()<image.height()-1);
+                if (first) { center=bounds.center(); first=false; }
+                QVERIFY2(QLineF(center,bounds.center()).length()<2.5, "Aircraft pivot moved when course or altitude changed");
+            }
+        }
+        panel.grab().save(QCoreApplication::applicationDirPath()+"/aircraft-edge.png");
     }
     void invalidSerialConfig() {
         FpgaUartTransport sender;FpgaUartConfig config;QString error;
@@ -180,7 +391,7 @@ private slots:
         sender.stopStreaming();QVERIFY(!sender.isRunning());
     }
     void panelAndFlight() {
-        auto *p=ProjectManager::instance();p->createNewProject("flight",1920,1080,Qt::black);p->addObject("three_d_view");
+        auto *p=ProjectManager::instance();p->createNewProject("flight",1920,1080,Qt::black);p->addObject("layer3d");
         AircraftPositionPanel panel;
         auto *x=panel.findChild<QDoubleSpinBox *>("AircraftXSpin");
         auto *y=panel.findChild<QDoubleSpinBox *>("AircraftYSpin");
@@ -229,7 +440,7 @@ private slots:
     }
     void wrappingFlight() {
         auto *p=ProjectManager::instance();
-        p->createNewProject("wrap",1024,768,Qt::black);p->addObject("three_d_view");
+        p->createNewProject("wrap",1024,768,Qt::black);p->addObject("layer3d");
         AircraftPositionPanel panel;panel.show();
         auto *button=panel.findChild<QToolButton *>("AircraftAutopilotButton");
         for(int course:{0,90,180,270,45}) {
@@ -252,7 +463,7 @@ private slots:
     }
     void aircraftKeys() {
         auto *p=ProjectManager::instance();
-        p->createNewProject("keys",1024,768,Qt::black);p->addObject("three_d_view");
+        p->createNewProject("keys",1024,768,Qt::black);p->addObject("layer3d");
         p->setAircraftState(100,100,1000,45,500);
         AircraftPositionPanel panel;panel.show();panel.activateWindow();
         auto *map=panel.findChild<QWidget *>("AircraftPositionScreen");map->setFocus();
@@ -320,7 +531,7 @@ private slots:
     }
     void uartDialogLayout() {
         auto *p=ProjectManager::instance();
-        p->createNewProject("uart dialog",1024,768,Qt::black);p->addObject("three_d_view");
+        p->createNewProject("uart dialog",1024,768,Qt::black);p->addObject("layer3d");
         FpgaStreamingPanel panel;
         bool inspected=false;QString issue;
         QTimer::singleShot(0,&panel,[&](){

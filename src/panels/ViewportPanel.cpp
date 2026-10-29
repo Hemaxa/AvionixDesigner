@@ -99,6 +99,15 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     //подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, QOverload<>::of(&QWidget::update));
     
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, [this]() {
+        const auto previous = m_selectedIndexes;
+        setSelectedIndexes(previous);
+        if (previous != m_selectedIndexes) {
+            emit objectSelected(m_selectedIndex);
+            emit selectionChanged(m_selectedIndexes);
+        }
+    });
+
     //подключаемся к сигналу смены темы для перерисовки
     connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, QOverload<>::of(&QWidget::update));
 }
@@ -137,6 +146,9 @@ void ViewportPanel::setSelectedIndexes(const QList<int> &indexes)
 
     for (int index : indexes) {
         if (index < 0 || index >= objectCount || seen.contains(index))
+            continue;
+        const auto object = ProjectManager::instance()->getObjectAt(index);
+        if (object->isSelectionLocked() || !object->isViewVisible())
             continue;
         seen.insert(index);
         normalized.append(index);
@@ -912,6 +924,44 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         m_lastMousePos = canvasPos;
         auto pm = ProjectManager::instance();
 
+        const bool additive = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier);
+        m_marqueeBaseSelection = additive ? m_selectedIndexes : QList<int>{};
+        if (additive) {
+            m_dragMode = None;
+            int hit = -1;
+            for (int i = 0; i < pm->getObjectCount(); ++i) {
+                const auto object = pm->getObjectAt(i);
+                if (object->isViewVisible() && !object->isSelectionLocked() && object->contains(canvasPos)) {
+                    hit = i;
+                    break;
+                }
+            }
+            if (hit >= 0) {
+                auto members = pm->groupMembersForObject(hit);
+                if (members.isEmpty()) members.append(hit);
+                QList<int> next = m_selectedIndexes;
+                const bool toggle = event->modifiers() & (Qt::ControlModifier | Qt::MetaModifier);
+                const bool allSelected = std::all_of(members.begin(), members.end(), [&](int index) {
+                    const auto object = pm->getObjectAt(index);
+                    return !object || object->isSelectionLocked() || !object->isViewVisible() || next.contains(index);
+                });
+                for (int index : members) {
+                    if (toggle && allSelected) next.removeAll(index);
+                    else if (!next.contains(index)) next.append(index);
+                }
+                std::sort(next.begin(), next.end());
+                setSelectedIndexes(next);
+                emit objectSelected(m_selectedIndex);
+                emit selectionChanged(m_selectedIndexes);
+            } else {
+                m_dragMode = MarqueeSelect;
+                m_marqueeStartPos = canvasPos;
+                m_marqueeCurrentPos = canvasPos;
+            }
+            update();
+            return;
+        }
+
         if (m_selectedIndexes.size() > 1 && selectedObjectContains(canvasPos)) {
             beginMoveDrag(canvasPos, selectedObjectsRect());
             return;
@@ -960,7 +1010,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         int newSelection = -1;
         for (int i = 0; i < pm->getObjectCount(); ++i) {
             auto candidate = pm->getObjectAt(i);
-            if (candidate->isViewVisible() && candidate->contains(canvasPos)) {
+            if (candidate->isViewVisible() && !candidate->isSelectionLocked() && candidate->contains(canvasPos)) {
                 newSelection = i;
                 break;
             }
@@ -1140,15 +1190,16 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
         auto pm = ProjectManager::instance();
         QRectF marqueeRect = QRectF(m_marqueeStartPos, m_marqueeCurrentPos).normalized();
         
-        QList<int> newSelection;
-        QSet<int> selectedSet;
+        QList<int> newSelection = m_marqueeBaseSelection;
+        QSet<int> selectedSet(newSelection.begin(), newSelection.end());
         for (int i = pm->getObjectCount() - 1; i >= 0; --i) {
             auto candidate = pm->getObjectAt(i);
-            if (candidate->isViewVisible() && marqueeRect.intersects(candidate->getBoundingRect())) {
+            if (candidate->isViewVisible() && !candidate->isSelectionLocked() && marqueeRect.intersects(candidate->getBoundingRect())) {
                 const QList<int> groupMembers = pm->groupMembersForObject(i);
                 const QList<int> indexes = groupMembers.isEmpty() ? QList<int>{i} : groupMembers;
                 for (int index : indexes) {
-                    if (selectedSet.contains(index))
+                    const auto member = pm->getObjectAt(index);
+                    if (!member || member->isSelectionLocked() || !member->isViewVisible() || selectedSet.contains(index))
                         continue;
                     selectedSet.insert(index);
                     newSelection.append(index);

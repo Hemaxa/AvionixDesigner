@@ -211,16 +211,16 @@ void MainWindow::onSaveFileAs() {
   }
 }
 
-void MainWindow::onImportImage() {
+void MainWindow::onImportImage(bool rotating) {
   const QString fileName = QFileDialog::getOpenFileName(
-      this, "Добавить изображение", QString(),
+      this, rotating ? "Добавить вращающееся изображение" : "Добавить статическое изображение", QString(),
       "Изображения (*.png *.jpg *.jpeg *.bmp *.svg)");
 
   if (fileName.isEmpty())
     return;
 
   const int index =
-      ProjectManager::instance()->importImageAsStaticGroup(fileName);
+      ProjectManager::instance()->importImage(fileName, rotating);
   if (index < 0)
     return;
 
@@ -431,9 +431,6 @@ void MainWindow::createMenus() {
       createAction("Сохранить", QKeySequence::Save, this, SLOT(onSaveFile())));
   fileMenu->addAction(createAction("Сохранить как...", QKeySequence::SaveAs,
                                    this, SLOT(onSaveFileAs())));
-  fileMenu->addAction(createAction("Добавить изображение...",
-                                   QKeySequence("Ctrl+I"), this,
-                                   SLOT(onImportImage())));
   fileMenu->addSeparator();
   fileMenu->addAction(
       createAction("Выход", QKeySequence::Quit, this, SLOT(close())));
@@ -526,6 +523,13 @@ void MainWindow::createMenus() {
                     QKeySequence(QString("Alt+%1").arg(shortcutIndex)),
                     descriptor.typeName);
     ++shortcutIndex;
+  }
+
+  for (bool rotating : {false, true}) {
+    auto *action = objectsMenu->addAction(rotating ? "Добавить вращающееся изображение..." : "Добавить статическое изображение...");
+    action->setIcon(QIcon(rotating ? ":/icons/icons/library/rotating-image.svg" : ":/icons/icons/library/static-image.svg"));
+    action->setShortcut(QKeySequence(rotating ? "Ctrl+Shift+I" : "Ctrl+I"));
+    connect(action, &QAction::triggered, this, [this, rotating]() { onImportImage(rotating); });
   }
 
   QMenu *viewMenu = menuBar()->addMenu("Вид");
@@ -668,7 +672,7 @@ void MainWindow::connectSignals() {
   connect(m_viewport, &ViewportPanel::imageDropped, this,
           [this](const QString &fileName) {
             const int index =
-                ProjectManager::instance()->importImageAsStaticGroup(fileName);
+                ProjectManager::instance()->importImage(fileName);
             if (index < 0)
               return;
 
@@ -798,7 +802,7 @@ void MainWindow::createObjectOfType(const QString &typeName) {
   const int index = project->addObject(typeName);
   if (index < 0)
     return;
-  if (groupId >= 0 && typeName != QStringLiteral("three_d_view"))
+  if (groupId >= 0 && typeName != QStringLiteral("layer3d"))
     project->addObjectToGroup(groupId, index, false);
 
   m_objectList->refreshList();
@@ -816,7 +820,7 @@ void MainWindow::createObjectAtPosition(const QString &typeName,
   const int index = project->addObject(typeName, pos.x(), pos.y());
   if (index < 0)
     return;
-  if (groupId >= 0 && typeName != QStringLiteral("three_d_view"))
+  if (groupId >= 0 && typeName != QStringLiteral("layer3d"))
     project->addObjectToGroup(groupId, index, false);
 
   m_objectList->refreshList();

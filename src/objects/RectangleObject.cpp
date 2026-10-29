@@ -9,6 +9,7 @@ RectangleObject::RectangleObject(QObject *parent) : BaseObject(parent), fillColo
 
 void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
+    enabled = BitParser::extract(hexInit, schema.value("enb").offset, schema.value("enb").size) != 0;
     //парсинг координат
     //если в XML сказано, что у прямоугольника есть параметр "x0"
     if (schema.contains("x0")) 
@@ -56,6 +57,7 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 
 void RectangleObject::draw(QPainter &painter)
 {
+    if (!enabled) return;
     QPen pen;
     //настройка пера для обводки
     if (strokeWidth <= 0.05 || strokeColor.alpha() == 0) {
@@ -182,7 +184,7 @@ bool RectangleObject::setObjectProperty(const QString &name, const QString &valu
 QMap<QString, quint32> RectangleObject::serializeParams() const
 {
     return {
-        {"enb", isViewVisible() ? 1u : 0u},
+        {"enb", enabled ? 1u : 0u},
         {"x0", static_cast<quint32>(x)},
         {"y0", static_cast<quint32>(y)},
         {"w", static_cast<quint32>(width)},

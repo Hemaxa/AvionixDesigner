@@ -310,7 +310,7 @@ void ObjectPropertiesPanel::onCellDoubleClicked(int row, int column)
         return;
 
     const QColor currentColor(valueItem->text());
-    const QColor selectedColor = QColorDialog::getColor(currentColor, this, tr("Выбор цвета"));
+    const QColor selectedColor = QColorDialog::getColor(currentColor, this, tr("Выбор цвета"), QColorDialog::DontUseNativeDialog);
     if (!selectedColor.isValid())
         return;
 

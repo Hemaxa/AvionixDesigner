@@ -550,7 +550,7 @@ QString objectCountWord(int count)
 }
 }
 
-ImageObject::ImageObject(QObject *parent) : BaseObject(parent) {}
+ImageObject::ImageObject(Kind kind, QObject *parent) : BaseObject(parent), m_kind(kind) {}
 
 void ImageObject::setRasterImage(const QImage &image, const QString &name)
 {
@@ -688,7 +688,7 @@ void ImageObject::setColorLayers(const QList<ImageColorLayer> &layers)
 
 bool ImageObject::hasRotation() const
 {
-    return qAbs(rotationDegrees) > 0.01;
+    return isRotationObject() && qAbs(rotationDegrees) > 0.01;
 }
 
 QString ImageObject::xmlExportSummary() const
@@ -702,7 +702,7 @@ QString ImageObject::xmlExportSummary() const
         components.append(component);
     }
 
-    if (hasRotation()) {
+    if (isRotationObject()) {
         const QSize size(qMax(1, qRound(width)), qMax(1, qRound(height)));
         const double scale = rotationSimplificationScale(size);
         const QSize exportSize(scale >= 0.999
@@ -784,12 +784,12 @@ void ImageObject::draw(QPainter &painter)
 
 QString ImageObject::getTypeName() const
 {
-    return QStringLiteral("image");
+    return isRotationObject() ? QStringLiteral("rotationobject") : QStringLiteral("staticgroup");
 }
 
 QString ImageObject::getDisplayName() const
 {
-    return QStringLiteral("Изображение");
+    return isRotationObject() ? QStringLiteral("Вращающееся изображение") : QStringLiteral("Статическое изображение");
 }
 
 QList<QPair<QString, QString>> ImageObject::getProperties() const
@@ -806,6 +806,10 @@ QList<QPair<QString, QString>> ImageObject::getProperties() const
         {"Цвет маски", effectiveMaskColor().name()}
     };
 
+    if (!isRotationObject()) {
+        for (int i = props.size() - 1; i >= 0; --i)
+            if (props[i].first == QStringLiteral("Поворот (°)")) props.removeAt(i);
+    }
     const QList<ImageMaskComponent> components = maskComponents();
     if (components.size() > 1) {
         props.removeLast();
@@ -870,6 +874,8 @@ void ImageObject::resizeBy(int edgeFlags, double dx, double dy)
 
 void ImageObject::setRotation(double angle)
 {
+    if (!isRotationObject() || !canResize())
+        return;
     rotationDegrees = angle;
     emit changed();
 }
@@ -894,6 +900,8 @@ bool ImageObject::setObjectProperty(const QString &name, const QString &value)
         }
         height = qMax(1.0, value.toDouble(&ok));
     } else if (name == QStringLiteral("Поворот (°)")) {
+        if (!isRotationObject())
+            return false;
         if (!canResize()) {
             setValidationMessage(QStringLiteral("Поворот изображения заблокирован после экспорта."));
             return false;

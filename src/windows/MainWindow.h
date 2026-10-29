@@ -44,8 +44,8 @@ private slots:
     void onSaveFile();
     //сохраняет текущий проект по новому пути
     void onSaveFileAs();
-    //импортирует изображение как объект static_group/image
-    void onImportImage();
+    //импортирует статическое или вращающееся изображение
+    void onImportImage(bool rotating = false);
     //обновляет заголовок окна по текущему проекту
     void updateWindowTitle();
     //открывает окно настроек приложения
