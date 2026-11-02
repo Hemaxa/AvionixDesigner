@@ -91,10 +91,22 @@ qt_add_executable(AvionixDesigner
     src/objects/ThreeDViewObject.cpp
     src/objects/TextObject.h
     src/objects/TextObject.cpp
+
+    # Метрики, растры и расположение текста на стороне процессора
+    src/text/FontAtlas.h
+    src/text/FontAtlasXml.h
+    src/text/FontAtlasXml.cpp
+    src/text/FontRasterizer.h
+    src/text/FontRasterizer.cpp
+    src/text/TextLayout.h
+    src/text/TextLayout.cpp
     
     # FPGA Подсистема
     src/fpga/model/FpgaCompiledDocument.h
     src/fpga/model/FpgaCompiledDocument.cpp
+    src/fpga/model/FpgaHardwareScene.h
+    src/fpga/model/FpgaSceneCompiler.h
+    src/fpga/model/FpgaSceneCompiler.cpp
     src/fpga/model/Layer3dFormat.h
     src/fpga/packets/FpgaPacket.h
     src/fpga/packets/FpgaPacket.cpp

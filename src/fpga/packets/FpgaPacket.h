@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "fpga/model/FpgaCompiledDocument.h"
+#include "fpga/model/FpgaHardwareScene.h"
 
 #include <QByteArray>
 #include <QList>
@@ -35,7 +35,7 @@ struct FpgaPacket
 
 struct FpgaPacketBundle
 {
-    FpgaCompiledDocument document;
+    FpgaHardwareScene document;
     QList<FpgaPacket> packets;
     QStringList warnings;
 

@@ -4,13 +4,28 @@
 
 #include "ProjectManager.h"
 #include "ThreeDViewObject.h"
+#include "TextObject.h"
 #include "fpga/model/FpgaCompiledDocument.h"
+#include "fpga/model/FpgaSceneCompiler.h"
 #include "fpga/packets/FpgaPacketCompiler.h"
 
 FpgaPacketBundle FpgaProjectPacketBuilder::buildCurrentProject(QString *errorMessage)
 {
     if (errorMessage)
         errorMessage->clear();
+
+    // Проверяем исходные значения до XML: inject() обрезает их до размера поля.
+    for (const auto &object : ProjectManager::instance()->getObjects()) {
+        const auto *text = dynamic_cast<const TextObject *>(object.data());
+        if (!text || !text->isExportEnabled())
+            continue;
+        const auto state = text->states.isEmpty() ? GroupState{} : text->states.first();
+        if (text->text.size() > 4095 || state.x < 0 || state.x > 4095 || state.y < 0 || state.y > 4095) {
+            if (errorMessage)
+                *errorMessage = QStringLiteral("Текст не помещается в формат XML: X и Y должны быть 0…4095, длина — не более 4095 кодов UTF-16.");
+            return {};
+        }
+    }
 
     const QDomDocument dom = ProjectManager::instance()->buildCompiledFpgaXml();
     QString parseError;
@@ -25,7 +40,13 @@ FpgaPacketBundle FpgaProjectPacketBuilder::buildCurrentProject(QString *errorMes
         for (auto &object : document.objects)
             if (object.type == QStringLiteral("layer3d")) object.leftAnchored = view->isLeftAnchored();
     }
+    const auto scene = FpgaSceneCompiler().compile(document, &parseError);
+    if (!scene.isValid()) {
+        if (errorMessage)
+            *errorMessage = parseError;
+        return {};
+    }
     FpgaPacketCompiler compiler;
-    return compiler.compile(document);
+    return compiler.compile(scene, errorMessage);
 }
 

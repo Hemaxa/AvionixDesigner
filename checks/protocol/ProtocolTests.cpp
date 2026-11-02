@@ -6,6 +6,12 @@
 #include "ImageObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "TextObject.h"
+#include "text/TextLayout.h"
+#include "text/FontRasterizer.h"
+#include "fpga/model/FpgaSceneCompiler.h"
+#include "fpga/simulator/FpgaSimulator.h"
+#include "fpga/transport/FpgaPacketDump.h"
 #include "RectangleObject.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include <QColorDialog>
@@ -96,6 +102,70 @@ struct PtyCapture {
     ~PtyCapture() { done=true;if(reader.joinable()) reader.join();if(master>=0)::close(master); }
 };
 #endif
+
+namespace {
+QString testInit(const QString &type, const QMap<QString, quint32> &values)
+{
+    const auto schema = FpgaSchemaRegistry::instance()->buildSchema(type);
+    QString hex(38, '0');
+    for (auto it = values.cbegin(); it != values.cend(); ++it) {
+        const auto info = schema.value(it.key());
+        BitParser::inject(hex, info.offset, info.size, it.value());
+    }
+    return hex;
+}
+
+QDomDocument textFixture(const QString &text = QStringLiteral("AVA A"), int x = 10, int y = 20)
+{
+    QDomDocument doc;
+    auto root = doc.createElement("project");
+    root.setAttribute("width", 80); root.setAttribute("height", 50); root.setAttribute("bgcolor", "#203040");
+    doc.appendChild(root);
+    auto params = doc.createElement("parameters"); root.appendChild(params);
+    for (const auto &type : {"font", "text", "rectangle"}) {
+        auto schema = doc.createElement(type); params.appendChild(schema);
+        for (const auto &definition : FpgaSchemaRegistry::instance()->fieldsForSchema(type)) {
+            auto field = doc.createElement(definition.name);
+            field.setAttribute("offset", definition.offset); field.setAttribute("size", definition.size);
+            schema.appendChild(field);
+        }
+    }
+    auto objects = doc.createElement("objects"); root.appendChild(objects);
+    auto font = doc.createElement("font"); font.setAttribute("index", 0); font.setAttribute("name", "Synthetic"); font.setAttribute("size", 14);
+    objects.appendChild(font);
+    auto glyph = [&](QChar ch, int w, int h, int advance, int bx, int by, int offset) {
+        auto init = doc.createElement("init"); init.setAttribute("literal", QString(ch)); init.setAttribute("code", ch.unicode());
+        init.appendChild(doc.createTextNode(testInit("font", {
+            {"enb",1}, {"code",ch.unicode()}, {"w",quint32(w)}, {"h",quint32(h)}, {"advance",quint32(advance)},
+            {"bearing_x",quint32(bx)}, {"bearing_y",quint32(by)}, {"offset",quint32(offset)}, {"mask_size",quint32(w*h)}
+        })));
+        font.appendChild(init);
+    };
+    glyph('A',3,2,5,-1,-3,0); glyph('V',2,3,4,1,-2,6); glyph(' ',1,1,3,0,0,12); glyph(QChar(0x042F),2,2,4,0,-3,13);
+    auto data = doc.createElement("data"); data.appendChild(doc.createTextNode("7,0,7,3,7,0,7,6,5,0,2,7,0,7,7,1,7")); font.appendChild(data);
+    for (const auto &pair : {QStringLiteral("AV"), QStringLiteral("VA")}) {
+        auto kern = doc.createElement("kerning"); kern.setAttribute("left", QString(pair[0])); kern.setAttribute("right", QString(pair[1]));
+        kern.setAttribute("delta", pair == "AV" ? -2 : -1); font.appendChild(kern);
+    }
+    auto object = doc.createElement("text"); objects.appendChild(object);
+    auto init = doc.createElement("init"); init.appendChild(doc.createTextNode(testInit("text", {
+        {"enb",1}, {"color",0x563412}, {"x",quint32(x)}, {"y",quint32(y)}, {"char_count",quint32(text.size())}
+    }))); object.appendChild(init);
+    QStringList codes;
+    for (const auto ch : text) codes.append(QString::number(ch.unicode()));
+    data = doc.createElement("data"); data.appendChild(doc.createTextNode(codes.join(','))); object.appendChild(data);
+    return doc;
+}
+
+FpgaPacketBundle compileTextFixture(const QDomDocument &doc, QString *error)
+{
+    const auto source = FpgaCompiledDocument::fromDomDocument(doc, error);
+    if (!source.isValid()) return {};
+    const auto scene = FpgaSceneCompiler().compile(source, error);
+    if (!scene.isValid()) return {};
+    return FpgaPacketCompiler().compile(scene, error);
+}
+}
 
 class ProtocolTests : public QObject
 {
@@ -215,7 +285,11 @@ private slots:
             QCOMPARE(reloaded.objects[i].type, compiled.objects[i].type);
             QCOMPARE(reloaded.objects[i].iparams, compiled.objects[i].iparams);
             QCOMPARE(reloaded.objects[i].data, compiled.objects[i].data);
-            QCOMPARE(reloaded.objects[i].kerningPairs, compiled.objects[i].kerningPairs);
+        }
+        QCOMPARE(reloaded.fonts.keys(), compiled.fonts.keys());
+        for (const int index : compiled.fonts.keys()) {
+            QCOMPARE(reloaded.fonts[index].maskData, compiled.fonts[index].maskData);
+            QCOMPARE(reloaded.fonts[index].kerningPairs, compiled.fonts[index].kerningPairs);
         }
         const QList<QPair<QString, QString>> oldNames = {
             {"aviahorizont", "aviagorizont"}, {"aviahorizont", "aviaGorizont"},
@@ -285,6 +359,203 @@ private slots:
             QVERIFY(dynamic_cast<RotationObject *>(p->getObjectAt(0).data()));
             QVERIFY(dynamic_cast<StaticGroupObject *>(p->getObjectAt(1).data()));
         }
+    }
+    void textLayoutAndStaticPackets() {
+        auto doc = textFixture();
+        const auto original = doc.toByteArray();
+        QString error;
+        const auto source = FpgaCompiledDocument::fromDomDocument(doc, &error);
+        QVERIFY2(source.isValid(), qPrintable(error));
+        TextLayout layout;
+        QVERIFY(layoutText("AVA A", source.fonts[0], &layout, &error));
+        QCOMPARE(layout.size, QSize(20,4));
+        QCOMPARE(layout.glyphs.size(), 4);
+        const QList<QPoint> expected = {{0,0},{5,1},{6,0},{14,0}};
+        for (int i = 0; i < expected.size(); ++i) QCOMPARE(layout.glyphs[i].position, expected[i]);
+
+        // Тексты одного шрифта разделены другим объектом: порядок слоёв сохраняется.
+        auto objects = doc.documentElement().firstChildElement("objects");
+        auto rectangle = doc.createElement("rectangle");
+        auto init = doc.createElement("init"); init.appendChild(doc.createTextNode(testInit("rectangle", {{"enb",1},{"color",0xabcdef},{"w",1},{"h",1}})));
+        rectangle.appendChild(init); objects.appendChild(rectangle);
+        auto secondText = objects.firstChildElement("text").cloneNode(true).toElement(); objects.appendChild(secondText);
+        const auto bundle = compileTextFixture(doc, &error);
+        QVERIFY2(bundle.document.isValid(), qPrintable(error));
+        QCOMPARE(bundle.document.objects.size(), 9);
+        QCOMPARE(bundle.document.objects[4].type, QString("rectangle"));
+        QCOMPARE(bundle.document.memories.size(), 1);
+        QCOMPARE(bundle.document.memories[0].data, QString("70737076502707717"));
+        QVERIFY(!bundle.document.schemas.contains("text")); QVERIFY(!bundle.document.schemas.contains("font"));
+        const QList<int> addresses = {0,6,0,0};
+        int memoryPackets = 0, parameterPackets = 0;
+        QByteArray binary;
+        for (const auto &packet : bundle.packets) {
+            binary += packet.bytes;
+            QCOMPARE(quint8(packet.bytes[6]), quint8(packet.type));
+            QCOMPARE(packet.bytes.right(4).toHex(), QByteArray::number(FpgaPacketFramer::fletcher32(packet.bytes.left(packet.bytes.size()-4)),16).rightJustified(8,'0'));
+            if (packet.type == FpgaPacketType::StaticMemory) {
+                ++memoryPackets; QCOMPARE(packet.memId,0); QCOMPARE(packet.address,0); QCOMPARE(packet.payloadSize,17);
+                QCOMPARE(packet.bytes.mid(12,17), QByteArray::fromHex("0700070307000706050002070007070107"));
+            } else {
+                QCOMPARE(packet.type,FpgaPacketType::Parameter);
+                QCOMPARE(packet.objId, parameterPackets++);
+                QCOMPARE(packet.payloadSize,19);
+                QVERIFY(packet.objectType == "staticgroup" || packet.objectType == "rectangle");
+            }
+        }
+        QCOMPARE(memoryPackets,1); QCOMPARE(parameterPackets,9);
+        for (int i = 0; i < 4; ++i) {
+            const auto &object = bundle.document.objects[i];
+            QCOMPARE(object.memId,0);
+            const auto hex = object.iparams.first();
+            QCOMPARE(BitParser::extract(hex,25,12), quint32(10+expected[i].x()));
+            QCOMPARE(BitParser::extract(hex,37,12), quint32(20+expected[i].y()));
+            QCOMPARE(BitParser::extract(hex,73,16), quint32(addresses[i]));
+            QCOMPARE(BitParser::extract(hex,1,24), quint32(0x563412));
+            QCOMPARE(hex.left(15), QString(15,'0')); // Резерв старших битов обнулён.
+        }
+        QTemporaryDir temp;
+        QVERIFY(FpgaPacketDump::writeBinary(temp.filePath("text.bin"),bundle,&error));
+        QFile file(temp.filePath("text.bin")); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(),binary);
+        QCOMPARE(FpgaUartTransport::sceneBytes(bundle),binary);
+        QCOMPARE(textFixture().toByteArray(),original);
+
+        // Симулятор использует реальные байты, а не init/data из сопроводительной модели.
+        FpgaSimulator simulator; simulator.loadBundle(bundle); const auto frame = simulator.renderFrame();
+        QCOMPARE(frame.pixelColor(10,20), QColor(0x12,0x34,0x56));
+        auto withoutMetadata = bundle;
+        withoutMetadata.document.memories[0].data.fill('0');
+        for (auto &object : withoutMetadata.document.objects) object.iparams.fill(QString(38,'0'));
+        simulator.loadBundle(withoutMetadata); QCOMPARE(simulator.renderFrame(),frame);
+        withoutMetadata.packets.clear(); simulator.loadBundle(withoutMetadata);
+        QVERIFY(simulator.renderFrame() != frame);
+
+        auto otherFont = objects.firstChildElement("font").cloneNode(true).toElement();
+        otherFont.setAttribute("index",1); objects.appendChild(otherFont);
+        for (auto glyph=otherFont.firstChildElement("init"); !glyph.isNull(); glyph=glyph.nextSiblingElement("init")) {
+            auto h=glyph.text(); BitParser::inject(h,137,8,1); glyph.firstChild().setNodeValue(h);
+        }
+        auto otherText=secondText.cloneNode(true).toElement(); objects.appendChild(otherText);
+        auto otherInit=otherText.firstChildElement("init"); auto h=otherInit.text(); BitParser::inject(h,49,8,1); otherInit.firstChild().setNodeValue(h);
+        const auto twoFonts=compileTextFixture(doc,&error); QVERIFY2(twoFonts.document.isValid(),qPrintable(error));
+        QCOMPARE(twoFonts.document.memories.size(),2);
+        QCOMPARE(twoFonts.document.objects.last().memId,1); QCOMPARE(twoFonts.document.objects.first().memId,0);
+        int uploads=0; for (const auto &packet:twoFonts.packets) if(packet.type==FpgaPacketType::StaticMemory) ++uploads;
+        QCOMPARE(uploads,2);
+    }
+    void textClippingSpacesAndOffsets() {
+        QString error;
+        auto doc = textFixture("AA",9,8);
+        doc.documentElement().setAttribute("width",11); doc.documentElement().setAttribute("height",10);
+        auto objects = doc.documentElement().firstChildElement("objects");
+        objects.appendChild(objects.firstChildElement("text").cloneNode(true));
+        const auto bundle = compileTextFixture(doc,&error);
+        QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        QCOMPARE(bundle.document.objects.size(),2); // Вторые A полностью за экраном.
+        QCOMPARE(bundle.document.memories[0].data, QString("70737076502707717")+"7037");
+        for (const auto &object : bundle.document.objects) {
+            const auto hex = object.iparams.first();
+            QCOMPARE(BitParser::extract(hex,49,12),quint32(2)); QCOMPARE(BitParser::extract(hex,61,12),quint32(2));
+            QCOMPARE(BitParser::extract(hex,73,16),quint32(17));
+        }
+        FpgaSimulator simulator; simulator.loadBundle(bundle); const auto image = simulator.renderFrame();
+        QCOMPARE(image.pixelColor(10,9),QColor(0x12,0x34,0x56)); // Вторая строка обрезанного растра.
+
+        auto empty = compileTextFixture(textFixture("   "),&error);
+        QVERIFY2(empty.document.isValid(),qPrintable(error)); QVERIFY(empty.document.objects.isEmpty());
+        QCOMPARE(empty.packets.size(),1); QCOMPARE(empty.packets.first().type,FpgaPacketType::StaticMemory);
+        doc = textFixture(QStringLiteral("AЯV"));
+        auto init = doc.documentElement().firstChildElement("objects").firstChildElement("text").firstChildElement("init");
+        auto hex = init.text(); BitParser::inject(hex,57,16,1); BitParser::inject(hex,73,12,1); BitParser::inject(hex,0,1,0);
+        init.firstChild().setNodeValue(hex);
+        const auto disabled = compileTextFixture(doc,&error); QVERIFY2(disabled.document.isValid(),qPrintable(error));
+        QCOMPARE(disabled.document.objects.size(),1);
+        QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),73,16),quint32(13));
+        QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),0,1),quint32(0));
+    }
+    void textAddressLimitsAndInvalidXml() {
+        QString error;
+        auto source = FpgaCompiledDocument::fromDomDocument(textFixture("A"),&error);
+        source.fonts[0].maskData = QString(65530,'0') + "707370";
+        source.fonts[0].glyphs['A'].offset = 65530;
+        auto scene = FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
+        QCOMPARE(BitParser::extract(scene.objects.first().iparams.first(),73,16),quint32(65530));
+        const auto bundle = FpgaPacketCompiler().compile(scene,&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        QCOMPARE(bundle.packets.last().address,64512); QCOMPARE(bundle.packets.last().payloadSize,1024);
+        source.height=21; // Усечение последней строки не требует копии в уже полном банке.
+        scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
+        QCOMPARE(scene.memories.first().data.size(),65536);
+        QCOMPARE(BitParser::extract(scene.objects.first().iparams.first(),61,12),quint32(1));
+        source.fonts[0].maskData.append('0');
+        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("65536"));
+        source = FpgaCompiledDocument::fromDomDocument(textFixture("AAA"),&error);
+        source.width = 12000; source.fonts[0].glyphs['A'].advance = 4095;
+        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("12-бит"));
+        source = FpgaCompiledDocument::fromDomDocument(textFixture(),&error);
+        for (int i = 1; i <= 256; ++i) source.fonts.insert(i,source.fonts[0]);
+        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("256"));
+        source.fonts.clear(); source.objects.clear();
+        FpgaCompiledObject many; many.type="rectangle"; many.iparams.fill(QString(38,'0'),65537); source.objects.append(many);
+        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("65536"));
+
+        for (int failure = 0; failure < 6; ++failure) {
+            auto doc = textFixture();
+            auto objects = doc.documentElement().firstChildElement("objects");
+            auto font = objects.firstChildElement("font");
+            auto glyph = font.firstChildElement("init");
+            auto textInit = objects.firstChildElement("text").firstChildElement("init");
+            if (failure == 0) font.firstChildElement("data").firstChild().setNodeValue("9");
+            if (failure == 1) { auto h=glyph.text(); BitParser::inject(h,101,24,999); glyph.firstChild().setNodeValue(h); }
+            if (failure == 2) { auto h=glyph.text(); BitParser::inject(h,125,12,5); glyph.firstChild().setNodeValue(h); }
+            if (failure == 3) { auto h=textInit.text(); BitParser::inject(h,49,8,1); textInit.firstChild().setNodeValue(h); }
+            if (failure == 4) { auto h=textInit.text(); BitParser::inject(h,73,12,99); textInit.firstChild().setNodeValue(h); }
+            if (failure == 5) objects.firstChildElement("text").firstChildElement("data").firstChild().setNodeValue("65536");
+            const auto invalid = compileTextFixture(doc,&error);
+            QVERIFY(!error.isEmpty()); QVERIFY(!invalid.document.isValid()); QVERIFY(invalid.packets.isEmpty());
+        }
+        QVERIFY(!compileTextFixture(textFixture("Z"),&error).document.isValid()); QVERIFY(error.contains("U+005A"));
+    }
+    void textPreviewXmlAndUart() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Text",320,160,QColor(20,30,40));
+        const int index = p->addObject("text");
+        auto *text = dynamic_cast<TextObject *>(p->getObjectAt(index).data()); QVERIFY(text);
+        QVERIFY(text->setObjectProperty("Текст",QStringLiteral("AVAV Яя gyp α° 11")));
+        text->states[0].x = 5; text->states[0].y = 7;
+        QString error;
+        const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        const auto dom = p->buildCompiledFpgaXml();
+        QCOMPARE(dom.documentElement().firstChildElement("objects").elementsByTagName("text").size(),1);
+        const auto source = FpgaCompiledDocument::fromDomDocument(dom,&error);
+        TextLayout layout; QVERIFY(layoutText(text->text,source.fonts.first(),&layout,&error));
+        QCOMPARE(text->states.first().w,layout.size.width()); QCOMPARE(text->states.first().h,layout.size.height());
+        QImage preview(320,160,QImage::Format_ARGB32); preview.fill(QColor(20,30,40));
+        { QPainter painter(&preview); painter.drawImage(5,7,text->maskImages.first()); }
+        FpgaSimulator simulator; simulator.loadBundle(bundle); const auto frame = simulator.renderFrame();
+        int maxDifference = 0;
+        for (int y=0;y<160;++y) for (int x=0;x<320;++x) {
+            const auto a=preview.pixelColor(x,y), b=frame.pixelColor(x,y);
+            maxDifference=qMax(maxDifference,qMax(qAbs(a.red()-b.red()),qMax(qAbs(a.green()-b.green()),qAbs(a.blue()-b.blue()))));
+        }
+        QVERIFY2(maxDifference<=3,qPrintable(QString::number(maxDifference)));
+        const auto bytes = FpgaUartTransport::sceneBytes(bundle);
+        QTemporaryDir temp; QVERIFY(p->saveToFile(temp.filePath("text.xml"))); QVERIFY2(p->loadFromFile(temp.filePath("text.xml")),qPrintable(p->lastErrorMessage()));
+        const auto restored = FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(restored.document.isValid(),qPrintable(error));
+        QCOMPARE(FpgaUartTransport::sceneBytes(restored),bytes);
+        // До упаковки в XML координаты и количество символов не должны молча обрезаться.
+        text = dynamic_cast<TextObject *>(p->getObjectAt(0).data()); text->states[0].x=-1;
+        QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid()); QVERIFY(!error.isEmpty());
+        text->states[0].x=0; text->text=QString(4096,'A');
+        QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid()); QVERIFY(!error.isEmpty());
+#ifdef Q_OS_UNIX
+        PtyCapture capture; QVERIFY(capture.master>=0);
+        FpgaUartTransport sender; FpgaUartConfig config; config.portName=QString::fromLocal8Bit(capture.name);
+        config.loadBaudRate=57600; config.baudRate=115200;
+        QSignalSpy failed(&sender,&FpgaUartTransport::failed);
+        QVERIFY(sender.startStreaming(restored,config,&error));
+        const auto expected=QByteArray(1,char(0))+bytes;
+        QTRY_VERIFY_WITH_TIMEOUT(capture.data().size()>=expected.size() || !failed.isEmpty(),3000);
+        sender.stopStreaming(); QVERIFY(failed.isEmpty()); QCOMPARE(capture.data(),expected);
+#endif
     }
     void selectionAndLocks() {
         auto *p = ProjectManager::instance();

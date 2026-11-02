@@ -1,8 +1,9 @@
-//FpgaCompiledDocument - типизированное представление строгого XML, готового к загрузке в ПЛИС
+//FpgaCompiledDocument - представление XML до расчёта аппаратной сцены.
 
 #pragma once
 
 #include "BaseObject.h"
+#include "text/FontAtlas.h"
 
 #include <QColor>
 #include <QList>
@@ -12,28 +13,16 @@
 
 class QDomDocument;
 
-enum class FpgaMemoryKind
-{
-    None,
-    StaticMask,
-    RotationTiles
-};
-
-// Объект после экспорта: слова init, маска и назначенные индексы параметров/памяти.
+// Параметры исходного объекта XML; аппаратные индексы здесь ещё не назначаются.
 struct FpgaCompiledObject
 {
     QString type;
     bool leftAnchored = false;
     QStringList iparams;
     QString data;
-    QMap<QString, int> kerningPairs;
-    int startParamIndex = 0;
-    int paramCount = 0;
-    int memId = -1;
-    FpgaMemoryKind memoryKind = FpgaMemoryKind::None;
 };
 
-// Подготовленный кадр со схемами; общий вход для компилятора пакетов и симулятора.
+// Исходный документ с ресурсами шрифтов; вход для FpgaSceneCompiler.
 struct FpgaCompiledDocument
 {
     QString projectName;
@@ -41,6 +30,7 @@ struct FpgaCompiledDocument
     int height = 0;
     QColor backgroundColor = Qt::black;
     QMap<QString, ParamSchema> schemas;
+    QMap<int, FpgaFont> fonts;
     QList<FpgaCompiledObject> objects;
     QStringList warnings;
 

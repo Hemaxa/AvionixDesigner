@@ -1,9 +1,12 @@
-//FpgaCompiledDocument - типизированное представление строгого XML, готового к загрузке в ПЛИС
+//FpgaCompiledDocument - представление XML до расчёта аппаратной сцены.
 
 #include "fpga/model/FpgaCompiledDocument.h"
 
 #include <QDomDocument>
 #include "FpgaSchemaRegistry.h"
+#include "BitParser.h"
+#include "text/FontAtlasXml.h"
+#include "text/TextLayout.h"
 #include <QDomElement>
 #include <QRegularExpression>
 
@@ -46,15 +49,6 @@ QColor colorFromBgrAttribute(const QString &value)
         static_cast<int>((packed >> 8) & 0xFF),
         static_cast<int>((packed >> 16) & 0xFF)
     );
-}
-
-FpgaMemoryKind memoryKindForObject(const QString &type)
-{
-    if (type == QStringLiteral("rotationobject"))
-        return FpgaMemoryKind::RotationTiles;
-    if (type == QStringLiteral("staticgroup") || type == QStringLiteral("font"))
-        return FpgaMemoryKind::StaticMask;
-    return FpgaMemoryKind::None;
 }
 
 QMap<QString, ParamSchema> parseSchemas(const QDomElement &root)
@@ -100,11 +94,24 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
     compiled.backgroundColor = colorFromBgrAttribute(root.attribute(QStringLiteral("bgcolor"), QStringLiteral("#000000")));
     compiled.schemas = parseSchemas(root);
 
-    int nextParamIndex = 0;
-    int nextMemoryId = 0;
     const QDomElement objectsEl = root.firstChildElement(QStringLiteral("objects"));
+    for (auto fontEl = objectsEl.firstChildElement("font"); !fontEl.isNull(); fontEl = fontEl.nextSiblingElement("font")) {
+        FpgaFont font;
+        if (!readFontAtlas(fontEl, compiled.schemas.value("font"), &font, errorMessage))
+            return {};
+        if (compiled.fonts.contains(font.index)) {
+            if (errorMessage)
+                *errorMessage = QStringLiteral("Повторный индекс ресурса шрифта: %1.").arg(font.index);
+            return {};
+        }
+        compiled.fonts.insert(font.index, font);
+    }
     QDomElement objectEl = objectsEl.firstChildElement();
     while (!objectEl.isNull()) {
+        if (objectEl.tagName() == QStringLiteral("font")) {
+            objectEl = objectEl.nextSiblingElement();
+            continue;
+        }
         FpgaCompiledObject object;
         object.type = objectEl.tagName();
         QDomElement childEl = objectEl.firstChildElement();
@@ -115,36 +122,55 @@ FpgaCompiledDocument FpgaCompiledDocument::fromDomDocument(const QDomDocument &d
                 object.data = object.type == QStringLiteral("text")
                     ? cleanCodePayload(childEl.text())
                     : cleanDensePayload(childEl.text());
-            } else if (object.type == QStringLiteral("font") && childEl.tagName() == QStringLiteral("kerning")) {
-                const QString left = childEl.attribute(QStringLiteral("left"));
-                const QString right = childEl.attribute(QStringLiteral("right"));
-                if (!left.isEmpty() && !right.isEmpty()) {
-                    object.kerningPairs.insert(
-                        left.left(1) + right.left(1),
-                        childEl.attribute(QStringLiteral("delta"), QStringLiteral("0")).toInt());
-                }
             }
             childEl = childEl.nextSiblingElement();
-        }
-
-        const bool isLayer3d = object.type == QStringLiteral("layer3d");
-        object.paramCount = isLayer3d ? 0 : object.iparams.size();
-        object.startParamIndex = nextParamIndex;
-        nextParamIndex += object.paramCount;
-
-        object.memoryKind = memoryKindForObject(object.type);
-        if (object.memoryKind != FpgaMemoryKind::None) {
-            object.memId = nextMemoryId;
-            ++nextMemoryId;
         }
 
         if (object.iparams.isEmpty()) {
             compiled.warnings.append(QStringLiteral("Object <%1> has no <init> parameters and was kept without parameter packets.")
                 .arg(object.type));
         }
-        if (object.memoryKind != FpgaMemoryKind::None && object.data.isEmpty()) {
+        if ((object.type == "staticgroup" || object.type == "rotationobject") && object.data.isEmpty()) {
             compiled.warnings.append(QStringLiteral("Object <%1> has memory kind but empty <data> section.")
                 .arg(object.type));
+        }
+
+        if (object.type == QStringLiteral("text")) {
+            QString characters;
+            for (const auto &code : object.data.split(',', Qt::SkipEmptyParts)) {
+                bool ok = false;
+                const uint value = code.toUInt(&ok);
+                if (!ok || value > 65535) {
+                    if (errorMessage)
+                        *errorMessage = QStringLiteral("В <text>/<data> ожидаются десятичные коды UTF-16 0…65535.");
+                    return {};
+                }
+                characters.append(QChar(static_cast<ushort>(value)));
+            }
+            const auto schema = compiled.schemas.value("text");
+            for (const auto &hex : object.iparams) {
+                auto field = [&schema, &hex](const QString &name) {
+                    const auto info = schema.value(name);
+                    return int(BitParser::extract(hex, info.offset, info.size));
+                };
+                const int offset = field("char_offset");
+                const int count = field("char_count");
+                if (offset + count > characters.size()) {
+                    if (errorMessage)
+                        *errorMessage = QStringLiteral("char_offset/char_count текста выходят за границы <data>.");
+                    return {};
+                }
+                if (count == 0)
+                    continue;
+                if (!compiled.fonts.contains(field("font_index"))) {
+                    if (errorMessage)
+                        *errorMessage = QStringLiteral("Текст ссылается на отсутствующий шрифт %1.").arg(field("font_index"));
+                    return {};
+                }
+                TextLayout layout;
+                if (!layoutText(characters.mid(offset, count), compiled.fonts.value(field("font_index")), &layout, errorMessage))
+                    return {};
+            }
         }
 
         compiled.objects.append(object);

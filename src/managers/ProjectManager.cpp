@@ -27,6 +27,8 @@
 #include "ThreeDViewObject.h"
 #include <QScopedValueRollback>
 #include "TextObject.h"
+#include "text/FontRasterizer.h"
+#include "fpga/model/FpgaCompiledDocument.h"
 #include "BitParser.h"
 
 #include <algorithm>
@@ -835,22 +837,6 @@ QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const
     return objEl;
 }
 
-QString maskRowsFromImage(const QImage &image)
-{
-    QStringList rows;
-    rows.reserve(image.height());
-    for (int y = 0; y < image.height(); ++y) {
-        QString row;
-        row.reserve(image.width());
-        for (int x = 0; x < image.width(); ++x) {
-            const int alpha = image.pixelColor(x, y).alpha();
-            row.append(QString::number(qBound(0, qRound(alpha * 7.0 / 255.0), 7)));
-        }
-        rows.append(row);
-    }
-    return rows.join('\n');
-}
-
 QString alphabetCharacters(const QSet<QString> &groups)
 {
     QString characters;
@@ -938,44 +924,6 @@ QString completeAlphabetForTextObjects(const QList<TextObject*> &texts)
     return characters;
 }
 
-QImage renderGlyphMask(const QFont &font, const QChar ch, FpgaGlyph *glyph)
-{
-    QFontMetrics metrics(font);
-    QRect tight = metrics.tightBoundingRect(QString(ch));
-    if (tight.isEmpty())
-        tight = QRect(0, -metrics.ascent(), qMax(1, metrics.horizontalAdvance(ch)), metrics.height());
-
-    const int padding = qMax(2, (qMax(1, font.pixelSize()) + 7) / 8);
-    QImage image(qMax(1, tight.width() + padding * 2), qMax(1, tight.height() + padding * 2), QImage::Format_ARGB32);
-    image.fill(Qt::transparent);
-
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setRenderHint(QPainter::TextAntialiasing);
-    painter.setFont(font);
-    painter.setPen(Qt::white);
-    painter.drawText(QPoint(padding - tight.left(), padding - tight.top()), QString(ch));
-    painter.end();
-
-    if (glyph) {
-        glyph->literal = ch;
-        glyph->code = ch.unicode();
-        glyph->width = image.width();
-        glyph->height = image.height();
-        glyph->advance = metrics.horizontalAdvance(ch);
-        glyph->bearingX = tight.left();
-        glyph->bearingY = tight.top();
-        glyph->ascent = metrics.ascent();
-        glyph->descent = metrics.descent();
-        glyph->floater = tight.top();
-        glyph->size = font.pixelSize();
-        glyph->maskRows = maskRowsFromImage(image);
-        glyph->maskImage = image;
-    }
-
-    return image;
-}
-
 QStringList maskRowsToValues(const QString &rows)
 {
     QStringList values;
@@ -1041,7 +989,7 @@ FpgaGlyph normalizedGlyph(FpgaGlyph glyph, const QChar literal, int fontSize)
         glyph.width = qMax(1, maxWidth);
     }
 
-    if (glyph.advance <= 0)
+    if (glyph.advance < 0)
         glyph.advance = glyph.width;
     if (glyph.ascent <= 0 && glyph.descent <= 0)
         glyph.ascent = glyph.height;
@@ -1334,8 +1282,7 @@ QDomElement createFontResourceElement(QDomDocument &doc,
     int offset = 0;
     int glyphIndex = 0;
     for (const QChar ch : characters) {
-        FpgaGlyph glyph;
-        renderGlyphMask(qfont, ch, &glyph);
+        FpgaGlyph glyph = rasterizeGlyph(qfont, ch);
         glyph.offset = offset;
         glyph.size = key.size;
         glyphIndex++;
@@ -1441,7 +1388,7 @@ QDomElement createFontResourceElementFromAtlas(QDomDocument &doc,
         initEl.setAttribute("literal", QString(ch));
         initEl.setAttribute("code", glyph.code);
         initEl.appendChild(doc.createTextNode(buildInitHex(fontSchema, {
-            {"enb", 1},
+            {"enb", glyph.enabled ? 1u : 0u},
             {"code", static_cast<quint32>(glyph.code)},
             {"w", static_cast<quint32>(glyph.width)},
             {"h", static_cast<quint32>(glyph.height)},
@@ -1486,67 +1433,6 @@ QDomElement createFontResourceElementFromAtlas(QDomDocument &doc,
         *fontOut = font;
 
     return fontEl;
-}
-
-FpgaFont parseFontElement(const QDomElement &fontEl)
-{
-    FpgaFont font;
-    font.index = fontEl.attribute("index", "0").toInt();
-    font.name = fontEl.attribute("name", "Arial");
-    font.size = fontEl.attribute("size", "14").toInt();
-    font.volume = fontEl.attribute("volume", "0").toInt();
-
-    QStringList dataValues;
-    const QString dataText = fontEl.firstChildElement("data").text();
-    for (const QString &part : dataText.split(',', Qt::SkipEmptyParts))
-        dataValues.append(part.trimmed());
-
-    const ParamSchema fontSchema = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("font"));
-    QDomElement glyphEl = fontEl.firstChildElement();
-    while (!glyphEl.isNull()) {
-        if (glyphEl.tagName() == QStringLiteral("init")) {
-            const QString literal = glyphEl.attribute("literal");
-            const QString hex = glyphEl.text().trimmed();
-            if (!literal.isEmpty() && !hex.isEmpty()) {
-                FpgaGlyph glyph;
-                glyph.literal = literal.front();
-                glyph.code = BitParser::extract(hex, fontSchema["code"].offset, fontSchema["code"].size);
-                glyph.width = BitParser::extract(hex, fontSchema["w"].offset, fontSchema["w"].size);
-                glyph.height = BitParser::extract(hex, fontSchema["h"].offset, fontSchema["h"].size);
-                glyph.advance = BitParser::extract(hex, fontSchema["advance"].offset, fontSchema["advance"].size);
-                glyph.bearingX = BitParser::extractSigned(hex, fontSchema["bearing_x"].offset, fontSchema["bearing_x"].size);
-                glyph.bearingY = BitParser::extractSigned(hex, fontSchema["bearing_y"].offset, fontSchema["bearing_y"].size);
-                glyph.ascent = BitParser::extract(hex, fontSchema["ascent"].offset, fontSchema["ascent"].size);
-                glyph.descent = BitParser::extract(hex, fontSchema["descent"].offset, fontSchema["descent"].size);
-                glyph.offset = BitParser::extract(hex, fontSchema["offset"].offset, fontSchema["offset"].size);
-                glyph.size = font.size;
-                glyph.floater = glyph.bearingY;
-
-                QStringList rows;
-                int idx = glyph.offset;
-                for (int y = 0; y < glyph.height; ++y) {
-                    QString row;
-                    row.reserve(glyph.width);
-                    for (int x = 0; x < glyph.width; ++x) {
-                        row.append(idx < dataValues.size() ? dataValues[idx] : QStringLiteral("0"));
-                        ++idx;
-                    }
-                    rows.append(row);
-                }
-                glyph.maskRows = rows.join('\n');
-                glyph = normalizedGlyph(glyph, glyph.literal, font.size);
-                insertGlyph(&font, glyph);
-            }
-        } else if (glyphEl.tagName() == QStringLiteral("kerning")) {
-            const QString left = glyphEl.attribute("left");
-            const QString right = glyphEl.attribute("right");
-            if (!left.isEmpty() && !right.isEmpty())
-                font.kerningPairs.insert(left.left(1) + right.left(1), glyphEl.attribute("delta", "0").toInt());
-        }
-        glyphEl = glyphEl.nextSiblingElement();
-    }
-
-    return font;
 }
 
 QDomDocument buildCompiledXmlDocument(const QString &projectName,
@@ -1739,7 +1625,8 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     }
 
     auto *registry = FpgaSchemaRegistry::instance();
-    if (!registry->validateXml(doc, &m_lastErrorMessage)) {
+    const auto sourceDocument = FpgaCompiledDocument::fromDomDocument(doc, &m_lastErrorMessage);
+    if (!sourceDocument.isValid()) {
         emit logMessage(tr("ОШИБКА: %1").arg(m_lastErrorMessage));
         return false;
     }
@@ -1776,12 +1663,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     QDomElement paramsEl = root.firstChildElement("parameters");
     m_schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
     QDomElement objectsEl = root.firstChildElement("objects");
-    QDomElement fontEl = objectsEl.firstChildElement("font");
-    while (!fontEl.isNull()) {
-        const FpgaFont font = parseFontElement(fontEl);
-        m_fonts.insert(font.index, font);
-        fontEl = fontEl.nextSiblingElement("font");
-    }
+    m_fonts = sourceDocument.fonts;
     for (const QString &type : m_schemas.keys()) {
         emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(m_schemas[type].size()));
     }
