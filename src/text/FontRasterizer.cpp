@@ -1,3 +1,5 @@
+// FontRasterizer - создание растров и метрик символов средствами Qt.
+
 #include "text/FontRasterizer.h"
 
 #include <QFontMetrics>

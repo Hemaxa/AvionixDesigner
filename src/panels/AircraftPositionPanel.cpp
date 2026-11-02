@@ -1,4 +1,4 @@
-// AircraftPositionPanel - панель позиционирования самолета в пространстве
+// AircraftPositionPanel - панель позиционирования самолета в пространстве.
 
 #include "AircraftPositionPanel.h"
 #include "AircraftPositionMapping.h"
@@ -89,7 +89,7 @@ void drawSvg(QPainter *painter, QSvgRenderer &renderer, const QRectF &target) {
     renderer.render(painter, target);
 }
 
-// Числовое поле без лишних нулей; Shift увеличивает шаг стрелок и колеса.
+// AircraftValueSpin - числовое поле координат, курса или высоты с ускорением шага по Shift.
 class AircraftValueSpin : public QDoubleSpinBox {
 public:
   explicit AircraftValueSpin(QWidget *parent) : QDoubleSpinBox(parent) {}
@@ -112,7 +112,7 @@ protected:
   }
 };
 
-// Беззнаковое поле yscreen; ускорение действует и при вращении колеса мыши.
+// AircraftScreenYSpin - редактор сырого yscreen с ускорением стрелок и колеса по Shift.
 class AircraftScreenYSpin : public QSpinBox {
 public:
   using QSpinBox::QSpinBox;
@@ -131,7 +131,7 @@ QLabel *createCaption(const QString &text, QWidget *parent) {
 }
 } // namespace
 
-// Квадратный экран позиционирования; координаты берутся из общей модели 3D-вида.
+// AircraftPositionPanel::ScreenWidget - квадратный экран координат самолёта с отдельными слоями самолёта и радара.
 class AircraftPositionPanel::ScreenWidget : public QWidget {
 public:
   explicit ScreenWidget(QWidget *parent = nullptr)
@@ -207,7 +207,7 @@ private:
   double m_course = 0;
 };
 
-// Ползунок высоты с четвертями метра и ускоренным шагом при Shift.
+// AircraftPositionPanel::AltitudeSliderWidget - вертикальный регулятор высоты с шагом в четверть метра.
 class AircraftPositionPanel::AltitudeSliderWidget : public QWidget {
 public:
   explicit AltitudeSliderWidget(QWidget *parent = nullptr)
@@ -350,7 +350,7 @@ private:
   double m_value = 0.0;
 };
 
-// Круговой регулятор курса: ноль направлен вдоль +X, 90° вдоль +Y.
+// AircraftPositionPanel::CourseKnobWidget - круговой регулятор курса в координатах карты.
 class AircraftPositionPanel::CourseKnobWidget : public QWidget {
 public:
   explicit CourseKnobWidget(QWidget *parent = nullptr)

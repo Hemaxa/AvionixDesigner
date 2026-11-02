@@ -1,4 +1,5 @@
-// ApplicationSettings — единое хранилище настроек и отдельный профиль для проверок.
+// ApplicationSettings - единое хранилище настроек и отдельный профиль для проверок.
+
 #pragma once
 
 #include <QSettings>

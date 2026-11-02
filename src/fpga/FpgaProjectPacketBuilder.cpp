@@ -1,4 +1,4 @@
-//FpgaProjectPacketBuilder - единая точка сборки текущего проекта в пакетный bundle
+// FpgaProjectPacketBuilder - единая точка сборки текущего проекта в пакетный bundle.
 
 #include "fpga/FpgaProjectPacketBuilder.h"
 
@@ -6,8 +6,8 @@
 #include "ThreeDViewObject.h"
 #include "TextObject.h"
 #include "fpga/model/FpgaCompiledDocument.h"
-#include "fpga/model/FpgaSceneCompiler.h"
-#include "fpga/model/FpgaResourceLimits.h"
+#include "fpga/compiler/FpgaSceneCompiler.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 #include "fpga/packets/FpgaPacketCompiler.h"
 
 FpgaPacketBundle FpgaProjectPacketBuilder::buildCurrentProject(QString *errorMessage)

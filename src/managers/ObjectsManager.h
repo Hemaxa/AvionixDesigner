@@ -1,4 +1,4 @@
-//ObjectsManager - менеджер создания объектов по принципу фабрики
+// ObjectsManager - менеджер создания объектов по принципу фабрики.
 
 #pragma once
 
@@ -10,30 +10,31 @@
 
 #include "BaseObject.h"
 
+// ObjectsManager - менеджер создания объектов по принципу фабрики.
 class ObjectsManager : public QObject
 {
     Q_OBJECT
-    
+
 public:
-    //получение единственного экземпляра
+    // получение единственного экземпляра
     static ObjectsManager* instance();
 
-    //тип функции-конструктора объекта
+    // тип функции-конструктора объекта
     using ObjectCreator = std::function<BaseObject*()>;
-    
-    //метод регистрации конкретного типа объекта
+
+    // метод регистрации конкретного типа объекта
     void registerType(const QString &typeName, ObjectCreator creator);
-    
-    //создает объект по имени типа
+
+    // создает объект по имени типа
     BaseObject* createObject(const QString &typeName);
-    
-    //проверяет, зарегистрирован ли тип
+
+    // проверяет, зарегистрирован ли тип
     bool hasType(const QString &typeName) const;
-    
-    //парсит схемы параметров из секции <parameters>
+
+    // парсит схемы параметров из секции <parameters>
     QMap<QString, ParamSchema> parseSchemas(const QDomElement &parametersNode);
-    
-    //возвращает список зарегистрированных типов
+
+    // возвращает список зарегистрированных типов
     QStringList registeredTypes() const;
 
 private:

@@ -1,4 +1,4 @@
-//FpgaSchemaRegistry - единая точка описания XML/FPGA-схем и UI-каталога объектов
+// FpgaSchemaRegistry - единая точка описания XML/FPGA-схем и UI-каталога объектов.
 
 #pragma once
 
@@ -10,6 +10,7 @@
 
 class QDomDocument;
 
+// FpgaSchemaField - имя, битовое смещение и ширина поля протокола.
 struct FpgaSchemaField
 {
     QString name; //имя параметра в аппаратной схеме
@@ -17,7 +18,8 @@ struct FpgaSchemaField
     int size = 0; //размер параметра в битах
 };
 
-//описание объекта, доступного пользователю в библиотеке/меню редактора
+// описание объекта, доступного пользователю в библиотеке/меню редактора
+// EditorObjectDescriptor - название, иконка и доступность типа объекта в интерфейсе.
 struct EditorObjectDescriptor
 {
     QString typeName; //внутреннее имя типа объекта
@@ -27,25 +29,26 @@ struct EditorObjectDescriptor
     bool creatableInMenu = false; //показывать ли объект в меню создания
 };
 
+// FpgaSchemaRegistry - единая точка описания XML/FPGA-схем и UI-каталога объектов.
 class FpgaSchemaRegistry
 {
 public:
-    //возвращает единственный экземпляр реестра схем
+    // возвращает единственный экземпляр реестра схем
     static FpgaSchemaRegistry* instance();
 
     // Проверяет единственный поддерживаемый формат без псевдонимов и старых схем.
     bool validateXml(const QDomDocument &document, QString *errorMessage = nullptr) const;
 
-    //возвращает поля схемы в аппаратном порядке
+    // возвращает поля схемы в аппаратном порядке
     QList<FpgaSchemaField> fieldsForSchema(const QString &schemaName) const;
-    //строит ParamSchema для парсинга и сериализации HEX-параметров
+    // строит ParamSchema для парсинга и сериализации HEX-параметров
     ParamSchema buildSchema(const QString &schemaName) const;
 
-    //возвращает полный порядок известных схем
+    // возвращает полный порядок известных схем
     QStringList orderedSchemaNames() const;
-    //возвращает схемы, которые должны присутствовать в новом проекте
+    // возвращает схемы, которые должны присутствовать в новом проекте
     QStringList defaultSchemaNames() const;
-    //возвращает каталог объектов, доступных в интерфейсе редактора
+    // возвращает каталог объектов, доступных в интерфейсе редактора
     QList<EditorObjectDescriptor> editorObjectCatalog() const;
 
 private:

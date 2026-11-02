@@ -53,7 +53,7 @@ compile_commands.json
 
 *_qmlcache.qrc
 
-# Мои добавления
+# Локальные данные, архивы и файлы операционной системы
 /build
 /FrameGUI
 .DS_Store

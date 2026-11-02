@@ -1,4 +1,5 @@
-// Аппаратная сцена: только готовые слова параметров и адресуемые банки растров.
+// FpgaHardwareScene - готовые аппаратные параметры объектов и общие банки растров.
+
 #pragma once
 
 #include "BaseObject.h"
@@ -8,23 +9,27 @@
 #include <QMap>
 #include <QStringList>
 
+// FpgaMemoryKind - способ упаковки растрового банка в пакеты ПЛИС.
 enum class FpgaMemoryKind { StaticMask, RotationTiles };
 
+// FpgaHardwareMemory - общий банк уровней маски до упаковки в аппаратные блоки.
 struct FpgaHardwareMemory
 {
     FpgaMemoryKind kind = FpgaMemoryKind::StaticMask;
-    QString data;
+    QString data; // Плотная строка уровней 0…7; тайлы упаковываются позже.
 };
 
+// FpgaHardwareObject - аппаратные слова объекта и ссылки на параметры и память сцены.
 struct FpgaHardwareObject
 {
     QString type;
     bool leftAnchored = false;
-    QStringList iparams;
-    int startParamIndex = 0;
-    int memId = -1;
+    QStringList iparams; // Слова по 150 бит: 38 HEX-символов на init.
+    int startParamIndex = 0; // Глобальный индекс первого слова параметров.
+    int memId = -1; // Индекс общего банка в memories; -1 означает отсутствие маски.
 };
 
+// FpgaHardwareScene - готовые аппаратные параметры объектов и общие банки растров.
 struct FpgaHardwareScene
 {
     QString projectName;

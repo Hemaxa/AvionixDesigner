@@ -1,4 +1,4 @@
-//AircraftPositionPanel - панель позиционирования самолета в пространстве
+// AircraftPositionPanel - панель позиционирования самолета в пространстве.
 
 #pragma once
 
@@ -17,6 +17,7 @@ class QTimer;
 class QToolButton;
 class QWidget;
 
+// AircraftPositionPanel - панель позиционирования самолета в пространстве.
 class AircraftPositionPanel : public BasePanel
 {
     Q_OBJECT

@@ -1,4 +1,4 @@
-//RotationObject - класс растрового объекта с маской и поддержкой вращения
+// RotationObject - класс растрового объекта с маской и поддержкой вращения.
 
 #pragma once
 
@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <QVector>
 
+// RotationObjectLayer - параметры одного аппаратного слоя вращающейся маски.
 struct RotationObjectLayer
 {
     double left = 0;
@@ -21,13 +22,14 @@ struct RotationObjectLayer
     bool enabled = true;
 };
 
+// RotationObject - класс растрового объекта с маской и поддержкой вращения.
 class RotationObject : public BaseObject
 {
     Q_OBJECT
-    
+
 public:
     bool enabled = true;
-    //параметры объекта
+    // параметры объекта
     double left = 0; //левая граница
     double top = 0; //верхняя граница
     double right = 0; //правая граница
@@ -38,10 +40,10 @@ public:
     double cosVal = 0; //косинус угла
     QColor color; //цвет объекта
     QImage maskImage; //растровая маска
-    
+
     explicit RotationObject(QObject *parent = nullptr);
-    
-    //переопределение виртуальных методов из базового класса
+
+    // переопределение виртуальных методов из базового класса
     void parse(const QString &hexInit, const ParamSchema &schema) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
@@ -49,21 +51,21 @@ public:
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
     bool supportsRotationHandle() const override { return true; }
-    
+
     // Взаимодействие
     bool contains(const QPointF &point) const override;
     void moveBy(double dx, double dy) override;
     void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     void setRotation(double angle) override;
-    
+
     bool setObjectProperty(const QString &name, const QString &value) override;
     void parseExtraData(const QDomElement &element) override;
     QMap<QString, quint32> serializeParams() const override;
     QList<QMap<QString, quint32>> serializeLayerParams() const;
     void setHardwareLayersFromInitHex(const QStringList &initHexList, const ParamSchema &schema);
     QVector<RotationObjectLayer> hardwareLayers() const;
-    
-    //метод, который возвращает угол вращения в градусах, вычисленный из sinVal/cosVal
+
+    // метод, который возвращает угол вращения в градусах, вычисленный из sinVal/cosVal
     double getAngleDegrees() const;
 
 private:

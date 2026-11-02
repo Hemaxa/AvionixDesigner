@@ -1,4 +1,4 @@
-//FpgaPacketDump - запись сформированных пакетов в бинарный файл для отладки
+// FpgaPacketDump - запись сформированных пакетов в бинарный файл для отладки.
 
 #include "fpga/transport/FpgaPacketDump.h"
 

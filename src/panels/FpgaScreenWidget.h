@@ -1,10 +1,11 @@
-//FpgaScreenWidget - декоративная рамка экрана для результата симулятора ПЛИС
+// FpgaScreenWidget - декоративная рамка экрана для результата симулятора ПЛИС.
 
 #pragma once
 
 #include <QImage>
 #include <QWidget>
 
+// FpgaScreenWidget - декоративная рамка экрана для результата симулятора ПЛИС.
 class FpgaScreenWidget : public QWidget
 {
     Q_OBJECT

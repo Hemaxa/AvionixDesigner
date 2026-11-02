@@ -1,4 +1,4 @@
-//FpgaPacketFramer - общий каркас пакетов SAIN/length/type/payload/FCS
+// FpgaPacketFramer - общий каркас пакетов SAIN/length/type/payload/FCS.
 
 #include "fpga/packets/FpgaPacketFramer.h"
 

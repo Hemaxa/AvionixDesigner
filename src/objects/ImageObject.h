@@ -1,4 +1,4 @@
-//ImageObject - редактируемый источник изображения до экспорта в растровую маску ПЛИС
+// ImageObject - редактируемый источник изображения до экспорта в растровую маску ПЛИС.
 
 #pragma once
 
@@ -9,6 +9,7 @@
 #include <QList>
 #include <QRect>
 
+// ImageColorLayer - исходный цвет слоя и выбранный цвет аппаратной маски.
 struct ImageColorLayer
 {
     QColor sourceColor;
@@ -16,6 +17,7 @@ struct ImageColorLayer
     bool autoMaskColor = true;
 };
 
+// ImageMaskComponent - цветовая маска изображения со своим цветом и габаритами.
 struct ImageMaskComponent
 {
     int layerIndex = 0;
@@ -24,6 +26,7 @@ struct ImageMaskComponent
     QImage mask;
 };
 
+// ImageObject - редактируемый источник изображения до экспорта в растровую маску ПЛИС.
 class ImageObject : public BaseObject
 {
     Q_OBJECT
@@ -39,6 +42,7 @@ public:
     QString sourceName;
     QString format = QStringLiteral("raster");
 
+    // Kind - фиксированный тип изображения: статический или вращающийся.
     enum class Kind { Static, Rotating };
     explicit ImageObject(Kind kind = Kind::Static, QObject *parent = nullptr);
     bool isRotationObject() const { return m_kind == Kind::Rotating; }
@@ -49,7 +53,6 @@ public:
     QImage renderedImage() const;
     QColor effectiveMaskColor() const;
     QList<ImageMaskComponent> maskComponents() const;
-    QList<QList<ImageMaskComponent>> maskComponentGroups() const;
     QList<ImageColorLayer> colorLayers() const;
     void setColorLayers(const QList<ImageColorLayer> &layers);
     bool hasRotation() const;

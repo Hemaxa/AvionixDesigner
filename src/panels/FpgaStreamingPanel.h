@@ -1,4 +1,4 @@
-//FpgaStreamingPanel - панель выбора способа загрузки пакетов ПЛИС
+// FpgaStreamingPanel - панель выбора способа загрузки пакетов ПЛИС.
 
 #pragma once
 
@@ -8,6 +8,7 @@
 
 class QToolButton;
 
+// FpgaStreamingPanel - панель выбора способа загрузки пакетов ПЛИС.
 class FpgaStreamingPanel : public BasePanel
 {
     Q_OBJECT

@@ -1,4 +1,4 @@
-//TextObject - редакторский объект текста, экспортируемый в FPGA XML через font/text ресурсы
+// TextObject - редакторский объект текста, экспортируемый в FPGA XML через font/text ресурсы.
 
 #include "TextObject.h"
 
@@ -372,12 +372,6 @@ bool TextObject::hasFontAtlas() const
 const FpgaFont& TextObject::fontAtlas() const
 {
     return m_fontAtlas;
-}
-
-QRect TextObject::overallRect() const
-{
-    const GroupState state = states.isEmpty() ? GroupState{} : states.first();
-    return QRect(state.x, state.y, state.w, state.h);
 }
 
 QRectF TextObject::getBoundingRect() const

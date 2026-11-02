@@ -1,9 +1,10 @@
-//DashedLineObject - объект аппаратной штриховой линии
+// DashedLineObject - объект аппаратной штриховой линии.
 
 #pragma once
 
 #include "BaseObject.h"
 
+// DashedLineObject - объект аппаратной штриховой линии.
 class DashedLineObject : public BaseObject
 {
     Q_OBJECT

@@ -1,12 +1,11 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 1.0.7 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.8 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg SerialPort)
 
 qt_standard_project_setup()
 
 set(APP_ICON_DIR "${CMAKE_SOURCE_DIR}/res/app-icons")
-set(APP_ICON_PNG "${APP_ICON_DIR}/icon.png")
 set(APP_ICON_ICO "${APP_ICON_DIR}/AvionixDesigner.ico")
 set(APP_ICON_ICNS "${APP_ICON_DIR}/AvionixDesigner.icns")
 set(APP_ICON_RC "${APP_ICON_DIR}/AvionixDesigner.rc")
@@ -24,10 +23,10 @@ endif()
 qt_add_executable(AvionixDesigner
     WIN32 MACOSX_BUNDLE
     ${APP_PLATFORM_ICON_RESOURCE}
-    
+
     # Точка входа
     src/main.cpp
-    
+
     # Базовые классы
     src/BaseObject.h
     src/BasePanel.h
@@ -39,7 +38,7 @@ qt_add_executable(AvionixDesigner
     # Реестр FPGA-схем
     src/schema/FpgaSchemaRegistry.h
     src/schema/FpgaSchemaRegistry.cpp
-    
+
     # Менеджеры
     src/managers/ProjectManager.h
     src/managers/ProjectManager.cpp
@@ -47,7 +46,7 @@ qt_add_executable(AvionixDesigner
     src/managers/ObjectsManager.cpp
     src/managers/AppearanceManager.h
     src/managers/AppearanceManager.cpp
-    
+
     # Панели
     src/panels/ViewportPanel.h
     src/panels/ViewportPanel.cpp
@@ -71,7 +70,7 @@ qt_add_executable(AvionixDesigner
     src/panels/FpgaSimulatorPanel.cpp
     src/panels/AircraftPositionPanel.h
     src/panels/AircraftPositionPanel.cpp
-    
+
     # Объекты
     src/objects/RectangleObject.h
     src/objects/RectangleObject.cpp
@@ -100,15 +99,15 @@ qt_add_executable(AvionixDesigner
     src/text/FontRasterizer.cpp
     src/text/TextLayout.h
     src/text/TextLayout.cpp
-    
+
     # FPGA Подсистема
     src/fpga/model/FpgaCompiledDocument.h
     src/fpga/model/FpgaCompiledDocument.cpp
     src/fpga/model/FpgaHardwareScene.h
-    src/fpga/model/FpgaSceneCompiler.h
-    src/fpga/model/FpgaSceneCompiler.cpp
-    src/fpga/model/FpgaResourceLimits.h
-    src/fpga/model/FpgaResourceLimits.cpp
+    src/fpga/compiler/FpgaSceneCompiler.h
+    src/fpga/compiler/FpgaSceneCompiler.cpp
+    src/fpga/compiler/FpgaResourceLimits.h
+    src/fpga/compiler/FpgaResourceLimits.cpp
     src/fpga/model/Layer3dFormat.h
     src/fpga/packets/FpgaPacket.h
     src/fpga/packets/FpgaPacket.cpp
@@ -124,7 +123,7 @@ qt_add_executable(AvionixDesigner
     src/fpga/simulator/FpgaSimulator.cpp
     src/fpga/FpgaProjectPacketBuilder.h
     src/fpga/FpgaProjectPacketBuilder.cpp
-    
+
     # Окна
     src/windows/MainWindow.h
     src/windows/MainWindow.cpp
@@ -134,7 +133,7 @@ qt_add_executable(AvionixDesigner
     src/windows/SettingsWindow.cpp
     src/windows/FontExportDialog.h
     src/windows/FontExportDialog.cpp
-    
+
     # Утилиты (header-only)
     src/utils/BitParser.h
     src/utils/XmlReader.h
@@ -146,7 +145,7 @@ qt_add_executable(AvionixDesigner
     src/utils/ElidedLabel.h
     src/utils/ApplicationSettings.h
     src/utils/ApplicationLanguage.h
-    
+
     # Ресурсы
     res/resources.qrc
 )

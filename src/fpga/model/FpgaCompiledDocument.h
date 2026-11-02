@@ -1,4 +1,4 @@
-//FpgaCompiledDocument - представление XML до расчёта аппаратной сцены.
+// FpgaCompiledDocument - представление XML до расчёта аппаратной сцены.
 
 #pragma once
 
@@ -14,6 +14,7 @@
 class QDomDocument;
 
 // Параметры исходного объекта XML; аппаратные индексы здесь ещё не назначаются.
+// FpgaCompiledObject - исходные init/data объекта XML до назначения аппаратных индексов.
 struct FpgaCompiledObject
 {
     QString type;
@@ -23,6 +24,7 @@ struct FpgaCompiledObject
 };
 
 // Исходный документ с ресурсами шрифтов; вход для FpgaSceneCompiler.
+// FpgaCompiledDocument - представление XML до расчёта аппаратной сцены.
 struct FpgaCompiledDocument
 {
     QString projectName;

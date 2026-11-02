@@ -1,9 +1,10 @@
-//AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта
+// AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта.
 
 #pragma once
 
 #include "BaseObject.h"
 
+// AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта.
 class AviaHorizonObject : public BaseObject
 {
     Q_OBJECT

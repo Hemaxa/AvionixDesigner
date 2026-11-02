@@ -1,4 +1,4 @@
-//FpgaSimulator - программная модель загрузки пакетов и предпросмотра кадра ПЛИС
+// FpgaSimulator - программная модель загрузки пакетов и предпросмотра кадра ПЛИС.
 
 #pragma once
 
@@ -9,6 +9,7 @@
 #include <QMap>
 #include <QStringList>
 
+// FpgaSimulator - программная модель загрузки пакетов и предпросмотра кадра ПЛИС.
 class FpgaSimulator
 {
 public:

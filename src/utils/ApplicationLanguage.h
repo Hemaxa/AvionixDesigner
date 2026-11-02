@@ -1,4 +1,5 @@
-// Русский язык приложения и стандартных диалогов Qt на любой ОС.
+// ApplicationLanguage - русская локаль и встроенный перевод стандартных диалогов Qt.
+
 #pragma once
 #include <QApplication>
 #include <QLocale>

@@ -1,4 +1,4 @@
-//SettingsWindow - окно настроек приложения
+// SettingsWindow - окно настроек приложения.
 
 #include "SettingsWindow.h"
 #include "AppearanceManager.h"

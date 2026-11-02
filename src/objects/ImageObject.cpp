@@ -1,4 +1,4 @@
-//ImageObject - редактируемый источник изображения до экспорта в растровую маску ПЛИС
+// ImageObject - редактируемый источник изображения до экспорта в растровую маску ПЛИС.
 
 #include "ImageObject.h"
 #include "ProportionalResize.h"
@@ -24,6 +24,7 @@ constexpr int kWeakColorMergePercent = 75;
 constexpr int kStaticGroupMaxDimension = 4095;
 constexpr int kStaticGroupMaxPixels = 65536;
 
+// ColorStats - взвешенная статистика исходных цветов для построения палитры.
 struct ColorStats
 {
     int firstIndex = 0;
@@ -33,6 +34,7 @@ struct ColorStats
     qint64 blue = 0;
 };
 
+// PaletteEntry - цвет палитры, его вес и порядок первого появления в изображении.
 struct PaletteEntry
 {
     QColor sourceColor;
@@ -40,6 +42,7 @@ struct PaletteEntry
     qint64 weight = 0;
 };
 
+// LayerAccumulator - границы и суммарная непрозрачность цветового слоя.
 struct LayerAccumulator
 {
     bool hasPixels = false;
@@ -47,6 +50,7 @@ struct LayerAccumulator
     qint64 alphaWeight = 0;
 };
 
+// ClassifiedImage - изображение, палитра и соответствие пикселей цветовым слоям.
 struct ClassifiedImage
 {
     QImage image;
@@ -422,68 +426,6 @@ QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<Im
     return buildComponentsFromPixels(classified, storedLayers, pixels, layers);
 }
 
-QList<QList<ImageMaskComponent>> extractComponentGroups(const QImage &source, const QList<ImageColorLayer> &storedLayers)
-{
-    QList<QList<ImageMaskComponent>> groups;
-    const ClassifiedImage classified = classifyImage(source, storedLayers);
-    if (classified.image.isNull() || classified.palette.isEmpty())
-        return groups;
-
-    const int width = classified.image.width();
-    const int height = classified.image.height();
-    const int pixelCount = width * height;
-    QVector<quint8> visited(pixelCount, 0);
-
-    constexpr int kNeighborCount = 8;
-    constexpr int dx[kNeighborCount] = {-1, 0, 1, -1, 1, -1, 0, 1};
-    constexpr int dy[kNeighborCount] = {-1, -1, -1, 0, 0, 1, 1, 1};
-
-    for (int startIndex = 0; startIndex < pixelCount; ++startIndex) {
-        if (classified.labels[startIndex] < 0 || visited[startIndex])
-            continue;
-
-        QVector<int> queue;
-        QVector<int> pixels;
-        QVector<LayerAccumulator> layers(classified.palette.size());
-        queue.reserve(256);
-        pixels.reserve(256);
-
-        visited[startIndex] = 1;
-        queue.append(startIndex);
-
-        for (int head = 0; head < queue.size(); ++head) {
-            const int pixelIndex = queue[head];
-            pixels.append(pixelIndex);
-
-            const int x = pixelIndex % width;
-            const int y = pixelIndex / width;
-            const int layerIndex = classified.labels[pixelIndex];
-            const int alpha = classified.image.pixelColor(x, y).alpha();
-            addPixelToLayer(layers[layerIndex], x, y, alpha);
-
-            for (int i = 0; i < kNeighborCount; ++i) {
-                const int nx = x + dx[i];
-                const int ny = y + dy[i];
-                if (nx < 0 || ny < 0 || nx >= width || ny >= height)
-                    continue;
-
-                const int neighborIndex = ny * width + nx;
-                if (visited[neighborIndex] || classified.labels[neighborIndex] < 0)
-                    continue;
-
-                visited[neighborIndex] = 1;
-                queue.append(neighborIndex);
-            }
-        }
-
-        const QList<ImageMaskComponent> components = buildComponentsFromPixels(classified, storedLayers, pixels, layers);
-        if (!components.isEmpty())
-            groups.append(components);
-    }
-
-    return groups;
-}
-
 qint64 staticGroupPixelCost(const QList<ImageMaskComponent> &components)
 {
     qint64 pixels = 0;
@@ -533,23 +475,7 @@ double rotationSimplificationScale(const QSize &size)
     return scale;
 }
 
-QString objectCountWord(int count)
-{
-    const int mod100 = count % 100;
-    if (mod100 >= 11 && mod100 <= 14)
-        return QStringLiteral("объектов");
 
-    switch (count % 10) {
-    case 1:
-        return QStringLiteral("объект");
-    case 2:
-    case 3:
-    case 4:
-        return QStringLiteral("объекта");
-    default:
-        return QStringLiteral("объектов");
-    }
-}
 }
 
 ImageObject::ImageObject(Kind kind, QObject *parent) : BaseObject(parent), m_kind(kind) {}
@@ -667,11 +593,6 @@ QColor ImageObject::effectiveMaskColor() const
 QList<ImageMaskComponent> ImageObject::maskComponents() const
 {
     return extractComponents(renderedSourceImage(), m_colorLayers);
-}
-
-QList<QList<ImageMaskComponent>> ImageObject::maskComponentGroups() const
-{
-    return extractComponentGroups(renderedSourceImage(), m_colorLayers);
 }
 
 QList<ImageColorLayer> ImageObject::colorLayers() const

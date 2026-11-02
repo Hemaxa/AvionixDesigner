@@ -1,11 +1,11 @@
-//ObjectPropertiesPanel - панель свойств выбранного объекта
+// ObjectPropertiesPanel - панель свойств выбранного объекта.
 
 #include "ObjectPropertiesPanel.h"
 
 #include "BaseObject.h"
 #include "ProjectManager.h"
 #include "ThreeDViewObject.h"
-#include "fpga/model/FpgaResourceLimits.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 
 #include <QColorDialog>
 #include <QComboBox>
@@ -30,7 +30,7 @@
 #include <QTimer>
 
 namespace {
-// Выбирает редактор значения свойства: список для положения, шрифта и флагов.
+// PropertyValueDelegate - выбор редакторов свойств и размещение составного поля прозрачности.
 class PropertyValueDelegate : public QStyledItemDelegate
 {
 public:
@@ -488,12 +488,6 @@ bool ObjectPropertiesPanel::isColorProperty(const QString &name) const
     return name.contains(QStringLiteral("Цвет"))
         || name == QStringLiteral("Заливка")
         || name == QStringLiteral("Обводка");
-}
-
-bool ObjectPropertiesPanel::isBooleanProperty(const QString &name) const
-{
-    return name == QStringLiteral("Включен")
-        || name.endsWith(QStringLiteral("Видимость"));
 }
 
 bool ObjectPropertiesPanel::isReadOnlyProperty(const QString &name) const

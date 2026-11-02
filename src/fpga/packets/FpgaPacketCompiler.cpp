@@ -1,10 +1,10 @@
-//FpgaPacketCompiler - упаковывает готовую аппаратную сцену в UART/BIN пакеты.
+// FpgaPacketCompiler - упаковывает готовую аппаратную сцену в UART/BIN пакеты.
 
 #include "fpga/packets/FpgaPacketCompiler.h"
 
 #include "BitParser.h"
 #include "fpga/packets/FpgaPacketFramer.h"
-#include "fpga/model/FpgaResourceLimits.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 
 #include <QtGlobal>
 #include <QSet>

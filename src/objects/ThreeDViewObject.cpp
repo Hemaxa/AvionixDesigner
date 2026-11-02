@@ -1,4 +1,4 @@
-//ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС
+// ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС.
 
 #include "ThreeDViewObject.h"
 

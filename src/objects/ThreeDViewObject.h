@@ -1,4 +1,4 @@
-//ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС
+// ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС.
 
 #pragma once
 
@@ -6,6 +6,7 @@
 #include <QSvgRenderer>
 #include "fpga/model/Layer3dFormat.h"
 
+// ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС.
 class ThreeDViewObject : public BaseObject
 {
     Q_OBJECT

@@ -1,4 +1,4 @@
-//FpgaPacketCompiler - упаковывает готовую аппаратную сцену в UART/BIN пакеты.
+// FpgaPacketCompiler - упаковывает готовую аппаратную сцену в UART/BIN пакеты.
 
 #pragma once
 
@@ -7,6 +7,7 @@
 
 #include <QByteArray>
 
+// FpgaPacketCompiler - упаковывает готовую аппаратную сцену в UART/BIN пакеты.
 class FpgaPacketCompiler
 {
 public:

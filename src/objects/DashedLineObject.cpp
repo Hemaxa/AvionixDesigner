@@ -1,4 +1,4 @@
-//DashedLineObject - объект аппаратной штриховой линии
+// DashedLineObject - объект аппаратной штриховой линии.
 
 #include "DashedLineObject.h"
 

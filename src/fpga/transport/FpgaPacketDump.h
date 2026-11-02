@@ -1,4 +1,4 @@
-//FpgaPacketDump - запись сформированных пакетов в бинарный файл для отладки
+// FpgaPacketDump - запись сформированных пакетов в бинарный файл для отладки.
 
 #pragma once
 
@@ -6,6 +6,7 @@
 
 #include <QString>
 
+// FpgaPacketDump - запись сформированных пакетов в бинарный файл для отладки.
 class FpgaPacketDump
 {
 public:

@@ -1,10 +1,11 @@
-//TextObject - редакторский объект текста, экспортируемый в FPGA XML через font/text ресурсы
+// TextObject - редакторский объект текста, экспортируемый в FPGA XML через font/text ресурсы.
 
 #pragma once
 
 #include "StaticGroupObject.h"
 #include "text/FontAtlas.h"
 
+// TextObject - редакторский объект текста, экспортируемый в FPGA XML через font/text ресурсы.
 class TextObject : public StaticGroupObject
 {
     Q_OBJECT
@@ -31,7 +32,6 @@ public:
     void setFontAtlas(const FpgaFont &font, bool restricted);
     bool hasFontAtlas() const;
     const FpgaFont& fontAtlas() const;
-    QRect overallRect() const;
 
 private:
     void rebuildMask();

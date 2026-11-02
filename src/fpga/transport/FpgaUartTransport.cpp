@@ -1,4 +1,4 @@
-// FpgaUartTransport — постоянный UART-сеанс с загрузкой сцены и последними координатами.
+// FpgaUartTransport - постоянный UART-сеанс с загрузкой сцены и последними координатами.
 
 #include "fpga/transport/FpgaUartTransport.h"
 #include <QElapsedTimer>

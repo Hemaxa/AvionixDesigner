@@ -1,4 +1,4 @@
-//RectangleObject - класс векторного прямоугольного объекта с заливкой и обводкой
+// RectangleObject - класс векторного прямоугольного объекта с заливкой и обводкой.
 
 #include "RectangleObject.h"
 #include "BitParser.h"
@@ -12,25 +12,25 @@ RectangleObject::RectangleObject(QObject *parent) : BaseObject(parent), fillColo
 void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
     enabled = BitParser::extract(hexInit, schema.value("enb").offset, schema.value("enb").size) != 0;
-    //парсинг координат
-    //если в XML сказано, что у прямоугольника есть параметр "x0"
-    if (schema.contains("x0")) 
+    // парсинг координат
+    // если в XML сказано, что у прямоугольника есть параметр "x0"
+    if (schema.contains("x0"))
         // BitParser вырезает биты по инструкции
         x = BitParser::extract(hexInit, schema["x0"].offset, schema["x0"].size);
-    if (schema.contains("y0")) 
+    if (schema.contains("y0"))
         y = BitParser::extract(hexInit, schema["y0"].offset, schema["y0"].size);
-    if (schema.contains("w"))  
+    if (schema.contains("w"))
         width = BitParser::extract(hexInit, schema["w"].offset, schema["w"].size);
-    if (schema.contains("h"))  
+    if (schema.contains("h"))
         height = BitParser::extract(hexInit, schema["h"].offset, schema["h"].size);
 
-    //парсинг цвета заливки
+    // парсинг цвета заливки
     if (schema.contains("color")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["color"].offset, schema["color"].size);
         fillColor = BitParser::parseColor(colorVal);
     }
 
-    //парсинг цвета обводки
+    // парсинг цвета обводки
     if (schema.contains("colorb")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["colorb"].offset, schema["colorb"].size);
         strokeColor = BitParser::parseColor(colorVal);
@@ -39,12 +39,12 @@ void RectangleObject::parse(const QString &hexInit, const ParamSchema &schema)
         strokeColor = Qt::transparent;
     }
 
-    //парсинг толщины обводки
+    // парсинг толщины обводки
     if (schema.contains("a")) {
         strokeWidth = BitParser::extract(hexInit, schema["a"].offset, schema["a"].size);
     }
-    
-    //парсинг прозрачности
+
+    // парсинг прозрачности
     if (schema.contains("alph")) {
         int rawAlpha = BitParser::extract(hexInit, schema["alph"].offset, schema["alph"].size);
         alpha = qBound(0, qRound((rawAlpha + 1) * 255.0 / 8.0), 255);
@@ -129,17 +129,17 @@ void RectangleObject::resizeBy(int edgeFlags, double dx, double dy, bool proport
     if (edgeFlags & 8) { // Снизу
         height += dy;
     }
-    
+
     if (width < 1.0) width = 1.0;
     if (height < 1.0) height = 1.0;
-    
+
     emit changed();
 }
 
 bool RectangleObject::setObjectProperty(const QString &name, const QString &value)
 {
     bool ok = false;
-    
+
     if (name == "X") {
         x = value.toDouble(&ok);
     }
@@ -175,7 +175,7 @@ bool RectangleObject::setObjectProperty(const QString &name, const QString &valu
             explicitAlpha = true;
         }
     }
-    
+
     if (ok) emit changed();
     return ok;
 }

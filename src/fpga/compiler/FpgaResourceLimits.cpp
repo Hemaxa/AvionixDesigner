@@ -1,4 +1,6 @@
-#include "fpga/model/FpgaResourceLimits.h"
+// FpgaResourceLimits - проверка ёмкости памяти и количества параметров растровых объектов.
+
+#include "fpga/compiler/FpgaResourceLimits.h"
 
 #include "ImageObject.h"
 #include "RotationObject.h"

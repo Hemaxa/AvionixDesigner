@@ -1,4 +1,4 @@
-//FpgaSimulatorPanel - панель симулятора ПЛИС
+// FpgaSimulatorPanel - панель симулятора ПЛИС.
 
 #pragma once
 
@@ -10,6 +10,7 @@ class FpgaScreenWidget;
 class QLabel;
 class QScrollArea;
 
+// FpgaSimulatorPanel - панель симулятора ПЛИС.
 class FpgaSimulatorPanel : public BasePanel
 {
     Q_OBJECT

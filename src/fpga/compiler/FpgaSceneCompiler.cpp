@@ -1,5 +1,7 @@
-#include "fpga/model/FpgaSceneCompiler.h"
-#include "fpga/model/FpgaResourceLimits.h"
+// FpgaSceneCompiler - преобразование XML-модели и текста в аппаратную сцену.
+
+#include "fpga/compiler/FpgaSceneCompiler.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 
 #include "BitParser.h"
 #include "FpgaSchemaRegistry.h"

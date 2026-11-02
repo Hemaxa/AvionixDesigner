@@ -1,4 +1,4 @@
-//ProjectManager - менеджер проекта, связывающий внутреннюю модель редактора с экспортом в XML
+// ProjectManager - менеджер проекта, связывающий внутреннюю модель редактора с экспортом в XML.
 
 #include <QFile>
 #include <QDomDocument>
@@ -29,7 +29,7 @@
 #include "TextObject.h"
 #include "text/FontRasterizer.h"
 #include "fpga/model/FpgaCompiledDocument.h"
-#include "fpga/model/FpgaResourceLimits.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 #include "RasterGeometry.h"
 #include "BitParser.h"
 
@@ -1209,6 +1209,7 @@ void appendCompiledImageElements(QDomDocument &doc,
                                                                         simplifyComponentForRotationObject(component)));
 }
 
+// ExportFontKey - ключ объединения текстовых объектов в один ресурс шрифта.
 struct ExportFontKey
 {
     QString family;
@@ -1625,16 +1626,16 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     m_nextGroupId = 1;
     m_fonts.clear();
     clearHistory();
-    
-    //получаем корневой элемент
+
+    // получаем корневой элемент
     QDomElement root = doc.documentElement();
-    //читаем метаданные проекта
+    // читаем метаданные проекта
     m_document->setProjectName(root.attribute("name", "Untitled"));
     m_document->setCanvasSize(root.attribute("width", "640").toInt(), root.attribute("height", "480").toInt());
     m_document->setBackgroundColor(Qt::black);
     reloadGlobalSettings();
-    
-    //парсим цвет фона
+
+    // парсим цвет фона
     QString bgStr = root.attribute("bgcolor", "#0");
     if (bgStr.startsWith("#")) {
         bool ok;
@@ -1643,10 +1644,10 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
             m_document->setBackgroundColor(QColor(colorVal & 0xFF, (colorVal >> 8) & 0xFF, (colorVal >> 16) & 0xFF));
         }
     }
-    
+
     emit logMessage(tr("Проект: %1 (%2x%3)").arg(m_document->projectName()).arg(m_document->canvasWidth()).arg(m_document->canvasHeight()));
-    
-    //парсим схемы параметров и сохраняем для использования при сохранении
+
+    // парсим схемы параметров и сохраняем для использования при сохранении
     QDomElement paramsEl = root.firstChildElement("parameters");
     m_schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
     QDomElement objectsEl = root.firstChildElement("objects");
@@ -1654,14 +1655,14 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     for (const QString &type : m_schemas.keys()) {
         emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(m_schemas[type].size()));
     }
-    
-    //парсим объекты
+
+    // парсим объекты
     QDomNode objNode = objectsEl.firstChild();
-    
+
     while (!objNode.isNull()) {
         QDomElement objEl = objNode.toElement();
         QString tagName = objEl.tagName();
-        
+
         const QString schemaName = tagName;
         if (tagName == QStringLiteral("text")) {
             const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
@@ -1706,8 +1707,8 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 initReaderEl = initReaderEl.nextSiblingElement("init");
             }
             QString hexInit = initHexList.isEmpty() ? QString() : initHexList.first();
-            
-            //создаем объект через фабрику
+
+            // создаем объект через фабрику
             BaseObject *obj = ObjectsManager::instance()->createObject(tagName);
 
             if (obj && !hexInit.isEmpty()) {
@@ -1715,24 +1716,24 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
                 if (auto rotation = dynamic_cast<RotationObject*>(obj))
                     rotation->setHardwareLayersFromInitHex(initHexList, m_schemas[schemaName]);
                 obj->parseExtraData(objEl);
-                
+
                 m_objects.append(QSharedPointer<BaseObject>(obj));
                 m_objectTags.append(tagName);
-                
+
             }
         }
-        
+
         objNode = objNode.nextSibling();
     }
 
     std::reverse(m_objects.begin(), m_objects.end());
     std::reverse(m_objectTags.begin(), m_objectTags.end());
-    
+
     emit logMessage(tr("Загружено объектов: %1").arg(m_objects.size()));
     applyRestrictedMode();
-    
+
     emit projectLoaded();
-    
+
     return true;
 }
 
@@ -1845,13 +1846,13 @@ bool ProjectManager::canRedo() const
     return !m_redoStack.isEmpty();
 }
 
-//метод регистрации стандартых типов объектов (получение словаря поддерживаемых объектов)
+// метод регистрации стандартых типов объектов (получение словаря поддерживаемых объектов)
 void ProjectManager::registerStandardTypes()
 {
-    //создание экземпляра менеджера объектов
+    // создание экземпляра менеджера объектов
     auto om = ObjectsManager::instance();
-    
-    //регистрируем типы объектов
+
+    // регистрируем типы объектов
     om->registerType("rectangle", []() { return new RectangleObject(); });
     om->registerType("rectangle_a", []() { return new RectangleObject(); });
     om->registerType("dashline", []() { return new DashedLineObject(); });
@@ -2786,14 +2787,14 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile)
     }
 
     const QDomDocument doc = buildCompiledFpgaXml();
-    
-    //записываем XML обратно в файл
+
+    // записываем XML обратно в файл
     QFile outFile(outPath);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         m_lastErrorMessage = tr("Не удалось открыть файл для записи: %1").arg(outFile.errorString());
         return false;
     }
-    
+
     QString xmlText = QStringLiteral("<?xml version='1.0' encoding='windows-1251'?>\n") + doc.toString(4);
     QByteArray encodedXml = encodeXmlAsWindows1251(xmlText);
     if (outFile.write(encodedXml) != encodedXml.size()) {
@@ -2883,7 +2884,7 @@ QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const
     return nullptr;
 }
 
-//геттеры
+// геттеры
 int ProjectManager::getObjectCount() const { return m_objects.size(); }
 QString ProjectManager::getProjectName() const { return m_document->projectName(); }
 int ProjectManager::getCanvasWidth() const { return m_document->canvasWidth(); }
@@ -2937,17 +2938,17 @@ void ProjectManager::reloadGlobalSettings()
 {
     auto settings = ApplicationSettings::create();
     m_gridStep = qBound(1, settings.value("gridStep", 10).toInt(), 1000);
-    
+
     QString colorStr = settings.value("gridColor", "#3778b4c8").toString();
     m_gridColor = QColor(colorStr);
     m_snapCanvasGuideColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
     m_snapGridGuideColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
     m_snapObjectGuideColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
-    
+
     emit projectChanged();
 }
 
-//сеттеры
+// сеттеры
 void ProjectManager::setBackgroundColor(const QColor &color)
 {
     if (m_document->backgroundColor() != color) {

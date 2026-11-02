@@ -1,4 +1,5 @@
-// AircraftPositionMapping — перевод координат карты в экранное положение маркера.
+// AircraftPositionMapping - перевод координат карты в экранное положение маркера.
+
 #pragma once
 
 #include <QPointF>

@@ -1,24 +1,25 @@
-//AppearanceManager - менеджер внешнего вида приложения
+// AppearanceManager - менеджер внешнего вида приложения.
 
 #pragma once
 
 #include <QObject>
 
+// AppearanceManager - менеджер внешнего вида приложения.
 class AppearanceManager : public QObject
 {
     Q_OBJECT
-    
+
 public:
-    //получение единственного экземпляра
+    // получение единственного экземпляра
     static AppearanceManager* instance();
-    
-    //загружает стили из файла
+
+    // загружает стили из файла
     bool loadStyleSheet(const QString &filePath);
-    
-    //применяет тему Avionix Designer
+
+    // применяет тему Avionix Designer
     void applyAvionixTheme();
-    
-    //возвращает путь к текущей теме
+
+    // возвращает путь к текущей теме
     QString getCurrentStylePath() const;
 
 signals:
@@ -26,6 +27,6 @@ signals:
 
 private:
     AppearanceManager();
-    
+
     QString m_currentStylePath; //путь к текущему файлу стилей
 };

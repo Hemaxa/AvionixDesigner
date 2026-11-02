@@ -1,3 +1,5 @@
+// RectanglePainting - отрисовка заливки и прямоугольной обводки по геометрии ПЛИС.
+
 #pragma once
 
 #include <QPainter>

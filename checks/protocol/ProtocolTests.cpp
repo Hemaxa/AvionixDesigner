@@ -1,4 +1,4 @@
-// ProtocolTests — сравнение формата ПЛИС, движения, клавиш, компоновки и UART-сеанса.
+// ProtocolTests - сравнение формата ПЛИС, движения, клавиш, компоновки и UART-сеанса.
 #include "AircraftPositionPanel.h"
 #include "ApplicationLanguage.h"
 #include "EditorWorkspacePanel.h"
@@ -9,8 +9,8 @@
 #include "TextObject.h"
 #include "text/TextLayout.h"
 #include "text/FontRasterizer.h"
-#include "fpga/model/FpgaSceneCompiler.h"
-#include "fpga/model/FpgaResourceLimits.h"
+#include "fpga/compiler/FpgaSceneCompiler.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 #include "fpga/simulator/FpgaSimulator.h"
 #include "fpga/transport/FpgaPacketDump.h"
 #include "RectangleObject.h"
@@ -83,6 +83,7 @@
 #endif
 
 #ifdef Q_OS_UNIX
+// PtyCapture - перехват байтов виртуального последовательного порта в проверках UART.
 struct PtyCapture {
     int master=-1,slave=-1;
     char name[256]{};
@@ -172,6 +173,7 @@ FpgaPacketBundle compileTextFixture(const QDomDocument &doc, QString *error)
 }
 }
 
+// ProtocolTests - проверки протокола, моделей, интерфейса, текста и UART-сеанса.
 class ProtocolTests : public QObject
 {
     Q_OBJECT

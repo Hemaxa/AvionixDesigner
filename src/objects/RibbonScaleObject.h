@@ -1,9 +1,10 @@
-//RibbonScaleObject - объект аппаратной ленточной шкалы
+// RibbonScaleObject - объект аппаратной ленточной шкалы.
 
 #pragma once
 
 #include "BaseObject.h"
 
+// RibbonScaleObject - объект аппаратной ленточной шкалы.
 class RibbonScaleObject : public BaseObject
 {
     Q_OBJECT

@@ -1,4 +1,4 @@
-//MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели
+// MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели.
 
 #include "MainWindow.h"
 
@@ -20,7 +20,7 @@
 #include "ViewportPanel.h"
 #include "ViewportSettingsPanel.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
-#include "fpga/model/FpgaResourceLimits.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 #include "RectangleObject.h"
 
 #include <QAction>
@@ -1102,6 +1102,7 @@ void MainWindow::alignSelectedObject(int actionId) {
 
   auto *project = ProjectManager::instance();
 
+  // AlignUnit - объект или целая редакторская группа, участвующие в выравнивании.
   struct AlignUnit {
     QList<int> members;
     QRectF bounds;
@@ -1164,6 +1165,7 @@ void MainWindow::alignSelectedObject(int actionId) {
   if (!hasBounds || bounds.isEmpty())
     return;
 
+  // MoveDelta - индекс объекта и запланированное смещение при выравнивании.
   struct MoveDelta {
     int index = -1;
     QPointF delta;

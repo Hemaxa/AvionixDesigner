@@ -1,4 +1,4 @@
-//SelectionToolStrip - компактная вертикальная панель быстрых действий над выделением
+// SelectionToolStrip - компактная вертикальная панель быстрых действий над выделением.
 
 #include "SelectionToolStrip.h"
 
@@ -67,6 +67,7 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
     m_selectionButtons.append(mergeButton);
     layout->addWidget(mergeButton);
 
+    // ActionDef - иконка, подпись, сочетание клавиш и команда кнопки выравнивания.
     struct ActionDef
     {
         QString iconPath;
@@ -89,7 +90,6 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
         connect(button, &QToolButton::clicked, this, [this, id = action.id]() {
             emit alignRequested(id);
         });
-        m_buttons.append(button);
         m_selectionButtons.append(button);
         layout->addWidget(button);
     }

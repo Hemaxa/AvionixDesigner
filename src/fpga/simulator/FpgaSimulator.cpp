@@ -1,4 +1,4 @@
-//FpgaSimulator - программная модель загрузки пакетов и предпросмотра кадра ПЛИС
+// FpgaSimulator - программная модель загрузки пакетов и предпросмотра кадра ПЛИС.
 
 #include "fpga/simulator/FpgaSimulator.h"
 

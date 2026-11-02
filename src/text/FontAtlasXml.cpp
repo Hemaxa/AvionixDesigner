@@ -1,3 +1,5 @@
+// FontAtlasXml - чтение и проверка шрифтового атласа из XML.
+
 #include "text/FontAtlasXml.h"
 
 #include "BitParser.h"

@@ -1,4 +1,4 @@
-//FpgaScreenWidget - декоративная рамка экрана для результата симулятора ПЛИС
+// FpgaScreenWidget - декоративная рамка экрана для результата симулятора ПЛИС.
 
 #include "FpgaScreenWidget.h"
 

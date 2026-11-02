@@ -1,3 +1,5 @@
+// TextLayout - общий расчёт расположения букв для редактора и аппаратного экспорта.
+
 #include "text/TextLayout.h"
 
 #include <limits>

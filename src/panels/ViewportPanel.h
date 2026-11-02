@@ -1,4 +1,4 @@
-//ViewportPanel - панель рабочей области приложения
+// ViewportPanel - панель рабочей области приложения.
 
 #pragma once
 
@@ -7,38 +7,39 @@
 #include <QList>
 #include <QMap>
 
+// ViewportPanel - панель рабочей области приложения.
 class ViewportPanel : public BasePanel
 {
     Q_OBJECT
-    
+
 public:
     explicit ViewportPanel(QWidget *parent = nullptr);
-    
-    //устанавливает масштаб отображения
+
+    // устанавливает масштаб отображения
     void setScale(double scale);
-    
-    //возвращает текущий масштаб
+
+    // возвращает текущий масштаб
     double getScale() const;
-    
-    //возвращает индекс выделенного объекта
+
+    // возвращает индекс выделенного объекта
     int getSelectedIndex() const { return m_selectedIndex; }
     QList<int> getSelectedIndexes() const { return m_selectedIndexes; }
-    
-    //сбрасывает вид к начальному состоянию
+
+    // сбрасывает вид к начальному состоянию
     void resetView();
 
 protected:
-    //отрисовка панели
+    // отрисовка панели
     void paintEvent(QPaintEvent *event) override;
-    
-    //обработка мыши для выделения и изменения объектов
+
+    // обработка мыши для выделения и изменения объектов
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
-    
-    //обработка колеса мыши для масштабирования
+
+    // обработка колеса мыши для масштабирования
     void wheelEvent(QWheelEvent *event) override;
 
 signals:
@@ -61,17 +62,19 @@ private:
     double m_scale; //текущий масштаб
     double m_offsetX; //смещение по X
     double m_offsetY; //смещение по Y
-    
+
     int m_selectedIndex = -1; // Индекс выделенного объекта
     QList<int> m_selectedIndexes; // Индексы выделенных объектов
-    
+
     // Состояния манипуляторов
     enum DragMode { None, Move, Resize, Rotate, LineEndpoint, Pan, MarqueeSelect };
     DragMode m_dragMode = None;
     int m_resizeEdgeFlags = 0; // Битовая маска: 1=Left, 2=Right, 4=Top, 8=Bottom
     int m_lineEndpointIndex = -1;
 
+    // SnapGuideKind - источник направляющей привязки: холст, сетка или объект.
     enum class SnapGuideKind { Canvas, Grid, Object };
+    // SnapGuide - положение и направление одной линии привязки на холсте.
     struct SnapGuide
     {
         SnapGuideKind kind = SnapGuideKind::Object;
@@ -79,24 +82,27 @@ private:
         double position = 0.0;
     };
 
+    // SnapResult - скорректированное перемещение и направляющие привязки.
     struct SnapResult
     {
         QPointF delta;
         QList<SnapGuide> guides;
     };
 
+    // SnapPointResult - скорректированная точка и направляющие привязки.
     struct SnapPointResult
     {
         QPointF point;
         QList<SnapGuide> guides;
     };
 
+    // SnapResizeResult - изменение размеров с учётом привязок и направляющих.
     struct SnapResizeResult
     {
         QPointF delta;
         QList<SnapGuide> guides;
     };
-    
+
     QPointF m_lastMousePos; // Последняя позиция мыши для расчёта дельт
     QPointF m_dragStartCanvasPos;
     QRectF m_dragStartBounds;
@@ -112,12 +118,12 @@ private:
     QList<int> m_marqueeBaseSelection;
     QPointF m_marqueeStartPos;
     QPointF m_marqueeCurrentPos;
-    
+
     // Преобразования
     QPointF mapToCanvas(const QPoint &widgetPoint) const;
     double currentTotalScale() const;
     double handleSizeInCanvas() const;
-    
+
     // Отрисовка манипуляторов
     void drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate);
     void drawDashedLineEndpointManipulators(QPainter &painter, const class DashedLineObject *line);

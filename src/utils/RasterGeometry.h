@@ -1,3 +1,5 @@
+// RasterGeometry - вычисление границ непрозрачной части растровой маски.
+
 #pragma once
 
 #include <QImage>

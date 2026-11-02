@@ -1,4 +1,4 @@
-//FpgaSimulatorPanel - панель симулятора ПЛИС
+// FpgaSimulatorPanel - панель симулятора ПЛИС.
 
 #include "FpgaSimulatorPanel.h"
 #include "FpgaScreenWidget.h"

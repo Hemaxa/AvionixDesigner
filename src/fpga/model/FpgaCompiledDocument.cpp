@@ -1,4 +1,4 @@
-//FpgaCompiledDocument - представление XML до расчёта аппаратной сцены.
+// FpgaCompiledDocument - представление XML до расчёта аппаратной сцены.
 
 #include "fpga/model/FpgaCompiledDocument.h"
 

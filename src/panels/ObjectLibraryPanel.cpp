@@ -1,4 +1,4 @@
-//ObjectLibraryPanel - компактная библиотека добавления поддерживаемых объектов
+// ObjectLibraryPanel - компактная библиотека добавления поддерживаемых объектов.
 
 #include "ObjectLibraryPanel.h"
 
@@ -42,7 +42,7 @@ QString toolTipWithShortcut(const QString &text, const QString &shortcutText)
     return QStringLiteral("%1 (%2)").arg(text, shortcutText);
 }
 
-// Кнопка библиотеки передает идентификатор типа при перетаскивании на холст.
+// DraggableToolButton - кнопка библиотеки, передающая тип объекта при перетаскивании на холст.
 class DraggableToolButton : public QToolButton
 {
 public:

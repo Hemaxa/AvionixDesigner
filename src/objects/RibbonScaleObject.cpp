@@ -1,4 +1,4 @@
-//RibbonScaleObject - объект аппаратной ленточной шкалы
+// RibbonScaleObject - объект аппаратной ленточной шкалы.
 
 #include "RibbonScaleObject.h"
 #include "ProportionalResize.h"
