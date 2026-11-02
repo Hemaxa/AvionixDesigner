@@ -29,6 +29,8 @@
 #include "TextObject.h"
 #include "text/FontRasterizer.h"
 #include "fpga/model/FpgaCompiledDocument.h"
+#include "fpga/model/FpgaResourceLimits.h"
+#include "RasterGeometry.h"
 #include "BitParser.h"
 
 #include <algorithm>
@@ -482,22 +484,7 @@ QList<ImageMaskComponent> simplifyComponentsForStaticGroup(const ParamSchema &sc
 
 QRect alphaBounds(const QImage &image)
 {
-    QRect bounds;
-    bool hasPixels = false;
-    const QImage argb = image.convertToFormat(QImage::Format_ARGB32);
-
-    for (int y = 0; y < argb.height(); ++y) {
-        for (int x = 0; x < argb.width(); ++x) {
-            if (argb.pixelColor(x, y).alpha() <= 0)
-                continue;
-
-            const QRect pixelRect(x, y, 1, 1);
-            bounds = hasPixels ? bounds.united(pixelRect) : pixelRect;
-            hasPixels = true;
-        }
-    }
-
-    return hasPixels ? bounds : QRect();
+    return rasterAlphaBounds(image);
 }
 
 int rotationTileCost(const QSize &size)
@@ -2183,6 +2170,121 @@ bool ProjectManager::sendObjectsToBack(const QList<int> &indexes)
     return reorderObjects(order);
 }
 
+int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorMessage)
+{
+    if (errorMessage) errorMessage->clear();
+    auto fail = [errorMessage](const QString &message) {
+        if (errorMessage) *errorMessage = message;
+        return -1;
+    };
+    QList<int> selected;
+    for (int index : indexes) {
+        if (index < 0 || index >= m_objects.size())
+            return fail(tr("В выделении есть отсутствующий объект."));
+        if (!selected.contains(index)) selected.append(index);
+    }
+    std::sort(selected.begin(), selected.end());
+    if (selected.size() < 2)
+        return fail(tr("Выберите минимум два статических изображения или статические группы."));
+
+    auto merged = QSharedPointer<StaticGroupObject>::create();
+    const bool exportEnabled = m_objects[selected.first()]->isExportEnabled();
+    int nextAddress = 0;
+    bool resizeLocked = false;
+    // Внутри группы последний init расположен на переднем плане, как при экспорте.
+    for (auto it = selected.crbegin(); it != selected.crend(); ++it) {
+        const auto source = m_objects[*it];
+        if (source->isSelectionLocked())
+            return fail(tr("Заблокированные объекты нельзя объединять."));
+        if (source->isExportEnabled() != exportEnabled)
+            return fail(tr("Для объединения у объектов должен совпадать флаг включения в экспорт."));
+        if (source->isViewVisible() != m_objects[selected.first()]->isViewVisible())
+            return fail(tr("Для объединения у объектов должна совпадать видимость. Включите или выключите глазик у выбранных объектов."));
+        resizeLocked |= !source->canResize();
+        QList<GroupState> states;
+        QList<QImage> masks;
+        if (const auto *image = dynamic_cast<const ImageObject *>(source.data())) {
+            if (image->isRotationObject())
+                return fail(tr("Объединять можно только статические изображения и staticgroup. Вращающиеся объекты и текст не поддерживаются."));
+            const auto components = image->maskComponents();
+            if (components.isEmpty()) {
+                states.append({qRound(image->x), qRound(image->y), qMax(1,qRound(image->width)), qMax(1,qRound(image->height)), 0, image->effectiveMaskColor(), true});
+                masks.append(image->renderedImage());
+            } else {
+                for (const auto &component : components) {
+                    states.append({qRound(image->x + component.bounds.x()), qRound(image->y + component.bounds.y()),
+                        component.bounds.width(), component.bounds.height(), 0, component.color, true});
+                    masks.append(component.mask);
+                }
+            }
+        } else if (const auto *group = dynamic_cast<const StaticGroupObject *>(source.data()); group && !dynamic_cast<const TextObject *>(group)) {
+            states = group->states;
+            masks = group->maskImages;
+        } else {
+            return fail(tr("Объединять можно только статические изображения и staticgroup. Вращающиеся объекты и текст не поддерживаются."));
+        }
+        if (states.isEmpty() || masks.size() != states.size())
+            return fail(tr("В статическом объекте отсутствуют растровые маски."));
+        if (merged->states.size() + states.size() > FpgaResourceLimits::staticParameters)
+            return fail(tr("Объединённой группе требуется %1 init; максимум — 8. Учитываются все цветовые слои изображений.")
+                .arg(merged->states.size() + states.size()));
+        for (int i = 0; i < states.size(); ++i) {
+            auto state = states[i];
+            const qint64 area = qint64(state.w) * state.h;
+            if (state.w <= 0 || state.h <= 0 || state.w > 4095 || state.h > 4095 || masks[i].isNull())
+                return fail(tr("Некорректные габариты или маска статического объекта."));
+            if (qint64(nextAddress) + area > FpgaResourceLimits::staticPixels)
+                return fail(tr("Растрам объединённой группы требуется более 65536 ячеек. Уменьшите изображения или объедините меньше объектов."));
+            state.addr = nextAddress;
+            nextAddress += int(area);
+            merged->states.append(state);
+            merged->maskImages.append(masks[i].size() == QSize(state.w, state.h)
+                ? masks[i] : masks[i].scaled(state.w, state.h, Qt::IgnoreAspectRatio, Qt::FastTransformation));
+        }
+    }
+    // Нельзя незаметно поднять нижний слой над пересекающимся промежуточным объектом.
+    for (int index = selected.first(); index <= selected.last(); ++index) {
+        if (selected.contains(index)) continue;
+        for (int member : selected) {
+            if (member > index && m_objects[index]->getBoundingRect().intersects(m_objects[member]->getBoundingRect()))
+                return fail(tr("Между выбранными слоями есть пересекающийся объект. Сначала расположите объединяемые слои рядом в списке, чтобы сохранить порядок наложения."));
+        }
+    }
+    merged->groupNumber = merged->states.size();
+    merged->setCustomName(tr("Статическая группа"));
+    merged->setExportEnabled(exportEnabled);
+    merged->setViewVisible(m_objects[selected.first()]->isViewVisible());
+    merged->setResizeLocked(resizeLocked);
+    merged->setImportedHardwareObject(resizeLocked);
+    const auto report = FpgaResourceLimits::inspect(*merged);
+    if (!report.errors.isEmpty())
+        return fail(report.errors.join('\n'));
+
+    recordHistory();
+    QList<QSharedPointer<BaseObject>> objects;
+    QStringList tags;
+    QMap<int,int> oldToNew;
+    int mergedIndex = -1;
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (i == selected.first()) {
+            mergedIndex = objects.size(); objects.append(merged); tags.append("staticgroup");
+        }
+        if (selected.contains(i)) continue;
+        oldToNew.insert(i, objects.size()); objects.append(m_objects[i]); tags.append(m_objectTags.value(i));
+    }
+    m_objects = objects; m_objectTags = tags;
+    for (auto &group : m_groups) {
+        QList<int> members;
+        for (int old : group.members) if (oldToNew.contains(old)) members.append(oldToNew[old]);
+        group.members = members;
+    }
+    m_groups.erase(std::remove_if(m_groups.begin(),m_groups.end(),[](const ObjectGroup &group){ return group.members.size()<2; }),m_groups.end());
+    emit projectChanged();
+    emit logMessage(tr("Объединено статических объектов: %1; init: %2/8, память: %3/65536.")
+        .arg(selected.size()).arg(merged->states.size()).arg(nextAddress));
+    return mergedIndex;
+}
+
 int ProjectManager::groupObjects(const QList<int> &indexes)
 {
     QList<int> normalized;
@@ -2669,6 +2771,14 @@ QDomDocument ProjectManager::buildCompiledFpgaXml() const
 
 bool ProjectManager::exportToFpgaXml(const QString &targetFile)
 {
+    for (const auto &object : m_objects) {
+        if (!object->isExportEnabled()) continue;
+        const auto report = FpgaResourceLimits::inspect(*object);
+        if (!report.errors.isEmpty()) {
+            m_lastErrorMessage = report.errors.join('\n');
+            return false;
+        }
+    }
     const QString outPath = targetFile.isEmpty() ? m_filePath : targetFile;
     if (outPath.isEmpty()) {
         m_lastErrorMessage = tr("Не задан путь для сохранения XML");

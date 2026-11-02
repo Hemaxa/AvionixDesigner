@@ -1,6 +1,7 @@
 //RibbonScaleObject - объект аппаратной ленточной шкалы
 
 #include "RibbonScaleObject.h"
+#include "ProportionalResize.h"
 
 #include "BitParser.h"
 
@@ -98,11 +99,19 @@ void RibbonScaleObject::moveBy(double dx, double dy)
     emit changed();
 }
 
-void RibbonScaleObject::resizeBy(int edgeFlags, double dx, double dy)
+void RibbonScaleObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
     const QRectF oldRect = getBoundingRect();
     const double oldHeight = qMax(1.0, oldRect.height());
     const double yRelative = (yStart - oldRect.top()) / oldHeight;
+
+    if (proportional) {
+        const auto rect = proportionalResizeRect(oldRect, edgeFlags, dx, dy).rect;
+        left = rect.left(); right = rect.right(); top = rect.top(); bottom = rect.bottom();
+        yStart = top + yRelative * rect.height();
+        emit changed();
+        return;
+    }
 
     if (edgeFlags & 1) {
         left += dx;

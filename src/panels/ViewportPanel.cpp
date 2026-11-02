@@ -4,6 +4,8 @@
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
 #include "DashedLineObject.h"
+#include "ImageObject.h"
+#include "RotationObject.h"
 #include <algorithm>
 #include <QPainter>
 #include <QWheelEvent>
@@ -95,6 +97,7 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     setMinimumSize(200, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setAcceptDrops(true);
+    setToolTip(tr("Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°."));
     
     //подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, QOverload<>::of(&QWidget::update));
@@ -924,6 +927,36 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         m_lastMousePos = canvasPos;
         auto pm = ProjectManager::instance();
 
+        // Модификаторы манипуляторов проверяются до добавления к выделению:
+        // Shift/Ctrl на ручке меняют преобразование, а на объекте — выделение.
+        if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
+            const auto object = pm->getObjectAt(m_selectedIndex);
+            if (object->isViewVisible() && !object->isSelectionLocked()) {
+                if (const auto *line = dynamic_cast<const DashedLineObject *>(object.data())) {
+                    const int endpoint = hitTestDashedLineEndpoints(canvasPos, line);
+                    if (endpoint >= 0) {
+                        m_dragMode = LineEndpoint;
+                        m_lineEndpointIndex = endpoint;
+                        m_dragStartCanvasPos = canvasPos;
+                        return;
+                    }
+                }
+                const int handle = hitTestManipulators(canvasPos, object->getBoundingRect(), object->canResize(), object->supportsRotationHandle());
+                if (handle == 100) {
+                    m_dragMode = Rotate;
+                    m_rotationCenter = object->getBoundingRect().center();
+                    if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data()))
+                        m_rotationCenter = QPointF(rotation->xRot, rotation->yRot);
+                    return;
+                }
+                if (handle > 0) {
+                    m_dragMode = Resize;
+                    m_resizeEdgeFlags = handle;
+                    return;
+                }
+            }
+        }
+
         const bool additive = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier);
         m_marqueeBaseSelection = additive ? m_selectedIndexes : QList<int>{};
         if (additive) {
@@ -976,9 +1009,6 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 emit selectionChanged({});
                 return;
             }
-            QRectF rect = obj->getBoundingRect();
-            bool canRotate = obj->supportsRotationHandle();
-
             if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
                 const int endpoint = hitTestDashedLineEndpoints(canvasPos, dashedLine);
                 if (endpoint >= 0) {
@@ -989,15 +1019,6 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 }
             }
             
-            int hit = hitTestManipulators(canvasPos, rect, obj->canResize(), canRotate);
-            if (hit == 100) {
-                m_dragMode = Rotate;
-                return;
-            } else if (hit > 0) {
-                m_dragMode = Resize;
-                m_resizeEdgeFlags = hit;
-                return;
-            }
             
             if (obj->contains(canvasPos)) {
                 beginMoveDrag(canvasPos, obj->getBoundingRect());
@@ -1145,7 +1166,8 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
                 return;
             }
             ensureDragHistoryRecorded();
-            obj->resizeBy(m_resizeEdgeFlags, resizeDelta.x(), resizeDelta.y());
+            obj->resizeBy(m_resizeEdgeFlags, resizeDelta.x(), resizeDelta.y(),
+                m_proportionalResize || event->modifiers().testFlag(Qt::ShiftModifier));
             moveObjectInsideCanvas(
                 obj.data(),
                 ProjectManager::instance()->getCanvasWidth(),
@@ -1165,13 +1187,14 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             }
         } else if (m_dragMode == Rotate && obj->supportsRotationHandle()) {
             m_activeSnapGuides.clear();
-            QRectF rect = obj->getBoundingRect();
-            QPointF center = rect.center();
+            const QPointF center = m_rotationCenter;
             double angleRad = qAtan2(canvasPos.y() - center.y(), canvasPos.x() - center.x());
             // Добавляем 90 градусов так как 0 градусов указывает направо, а ручка смотрит вверх
             double angleDeg = qRadiansToDegrees(angleRad) + 90.0;
             if (event->modifiers() & Qt::ControlModifier)
                 angleDeg = qRound(angleDeg / 90.0) * 90.0;
+            else if (m_rotationSnapping || event->modifiers().testFlag(Qt::ShiftModifier))
+                angleDeg = qRound(angleDeg / 15.0) * 15.0;
             ensureDragHistoryRecorded();
             obj->setRotation(angleDeg);
             emit objectChanged();

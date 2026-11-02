@@ -65,7 +65,7 @@ public:
     //геометрия и взаимодействие
     virtual bool contains(const QPointF &point) const { return getBoundingRect().contains(point); }
     virtual void moveBy(double dx, double dy) { Q_UNUSED(dx); Q_UNUSED(dy); }
-    virtual void resizeBy(int edgeFlags, double dx, double dy) { Q_UNUSED(edgeFlags); Q_UNUSED(dx); Q_UNUSED(dy); }
+    virtual void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) { Q_UNUSED(edgeFlags); Q_UNUSED(dx); Q_UNUSED(dy); Q_UNUSED(proportional); }
     virtual void setRotation(double angle) { Q_UNUSED(angle); }
 
     

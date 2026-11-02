@@ -70,6 +70,9 @@ private slots:
     void groupSelectedObjects();
     //разгруппировывает выбранную редакторскую группу
     void ungroupSelectedObjects();
+    void mergeSelectedStaticGroups();
+    void checkHardwareResources();
+    void editTransparency();
     //синхронизирует панели со сменой выделения
     void handleSelectionChanged(const QList<int> &indexes);
 

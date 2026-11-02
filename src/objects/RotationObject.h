@@ -53,7 +53,7 @@ public:
     // Взаимодействие
     bool contains(const QPointF &point) const override;
     void moveBy(double dx, double dy) override;
-    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     void setRotation(double angle) override;
     
     bool setObjectProperty(const QString &name, const QString &value) override;

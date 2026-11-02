@@ -1,4 +1,5 @@
 #include "fpga/model/FpgaSceneCompiler.h"
+#include "fpga/model/FpgaResourceLimits.h"
 
 #include "BitParser.h"
 #include "FpgaSchemaRegistry.h"
@@ -158,6 +159,8 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
             nextParameter += object.iparams.size();
         }
         if (source.type == "staticgroup" || source.type == "rotationobject") {
+            if (source.type == "staticgroup" && source.iparams.size() > FpgaResourceLimits::staticParameters)
+                return fail(QStringLiteral("Статическая группа содержит более 8 слов init. Разделите группу."));
             if (scene.memories.size() >= memoryBankCount)
                 return fail(QStringLiteral("Сцена требует более 256 банков памяти; идентификатор банка имеет 8 бит."));
             if (source.type == "staticgroup" && source.data.size() > memoryCapacity)

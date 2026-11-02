@@ -24,7 +24,7 @@ public:
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
     bool setObjectProperty(const QString &name, const QString &value) override;
-    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     QRectF getBoundingRect() const override;
     bool canUseText(const QString &candidate, QString *missingCharacters = nullptr) const;
     QString exportCharacters() const;

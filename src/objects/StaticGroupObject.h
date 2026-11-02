@@ -38,7 +38,7 @@ public:
     
     // Взаимодействие
     void moveBy(double dx, double dy) override;
-    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     
     bool setObjectProperty(const QString &name, const QString &value) override;
     void parseExtraData(const QDomElement &element) override;

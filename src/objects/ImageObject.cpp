@@ -1,6 +1,8 @@
 //ImageObject - редактируемый источник изображения до экспорта в растровую маску ПЛИС
 
 #include "ImageObject.h"
+#include "ProportionalResize.h"
+#include "RasterGeometry.h"
 
 #include <QBuffer>
 #include <QHash>
@@ -693,17 +695,10 @@ bool ImageObject::hasRotation() const
 
 QString ImageObject::xmlExportSummary() const
 {
-    QList<ImageMaskComponent> components = maskComponents();
-    if (components.isEmpty()) {
-        ImageMaskComponent component;
-        component.bounds = QRect(0, 0, qMax(1, qRound(width)), qMax(1, qRound(height)));
-        component.color = effectiveMaskColor();
-        component.mask = renderedImage();
-        components.append(component);
-    }
-
     if (isRotationObject()) {
-        const QSize size(qMax(1, qRound(width)), qMax(1, qRound(height)));
+        const auto raster = renderedSourceImage();
+        const auto bounds = rasterAlphaBounds(raster);
+        const QSize size = bounds.isEmpty() ? raster.size() : bounds.size();
         const double scale = rotationSimplificationScale(size);
         const QSize exportSize(scale >= 0.999
                                    ? size
@@ -712,6 +707,15 @@ QString ImageObject::xmlExportSummary() const
         return QStringLiteral("rotationobject, упрощение: %1 (1 объект, память %2/2048 тайлов)")
             .arg(scale < 0.999 ? QStringLiteral("да") : QStringLiteral("нет"))
             .arg(rotationTileCost(exportSize));
+    }
+
+    QList<ImageMaskComponent> components = maskComponents();
+    if (components.isEmpty()) {
+        ImageMaskComponent component;
+        component.bounds = QRect(0, 0, qMax(1, qRound(width)), qMax(1, qRound(height)));
+        component.color = effectiveMaskColor();
+        component.mask = renderedImage();
+        components.append(component);
     }
 
     const double scale = staticGroupSimplificationScale(components);
@@ -849,10 +853,17 @@ void ImageObject::moveBy(double dx, double dy)
     emit changed();
 }
 
-void ImageObject::resizeBy(int edgeFlags, double dx, double dy)
+void ImageObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
     if (!canResize())
         return;
+
+    if (proportional) {
+        const auto rect = proportionalResizeRect(QRectF(x, y, width, height), edgeFlags, dx, dy).rect;
+        x = rect.x(); y = rect.y(); width = rect.width(); height = rect.height();
+        emit changed();
+        return;
+    }
 
     if (edgeFlags & 1) {
         x += dx;

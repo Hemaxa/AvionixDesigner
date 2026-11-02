@@ -60,6 +60,13 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
     m_selectionButtons.append(ungroupButton);
     layout->addWidget(ungroupButton);
 
+    auto *mergeButton = createActionButton(QStringLiteral(":/icons/icons/selection/merge-static.svg"),
+        QStringLiteral("Объединить в staticgroup"), QStringLiteral("Ctrl+Alt+G"));
+    mergeButton->setObjectName("MergeStaticButton");
+    connect(mergeButton, &QToolButton::clicked, this, &SelectionToolStrip::mergeStaticRequested);
+    m_selectionButtons.append(mergeButton);
+    layout->addWidget(mergeButton);
+
     struct ActionDef
     {
         QString iconPath;

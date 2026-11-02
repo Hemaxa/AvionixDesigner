@@ -54,6 +54,8 @@ public slots:
     // Слот для внешней синхронизации выделения (например, из списка)
     void setSelectedIndex(int index);
     void setSelectedIndexes(const QList<int> &indexes);
+    void setProportionalResize(bool enabled) { m_proportionalResize = enabled; }
+    void setRotationSnapping(bool enabled) { m_rotationSnapping = enabled; }
 
 private:
     double m_scale; //текущий масштаб
@@ -103,6 +105,9 @@ private:
     QMap<int, QRectF> m_dragStartObjectBounds;
     bool m_dragHistoryRecorded = false;
     bool m_dragEditedObjects = false;
+    bool m_proportionalResize = false;
+    bool m_rotationSnapping = false;
+    QPointF m_rotationCenter;
     QList<SnapGuide> m_activeSnapGuides;
     QList<int> m_marqueeBaseSelection;
     QPointF m_marqueeStartPos;

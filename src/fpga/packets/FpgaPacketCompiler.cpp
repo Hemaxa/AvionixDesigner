@@ -4,6 +4,7 @@
 
 #include "BitParser.h"
 #include "fpga/packets/FpgaPacketFramer.h"
+#include "fpga/model/FpgaResourceLimits.h"
 
 #include <QtGlobal>
 #include <QSet>
@@ -172,8 +173,8 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaHardwareScene &document, 
         uploadedMemories.insert(object.memId);
         if (document.memories[object.memId].kind == FpgaMemoryKind::RotationTiles) {
             const auto blocks = encodeRotationTiles(document, object, &bundle.warnings);
-            if (blocks.size() > 65536)
-                return fail(QStringLiteral("Число тайлов вращаемой маски превышает диапазон 16-битного адреса."));
+            if (blocks.size() > FpgaResourceLimits::rotationTiles)
+                return fail(QStringLiteral("Число тайлов вращаемой маски превышает ёмкость памяти: 2048 тайлов."));
             appendMemory(object.memId, objectIndex, object.type, blocks);
         } else {
             appendStaticMemory(object.memId, objectIndex, object.type);

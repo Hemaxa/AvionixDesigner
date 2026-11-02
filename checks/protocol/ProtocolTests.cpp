@@ -10,6 +10,7 @@
 #include "text/TextLayout.h"
 #include "text/FontRasterizer.h"
 #include "fpga/model/FpgaSceneCompiler.h"
+#include "fpga/model/FpgaResourceLimits.h"
 #include "fpga/simulator/FpgaSimulator.h"
 #include "fpga/transport/FpgaPacketDump.h"
 #include "RectangleObject.h"
@@ -60,6 +61,10 @@
 #include <QDockWidget>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QSlider>
+#include <QTableWidget>
+#include <QMouseEvent>
+#include <QAction>
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QtTest>
@@ -557,6 +562,177 @@ private slots:
         sender.stopStreaming(); QVERIFY(failed.isEmpty()); QCOMPARE(capture.data(),expected);
 #endif
     }
+    void rectangleCornersAndTransparency() {
+        RectangleObject rectangle;
+        rectangle.x=50; rectangle.y=50; rectangle.width=80; rectangle.height=60;
+        rectangle.fillColor=QColor("#00aaf0"); rectangle.strokeColor=Qt::white; rectangle.strokeWidth=20;
+        const auto parameters=rectangle.serializeParams();
+        QImage image(180,160,QImage::Format_ARGB32); image.fill(Qt::black);
+        { QPainter painter(&image); painter.setRenderHint(QPainter::Antialiasing); rectangle.draw(painter); }
+        QCOMPARE(image.pixelColor(31,31),QColor(Qt::white));
+        QCOMPARE(image.pixelColor(149,129),QColor(Qt::white));
+        QCOMPARE(image.pixelColor(29,29),QColor(Qt::black));
+        QCOMPARE(image.pixelColor(51,51),rectangle.fillColor);
+        QCOMPARE(rectangle.serializeParams(),parameters);
+        image.save(QCoreApplication::applicationDirPath()+"/rectangle-corners.png");
+        QVERIFY(rectangle.setObjectProperty("Прозрачность","50"));
+        QCOMPARE(rectangle.alpha,128); QCOMPARE(rectangle.serializeParams()["alph"],quint32(3));
+        QVERIFY(!rectangle.setObjectProperty("Прозрачность","101")); QCOMPARE(rectangle.alpha,128);
+        QVERIFY(rectangle.setObjectProperty("Прозрачность","100"));
+        QCOMPARE(rectangle.serializeParams()["enb"],quint32(0));
+        RectangleObject restored;
+        restored.parse(testInit("rectangle_a",rectangle.serializeParams()),FpgaSchemaRegistry::instance()->buildSchema("rectangle_a"));
+        QCOMPARE(restored.alpha,0);
+        QVERIFY(restored.setObjectProperty("Прозрачность","0")); QCOMPARE(restored.serializeParams()["enb"],quint32(1));
+
+        auto *p=ProjectManager::instance(); p->createNewProject("Transparency",640,480,Qt::black);
+        const int index=p->addObject("rectangle");
+        ObjectPropertiesPanel panel; panel.resize(340,540); panel.show(); panel.showObjectProperties(index); QTest::qWait(5);
+        auto *spin=panel.findChild<QSpinBox *>("TransparencySpin"); auto *slider=panel.findChild<QSlider *>("TransparencySlider");
+        QVERIFY(spin && slider); QCOMPARE(spin->maximum(),100); QCOMPARE(slider->maximum(),100);
+        const auto *properties=panel.findChild<QTableWidget *>("PropertiesTable"); QVERIFY(properties);
+        for (int row=0;row<properties->rowCount();++row)
+            if (properties->cellWidget(row,1)) QCOMPARE(properties->rowHeight(row),properties->rowHeight(0));
+        panel.grab().save(QCoreApplication::applicationDirPath()+"/transparency-controls.png");
+        QVERIFY2(spin->parentWidget()->rect().contains(spin->geometry()),qPrintable(QString("editor %1x%2; spin %3,%4 %5x%6; hint %7; minimum %8")
+            .arg(spin->parentWidget()->width()).arg(spin->parentWidget()->height()).arg(spin->x()).arg(spin->y()).arg(spin->width()).arg(spin->height()).arg(spin->parentWidget()->sizeHint().height()).arg(spin->minimumSizeHint().height())));
+        const auto *lineEdit=spin->findChild<QLineEdit *>(); QVERIFY(lineEdit);
+        QVERIFY(spin->rect().contains(QRect(lineEdit->mapTo(spin,QPoint()),lineEdit->size())));
+        QVERIFY(slider->width()>=24);
+        spin->setValue(50); QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(index).data())->alpha,128);
+        spin->setValue(0);
+        slider->sliderPressed(); slider->setValue(25); slider->setValue(50); slider->setValue(75); slider->sliderReleased();
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(index).data())->alpha,64);
+        QVERIFY(p->undo()); QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(index).data())->alpha,255);
+        QVERIFY(p->redo());
+        panel.showObjectProperties(index); QTest::qWait(5);
+        panel.grab().save(QCoreApplication::applicationDirPath()+"/transparency-controls.png");
+        const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(); QVERIFY(bundle.document.isValid());
+        FpgaSimulator simulator; simulator.loadBundle(bundle); const auto frame=simulator.renderFrame();
+        const auto rect=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data())->getBoundingRect();
+        QVERIFY(frame.pixelColor(qRound(rect.center().x()),qRound(rect.center().y()))!=QColor(Qt::black));
+    }
+    void mergeStaticGroupsAndUndo() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Merge",320,160,Qt::black);
+        QTemporaryDir temp;
+        for (int i=0;i<3;++i) {
+            QImage image(16,16,QImage::Format_ARGB32); image.fill(QColor::fromHsv(i*120,255,255));
+            const auto path=temp.filePath(QString::number(i)+".png"); QVERIFY(image.save(path)); QVERIFY(p->importImage(path)>=0);
+        }
+        for (int i=0;i<3;++i) {
+            auto *image=dynamic_cast<ImageObject *>(p->getObjectAt(i).data()); image->x=i<2?20:100; image->y=30;
+        }
+        auto render=[&](){
+            QImage frame(320,160,QImage::Format_ARGB32); frame.fill(Qt::black); QPainter painter(&frame);
+            for (auto it=p->getObjects().crbegin();it!=p->getObjects().crend();++it) (*it)->draw(painter);
+            return frame;
+        };
+        const auto before=render(); QString error;
+        const int mergedIndex=p->mergeStaticGroups({2,0,1,1},&error); QVERIFY2(mergedIndex>=0,qPrintable(error));
+        QCOMPARE(p->getObjectCount(),1);
+        auto *merged=dynamic_cast<StaticGroupObject *>(p->getObjectAt(0).data()); QVERIFY(merged);
+        QCOMPARE(merged->states.size(),3); QCOMPARE(merged->states[1].addr,256); QCOMPARE(merged->states[2].addr,512);
+        QCOMPARE(render(),before);
+        const auto objects=p->buildCompiledFpgaXml().documentElement().firstChildElement("objects");
+        QCOMPARE(objects.elementsByTagName("staticgroup").size(),1); QCOMPARE(objects.elementsByTagName("init").size(),3);
+        const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        QCOMPARE(bundle.document.memories.size(),1); QCOMPARE(bundle.document.memories[0].data.size(),768);
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(),3); QVERIFY(dynamic_cast<ImageObject *>(p->getObjectAt(0).data()));
+        QVERIFY(p->redo()); QCOMPARE(p->getObjectCount(),1); QCOMPARE(render(),before);
+        merged=dynamic_cast<StaticGroupObject *>(p->getObjectAt(0).data());
+        QVERIFY(p->setObjectProperty(merged,"Состояние 0: Ширина","20"));
+        QCOMPARE(merged->maskImages[0].size(),QSize(20,16)); QCOMPARE(merged->states[1].addr,320);
+        QVERIFY(p->undo()); QCOMPARE(render(),before);
+        QVERIFY(p->saveToFile(temp.filePath("merged.xml"))); QVERIFY(p->loadFromFile(temp.filePath("merged.xml")));
+        merged=dynamic_cast<StaticGroupObject *>(p->getObjectAt(0).data()); QVERIFY(merged); QCOMPARE(merged->states.size(),3);
+        QCOMPARE(render(),before);
+
+        p->createNewProject("Eight init",640,480,Qt::black); p->addObject("staticgroup"); p->addObject("staticgroup");
+        for (int index=0;index<2;++index) {
+            auto *group=dynamic_cast<StaticGroupObject *>(p->getObjectAt(index).data());
+            group->states.clear(); group->maskImages.clear();
+            for (int i=0;i<4;++i) {
+                group->states.append({index*120+i*20,30,16,16,i*256,Qt::white,true});
+                QImage mask(16,16,QImage::Format_ARGB32); mask.fill(Qt::white); group->maskImages.append(mask);
+            }
+        }
+        QVERIFY2(p->mergeStaticGroups({0,1},&error)>=0,qPrintable(error));
+        merged=dynamic_cast<StaticGroupObject *>(p->getObjectAt(0).data()); QCOMPARE(merged->states.size(),8);
+        QVERIFY(p->undo());
+        auto *group=dynamic_cast<StaticGroupObject *>(p->getObjectAt(0).data()); group->states.append(group->states.first()); group->maskImages.append(group->maskImages.first());
+        const auto original=p->getObjectAt(0);
+        QVERIFY(p->mergeStaticGroups({0,1},&error)<0); QVERIFY(error.contains("8")); QCOMPARE(p->getObjectCount(),2); QCOMPARE(p->getObjectAt(0),original);
+        group->states.resize(1); group->maskImages.resize(1); group->states[0].w=400; group->states[0].h=400;
+        QVERIFY(p->mergeStaticGroups({0,1},&error)<0); QVERIFY(error.contains("65536")); QCOMPARE(p->getObjectCount(),2);
+        group->states[0].w=16; group->states[0].h=16;
+        p->addObject("text"); QVERIFY(p->mergeStaticGroups({0,1},&error)<0); QVERIFY(error.contains("текст"));
+        p->createNewProject("Full static bank",640,480,Qt::black); p->addObject("staticgroup"); p->addObject("staticgroup");
+        for (int i=0;i<2;++i) {
+            auto *part=dynamic_cast<StaticGroupObject *>(p->getObjectAt(i).data());
+            part->states={{20,20+i*140,256,128,0,Qt::white,true}};
+            QImage mask(256,128,QImage::Format_ARGB32); mask.fill(Qt::white); part->maskImages={mask};
+        }
+        QVERIFY2(p->mergeStaticGroups({0,1},&error)>=0,qPrintable(error));
+        merged=dynamic_cast<StaticGroupObject *>(p->getObjectAt(0).data()); QCOMPARE(merged->states[1].addr,32768);
+        const auto full=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(full.document.isValid(),qPrintable(error));
+        QCOMPARE(full.document.memories.first().data.size(),65536);
+    }
+    void rasterMemoryWarnings() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Memory",1024,768,Qt::black); const int index=p->addObject("staticgroup");
+        auto *group=dynamic_cast<StaticGroupObject *>(p->getObjectAt(index).data());
+        group->states[0].w=300; group->states[0].h=300; group->maskImages[0]=QImage(300,300,QImage::Format_ARGB32); group->maskImages[0].fill(Qt::white);
+        QVERIFY(!FpgaResourceLimits::inspect(*group).errors.isEmpty());
+        ObjectPropertiesPanel panel; panel.resize(360,580); panel.show(); panel.showObjectProperties(index); QTest::qWait(5);
+        auto *warning=panel.findChild<QLabel *>("PropertiesHardwareWarning"); QVERIFY(warning); QVERIFY(!warning->isHidden()); QVERIFY(warning->text().contains("90000/65536"));
+        panel.grab().save(QCoreApplication::applicationDirPath()+"/memory-warning.png");
+        QString error; QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid()); QVERIFY(error.contains("65536"));
+        QTemporaryDir temp; QFile file(temp.filePath("keep.xml")); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("keep"); file.close();
+        QVERIFY(!p->saveToFile(file.fileName())); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(),QByteArray("keep")); file.close();
+        group->states[0].w=32; group->states[0].h=32; group->changed(); QVERIFY(warning->isHidden());
+
+        p->createNewProject("Rotation memory",1024,768,Qt::black); p->addObject("rotationobject");
+        auto *rotation=dynamic_cast<RotationObject *>(p->getObjectAt(0).data()); rotation->maskImage=QImage(300,600,QImage::Format_ARGB32); rotation->maskImage.fill(Qt::white);
+        QVERIFY(!FpgaResourceLimits::inspect(*rotation).errors.isEmpty());
+        QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid()); QVERIFY(error.contains("2048"));
+        QImage image(20,20,QImage::Format_ARGB32); image.fill(Qt::white); QVERIFY(image.save(temp.filePath("large.png")));
+        p->createNewProject("Simplified",1024,768,Qt::black); QVERIFY(p->importImage(temp.filePath("large.png"),true)>=0);
+        auto *source=dynamic_cast<ImageObject *>(p->getObjectAt(0).data()); source->width=500; source->height=500;
+        const auto report=FpgaResourceLimits::inspect(*source); QVERIFY(report.errors.isEmpty()); QVERIFY(!report.warnings.isEmpty());
+        const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(),qPrintable(error)); QVERIFY(!bundle.warnings.isEmpty());
+    }
+    void transformModifiersAndMenus() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Modifiers",640,480,Qt::black); p->addObject("rectangle");
+        p->setSnapToCanvas(false); p->setSnapToGrid(false); p->setSnapToObjects(false);
+        auto *rectangle=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data()); rectangle->x=60; rectangle->y=70; rectangle->width=100; rectangle->height=50;
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); viewport.setSelectedIndex(0); QTest::qWait(5);
+        auto point=[](double x,double y){return QPoint(qRound(16+x*.95),qRound(12+y*.95));};
+        auto move=[&](QPoint position,Qt::KeyboardModifiers modifiers){
+            QMouseEvent event(QEvent::MouseMove,QPointF(position),QPointF(viewport.mapToGlobal(position)),Qt::NoButton,Qt::LeftButton,modifiers);
+            QApplication::sendEvent(&viewport,&event);
+        };
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::ShiftModifier,point(160,120));
+        move(point(240,130),Qt::ShiftModifier); QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::ShiftModifier,point(240,130));
+        QVERIFY(qAbs(rectangle->width/rectangle->height-2)<.001); QVERIFY(rectangle->width>150); QCOMPARE(viewport.getSelectedIndexes(),QList<int>{0});
+        QVERIFY(p->undo()); rectangle=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data()); QCOMPARE(rectangle->width,100.); QCOMPARE(rectangle->height,50.);
+        QTemporaryDir temp; QImage raster(16,16,QImage::Format_ARGB32); raster.fill(Qt::white); QVERIFY(raster.save(temp.filePath("rotate.png")));
+        QVERIFY(p->importImage(temp.filePath("rotate.png"),true)>=0);
+        auto *image=dynamic_cast<ImageObject *>(p->getObjectAt(0).data()); image->x=200; image->y=150; image->width=100; image->height=50;
+        viewport.setSelectedIndex(0);
+        for (const auto modifier : {Qt::ShiftModifier,Qt::ControlModifier}) {
+            QTest::mousePress(&viewport,Qt::LeftButton,modifier,point(250,150-24/.95));
+            move(point(300,120),modifier); QTest::mouseRelease(&viewport,Qt::LeftButton,modifier,point(300,120));
+            const double step=modifier==Qt::ShiftModifier?15.:90.;
+            QVERIFY(qAbs(image->rotationDegrees/step-qRound(image->rotationDegrees/step))<.001);
+            QCOMPARE(image->x,200.); QCOMPARE(image->y,150.);
+        }
+        MainWindow window;
+        auto *merge=window.findChild<QAction *>("MergeStaticAction"); QVERIFY(merge); QCOMPARE(merge->shortcut(),QKeySequence("Ctrl+Alt+G"));
+        QVERIFY(window.findChild<QAction *>("ProportionalResizeAction")); QVERIFY(window.findChild<QAction *>("SteppedRotationAction"));
+        QVERIFY(window.findChild<QToolButton *>("MergeStaticButton"));
+        SettingsWindow settings; int shortcuts=0;
+        for(auto *label:settings.findChildren<QLabel *>()) if(label->text()=="Ctrl+Alt+G" || label->text()=="Ctrl+Alt+M" || label->text()=="Ctrl+Shift+P" || label->text()=="Ctrl+Shift+R") ++shortcuts;
+        QCOMPARE(shortcuts,4);
+    }
     void selectionAndLocks() {
         auto *p = ProjectManager::instance();
         p->createNewProject("Selection", 640, 480, Qt::black);
@@ -602,6 +778,10 @@ private slots:
     void toolbarAndRussianDialogs() {
         EditorWorkspacePanel workspace; workspace.resize(760, 360); workspace.show(); QTest::qWait(5);
         auto *strip = workspace.selectionToolStrip();
+        auto *mergeButton = strip->findChild<QToolButton *>("MergeStaticButton"); QVERIFY(mergeButton);
+        auto *neighbor = strip->findChild<QToolButton *>("SelectionToolButton"); QVERIFY(neighbor);
+        QCOMPARE(mergeButton->size(),neighbor->size());
+        QCOMPARE(mergeButton->iconSize(),neighbor->iconSize());
         QCOMPARE(strip->geometry().bottom(), workspace.viewport()->geometry().bottom());
         QCOMPARE(strip->height(), workspace.viewport()->height());
         auto *scroll = strip->findChild<QScrollArea *>(); QVERIFY(scroll);

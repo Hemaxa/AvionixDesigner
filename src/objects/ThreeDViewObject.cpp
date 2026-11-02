@@ -121,8 +121,9 @@ void ThreeDViewObject::moveBy(double dx, double dy)
     Q_UNUSED(dy);
 }
 
-void ThreeDViewObject::resizeBy(int edgeFlags, double dx, double dy)
+void ThreeDViewObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
+    Q_UNUSED(proportional);
     Q_UNUSED(edgeFlags);
     Q_UNUSED(dx);
     Q_UNUSED(dy);

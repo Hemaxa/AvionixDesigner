@@ -69,6 +69,8 @@ public:
     bool sendObjectsToBack(const QList<int> &indexes);
     //создаёт редакторскую группу; группировка управляет удобством выбора и массовыми флагами
     int groupObjects(const QList<int> &indexes);
+    // Превращает статические изображения/группы в один аппаратный staticgroup.
+    int mergeStaticGroups(const QList<int> &indexes, QString *errorMessage = nullptr);
     //удаляет редакторские группы, содержащие выбранные объекты
     bool ungroupObjects(const QList<int> &indexes);
     //возвращает участников группы, если объект входит в редакторскую группу

@@ -27,6 +27,7 @@ public slots:
     
     //очищает панель свойств
     void clearProperties();
+    void focusTransparency();
 
 signals:
     //сигнал об изменении свойства объекта
@@ -44,6 +45,10 @@ private:
     //очищает таблицу
     void clearTable();
     void refreshTableValues();
+    void refreshHardwareWarnings();
+    QWidget *createTransparencyEditor(double value);
+    void applyTransparency(double value, bool interactive);
+    void resizePropertyRows();
     bool isColorProperty(const QString &name) const;
     bool isBooleanProperty(const QString &name) const;
     bool isReadOnlyProperty(const QString &name) const;
@@ -56,4 +61,6 @@ private:
     QStackedWidget *m_contentStack; //переключатель состояний панели
     QSharedPointer<BaseObject> m_currentObject; //текущий объект
     bool m_updating = false; //флаг программного обновления
+    bool m_transparencyDragging = false;
+    QMetaObject::Connection m_objectConnection;
 };

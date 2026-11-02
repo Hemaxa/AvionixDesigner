@@ -7,6 +7,7 @@
 #include "TextObject.h"
 #include "fpga/model/FpgaCompiledDocument.h"
 #include "fpga/model/FpgaSceneCompiler.h"
+#include "fpga/model/FpgaResourceLimits.h"
 #include "fpga/packets/FpgaPacketCompiler.h"
 
 FpgaPacketBundle FpgaProjectPacketBuilder::buildCurrentProject(QString *errorMessage)
@@ -16,6 +17,14 @@ FpgaPacketBundle FpgaProjectPacketBuilder::buildCurrentProject(QString *errorMes
 
     // Проверяем исходные значения до XML: inject() обрезает их до размера поля.
     for (const auto &object : ProjectManager::instance()->getObjects()) {
+        if (object->isExportEnabled()) {
+            const auto report = FpgaResourceLimits::inspect(*object);
+            if (!report.errors.isEmpty()) {
+                if (errorMessage)
+                    *errorMessage = report.errors.join('\n');
+                return {};
+            }
+        }
         const auto *text = dynamic_cast<const TextObject *>(object.data());
         if (!text || !text->isExportEnabled())
             continue;
@@ -47,6 +56,12 @@ FpgaPacketBundle FpgaProjectPacketBuilder::buildCurrentProject(QString *errorMes
         return {};
     }
     FpgaPacketCompiler compiler;
-    return compiler.compile(scene, errorMessage);
+    auto bundle = compiler.compile(scene, errorMessage);
+    if (bundle.document.isValid()) {
+        for (const auto &object : ProjectManager::instance()->getObjects())
+            if (object->isExportEnabled())
+                bundle.warnings += FpgaResourceLimits::inspect(*object).warnings;
+    }
+    return bundle;
 }
 

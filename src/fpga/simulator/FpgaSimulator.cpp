@@ -3,6 +3,7 @@
 #include "fpga/simulator/FpgaSimulator.h"
 
 #include "BitParser.h"
+#include "RectanglePainting.h"
 
 #include <QPainter>
 #include <QtMath>
@@ -163,20 +164,20 @@ void renderRectangle(QImage *frame, const QString &paramHex, const ParamSchema &
         return;
 
     QColor color = colorFromBgr(extractField(paramHex, schema, QStringLiteral("color")));
+    QColor border = colorFromBgr(extractField(paramHex, schema, QStringLiteral("colorb")));
     if (alphaMode) {
         const int alph = extractField(paramHex, schema, QStringLiteral("alph"));
         color.setAlpha(qRound(qBound(1, alph + 1, 8) * 255.0 / 8.0));
+        border.setAlpha(color.alpha());
     }
 
     QPainter painter(frame);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(color);
-    painter.drawRect(QRect(
+    paintHardwareRectangle(painter, QRectF(
         static_cast<int>(extractField(paramHex, schema, QStringLiteral("x0"))),
         static_cast<int>(extractField(paramHex, schema, QStringLiteral("y0"))),
         qMax(1, static_cast<int>(extractField(paramHex, schema, QStringLiteral("w")))),
         qMax(1, static_cast<int>(extractField(paramHex, schema, QStringLiteral("h"))))
-    ));
+    ), color, border, extractField(paramHex, schema, QStringLiteral("a")));
 }
 
 void renderStaticGroup(QImage *frame,

@@ -4,6 +4,7 @@
 #include "BitParser.h"
 #include "ProportionalResize.h"
 #include "XmlReader.h"
+#include <QtMath>
 
 StaticGroupObject::StaticGroupObject(QObject *parent) : BaseObject(parent) {}
 
@@ -169,6 +170,10 @@ QList<QPair<QString, QString>> StaticGroupObject::getProperties() const
     
     props.append({"Номер группы", QString::number(groupNumber)});
     props.append({"Кол-во состояний", QString::number(states.size())});
+    qint64 memoryEnd = 0;
+    for (const auto &state : states)
+        memoryEnd = qMax(memoryEnd, qint64(state.addr) + qint64(state.w) * state.h);
+    props.append({QStringLiteral("Память"), QStringLiteral("%1/65536 ячеек, %2/8 init").arg(memoryEnd).arg(states.size())});
     
     //показываем свойства каждого состояния
     for (int i = 0; i < states.size(); ++i) {
@@ -221,8 +226,9 @@ void StaticGroupObject::moveBy(double dx, double dy)
     emit changed();
 }
 
-void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
+void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
+    Q_UNUSED(proportional);
     if (!canResize())
         return;
 
@@ -270,50 +276,57 @@ void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
 
 bool StaticGroupObject::setObjectProperty(const QString &name, const QString &value)
 {
+    clearValidationMessage();
     bool ok = false;
-    
     if (name == "Номер группы") {
-        groupNumber = value.toInt(&ok);
-    }
-    else if (name.startsWith("Состояние ")) {
-        // Парсинг "Состояние N: Свойство"
-        int colonIdx = name.indexOf(':');
-        if (colonIdx > 0) {
-            QString stateStr = name.mid(10, colonIdx - 10);
-            int stateIdx = stateStr.toInt(&ok);
-            if (ok && stateIdx >= 0 && stateIdx < states.size()) {
-                QString prop = name.mid(colonIdx + 2).trimmed();
-                GroupState &s = states[stateIdx];
-                
-                if (prop == "X") s.x = value.toDouble(&ok);
-                else if (prop == "Y") s.y = value.toDouble(&ok);
-                else if (prop == "Ширина") {
-                    if (!canResize()) {
-                        setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
-                        return false;
-                    }
-                    s.w = value.toDouble(&ok);
+        const int number = value.toInt(&ok);
+        if (ok) groupNumber = number;
+    } else if (name.startsWith("Состояние ")) {
+        const int colon = name.indexOf(':');
+        const int index = name.mid(10, colon - 10).toInt(&ok);
+        if (!ok || colon < 10 || index < 0 || index >= states.size()) return false;
+        const QString property = name.mid(colon + 1).trimmed();
+        GroupState state = states[index];
+        const bool sizeChange = property == "Ширина" || property == "Высота";
+        if (sizeChange && !canResize()) {
+            setValidationMessage(tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
+        if (property == "X" || property == "Y" || sizeChange) {
+            const double number = value.toDouble(&ok);
+            if (!ok || !qIsFinite(number) || number < -4095 || number > 4095 || (sizeChange && number < 1)) return false;
+            if (property == "X") state.x = qRound(number);
+            else if (property == "Y") state.y = qRound(number);
+            else if (property == "Ширина") state.w = qRound(number);
+            else state.h = qRound(number);
+        } else if (property == "Адрес") {
+            state.addr = value.toInt(&ok);
+        } else if (property == "Цвет") {
+            state.color = QColor(value); ok = state.color.isValid();
+        } else if (property == "Видимость") {
+            const auto normalized = value.trimmed().toLower();
+            ok = normalized == "да" || normalized == "нет";
+            state.enabled = normalized == "да";
+        } else {
+            return false;
+        }
+        if (!ok) return false;
+        states[index] = state;
+        if (index < maskImages.size() && !maskImages[index].isNull()) {
+            if (sizeChange)
+                maskImages[index] = maskImages[index].scaled(state.w,state.h,Qt::IgnoreAspectRatio,Qt::FastTransformation);
+            if (property == "Цвет") {
+                QImage image = maskImages[index].convertToFormat(QImage::Format_ARGB32);
+                for (int y=0;y<image.height();++y) {
+                    auto *row=reinterpret_cast<QRgb *>(image.scanLine(y));
+                    for (int x=0;x<image.width();++x)
+                        row[x]=qRgba(state.color.red(),state.color.green(),state.color.blue(),qAlpha(row[x]));
                 }
-                else if (prop == "Высота") {
-                    if (!canResize()) {
-                        setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
-                        return false;
-                    }
-                    s.h = value.toDouble(&ok);
-                }
-                else if (prop == "Адрес") s.addr = value.toInt(&ok);
-                else if (prop == "Цвет") {
-                    s.color = QColor(value);
-                    ok = s.color.isValid();
-                }
-                else if (prop == "Видимость") {
-                    if (value.toLower() == "да" || value.toLower() == "yes" || value == "1") { s.enabled = true; ok = true; }
-                    else if (value.toLower() == "нет" || value.toLower() == "no" || value == "0") { s.enabled = false; ok = true; }
-                }
+                maskImages[index] = image;
             }
         }
+        if (sizeChange) rebuildStateAddresses();
     }
-    
     if (ok) emit changed();
     return ok;
 }

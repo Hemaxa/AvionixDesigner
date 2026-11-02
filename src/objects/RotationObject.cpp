@@ -166,6 +166,9 @@ QList<QPair<QString, QString>> RotationObject::getProperties() const
     }
     if (m_layers.size() > 1)
         props.append({"Цветовых слоев", QString::number(m_layers.size())});
+    const int width = maskImage.isNull() ? qMax(1,qRound(right-left)) : maskImage.width();
+    const int height = maskImage.isNull() ? qMax(1,qRound(bottom-top)) : maskImage.height();
+    props.append({QStringLiteral("Память"), QStringLiteral("%1/2048 тайлов").arg(qint64((width+7)/8)*((height+7)/8))});
     
     return props;
 }
@@ -212,8 +215,9 @@ void RotationObject::moveBy(double dx, double dy)
     emit changed();
 }
 
-void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
+void RotationObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
+    Q_UNUSED(proportional);
     if (!canResize())
         return;
 

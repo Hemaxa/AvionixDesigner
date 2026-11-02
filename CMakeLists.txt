@@ -107,6 +107,8 @@ qt_add_executable(AvionixDesigner
     src/fpga/model/FpgaHardwareScene.h
     src/fpga/model/FpgaSceneCompiler.h
     src/fpga/model/FpgaSceneCompiler.cpp
+    src/fpga/model/FpgaResourceLimits.h
+    src/fpga/model/FpgaResourceLimits.cpp
     src/fpga/model/Layer3dFormat.h
     src/fpga/packets/FpgaPacket.h
     src/fpga/packets/FpgaPacket.cpp
@@ -137,6 +139,8 @@ qt_add_executable(AvionixDesigner
     src/utils/BitParser.h
     src/utils/XmlReader.h
     src/utils/ProportionalResize.h
+    src/utils/RectanglePainting.h
+    src/utils/RasterGeometry.h
     src/utils/AircraftPositionMapping.h
     src/utils/FlowLayout.h
     src/utils/ElidedLabel.h

@@ -5,6 +5,7 @@
 #include "BaseObject.h"
 #include "ProjectManager.h"
 #include "ThreeDViewObject.h"
+#include "fpga/model/FpgaResourceLimits.h"
 
 #include <QColorDialog>
 #include <QComboBox>
@@ -21,6 +22,12 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QIcon>
+#include <QSpinBox>
+#include <QHBoxLayout>
+#include <QSignalBlocker>
+#include <QSlider>
+#include <QStyle>
+#include <QTimer>
 
 namespace {
 // Выбирает редактор значения свойства: список для положения, шрифта и флагов.
@@ -28,6 +35,17 @@ class PropertyValueDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
+
+    void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        if (editor->objectName() == QStringLiteral("TransparencyEditor")) {
+            // У составного поля свои отступы: используем всю высоту обычной строки,
+            // без повторного вычитания padding из стиля ячейки.
+            editor->setGeometry(option.rect);
+            return;
+        }
+        QStyledItemDelegate::updateEditorGeometry(editor, option, index);
+    }
 
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
@@ -119,9 +137,11 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
     containerLayout->addWidget(m_titleLabel);
 
     m_subtitleLabel = new QLabel(container);
-    m_subtitleLabel->setObjectName("PropertiesSubtitleLabel");
+    m_subtitleLabel->setObjectName("PropertiesHardwareWarning");
+    m_subtitleLabel->setTextFormat(Qt::PlainText);
     m_subtitleLabel->setWordWrap(true);
     m_subtitleLabel->hide();
+    containerLayout->addWidget(m_subtitleLabel);
 
     m_contentStack = new QStackedWidget(container);
     m_contentStack->setObjectName("PropertiesContentStack");
@@ -190,6 +210,7 @@ void ObjectPropertiesPanel::showObjectProperties(int index)
 
 void ObjectPropertiesPanel::showProperties(QSharedPointer<BaseObject> obj)
 {
+    disconnect(m_objectConnection);
     clearTable();
     m_currentObject = obj;
 
@@ -202,11 +223,14 @@ void ObjectPropertiesPanel::showProperties(QSharedPointer<BaseObject> obj)
     m_titleLabel->show();
     m_subtitleLabel->hide();
     populateTable(obj->getProperties());
+    refreshHardwareWarnings();
+    m_objectConnection = connect(obj.data(), &BaseObject::changed, this, &ObjectPropertiesPanel::refreshHardwareWarnings);
     m_contentStack->setCurrentIndex(1);
 }
 
 void ObjectPropertiesPanel::clearProperties()
 {
+    disconnect(m_objectConnection);
     clearTable();
     m_currentObject.reset();
     m_titleLabel->clear();
@@ -246,18 +270,103 @@ void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &
             }
         }
         m_tableWidget->setItem(i, 1, valueItem);
+        if (props[i].first == QStringLiteral("Прозрачность")) {
+            valueItem->setText(QString());
+            valueItem->setFlags(valueItem->flags() & ~Qt::ItemIsEditable);
+            m_tableWidget->setCellWidget(i, 1, createTransparencyEditor(props[i].second.toDouble()));
+        }
     }
 
-    m_tableWidget->resizeRowsToContents();
+    resizePropertyRows();
     m_updating = false;
 }
 
 void ObjectPropertiesPanel::clearTable()
 {
+    if (m_transparencyDragging) {
+        m_transparencyDragging = false;
+        QTimer::singleShot(0, ProjectManager::instance(), []() { ProjectManager::instance()->finishObjectEdit(); });
+    }
     m_updating = true;
     m_tableWidget->clearContents();
     m_tableWidget->setRowCount(0);
     m_updating = false;
+}
+
+QWidget *ObjectPropertiesPanel::createTransparencyEditor(double value)
+{
+    auto *editor = new QWidget(m_tableWidget);
+    editor->setObjectName("TransparencyEditor");
+    auto *layout = new QHBoxLayout(editor);
+    layout->setContentsMargins(10, 3, 10, 3);
+    layout->setSpacing(8);
+    auto *spin = new QSpinBox(editor);
+    spin->setObjectName("TransparencySpin");
+    spin->setRange(0, 100); spin->setSingleStep(1);
+    spin->setSuffix(QStringLiteral(" %")); spin->setKeyboardTracking(false);
+    spin->setMinimumWidth(78);
+    spin->setValue(value);
+    auto *slider = new QSlider(Qt::Horizontal, editor);
+    slider->setObjectName("TransparencySlider");
+    slider->setRange(0, 100); slider->setSingleStep(1); slider->setPageStep(10);
+    slider->setMinimumWidth(24); slider->setValue(qRound(value));
+    const QString hint = tr("0% — непрозрачно, 100% — полностью прозрачно. На ПЛИС промежуточные значения округляются до 8 аппаратных уровней.");
+    spin->setToolTip(hint); slider->setToolTip(hint);
+    layout->addWidget(spin); layout->addWidget(slider, 1);
+    connect(spin, &QSpinBox::valueChanged, this, [this](int value) {
+        if (!m_updating) applyTransparency(value, false);
+    });
+    connect(slider, &QSlider::sliderPressed, this, [this]() {
+        ProjectManager::instance()->recordObjectEdit();
+        m_transparencyDragging = true;
+    });
+    connect(slider, &QSlider::valueChanged, this, [this, spin](int value) {
+        const QSignalBlocker blocker(spin);
+        spin->setValue(value);
+        if (!m_updating) applyTransparency(value, m_transparencyDragging);
+    });
+    connect(slider, &QSlider::sliderReleased, this, [this]() {
+        if (!m_transparencyDragging) return;
+        m_transparencyDragging = false;
+        ProjectManager::instance()->finishObjectEdit();
+        refreshTableValues();
+    });
+    return editor;
+}
+
+void ObjectPropertiesPanel::resizePropertyRows()
+{
+    m_tableWidget->resizeRowsToContents();
+}
+
+void ObjectPropertiesPanel::applyTransparency(double value, bool interactive)
+{
+    if (!m_currentObject) return;
+    const QString percent = QString::number(qRound(value));
+    const bool changed = interactive
+        ? m_currentObject->setObjectProperty(QStringLiteral("Прозрачность"), percent)
+        : ProjectManager::instance()->setObjectProperty(m_currentObject.data(), QStringLiteral("Прозрачность"), percent);
+    if (!changed) return;
+    if (!interactive) refreshTableValues();
+    emit propertyChanged();
+}
+
+void ObjectPropertiesPanel::focusTransparency()
+{
+    if (auto *spin = m_tableWidget->findChild<QSpinBox *>("TransparencySpin")) {
+        m_scrollArea->ensureWidgetVisible(spin);
+        spin->setFocus(); spin->selectAll();
+    }
+}
+
+void ObjectPropertiesPanel::refreshHardwareWarnings()
+{
+    const auto report = m_currentObject ? FpgaResourceLimits::inspect(*m_currentObject) : FpgaResourceLimits::Report{};
+    m_subtitleLabel->setText(report.messages().join('\n'));
+    m_subtitleLabel->setProperty("severity", report.errors.isEmpty() ? "warning" : "error");
+    m_subtitleLabel->style()->unpolish(m_subtitleLabel);
+    m_subtitleLabel->style()->polish(m_subtitleLabel);
+    m_subtitleLabel->setVisible(!report.messages().isEmpty());
 }
 
 void ObjectPropertiesPanel::onCellChanged(int row, int column)
@@ -335,7 +444,16 @@ void ObjectPropertiesPanel::refreshTableValues()
             name->setText(props[i].first);
         }
         if (auto *value = m_tableWidget->item(i, 1)) {
-            value->setText(props[i].second);
+            value->setText(props[i].first == QStringLiteral("Прозрачность") ? QString() : props[i].second);
+            if (props[i].first == QStringLiteral("Прозрачность")) {
+                if (auto *editor = m_tableWidget->cellWidget(i, 1)) {
+                    auto *spin = editor->findChild<QSpinBox *>("TransparencySpin");
+                    auto *slider = editor->findChild<QSlider *>("TransparencySlider");
+                    const QSignalBlocker spinBlocker(spin), sliderBlocker(slider);
+                    spin->setValue(props[i].second.toDouble());
+                    slider->setValue(qRound(props[i].second.toDouble()));
+                }
+            }
             if (isReadOnlyProperty(props[i].first)) {
                 value->setFlags((value->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
                 value->setIcon(QIcon());
@@ -360,8 +478,9 @@ void ObjectPropertiesPanel::refreshTableValues()
             }
         }
     }
-    m_tableWidget->resizeRowsToContents();
+    resizePropertyRows();
     m_updating = false;
+    refreshHardwareWarnings();
 }
 
 bool ObjectPropertiesPanel::isColorProperty(const QString &name) const
@@ -381,5 +500,6 @@ bool ObjectPropertiesPanel::isReadOnlyProperty(const QString &name) const
 {
     if (dynamic_cast<ThreeDViewObject*>(m_currentObject.data()))
         return name != QStringLiteral("Положение");
-    return name == QStringLiteral("XML экспорт");
+    return name == QStringLiteral("XML экспорт") || name == QStringLiteral("Память")
+        || name == QStringLiteral("Кол-во состояний");
 }

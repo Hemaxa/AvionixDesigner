@@ -138,7 +138,6 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Открыть проект:", new QLabel("Ctrl+O", this));
     hotkeysLayout->addRow("Сохранить проект:", new QLabel("Ctrl+S", this));
     hotkeysLayout->addRow("Сохранить как:", new QLabel("Ctrl+Shift+S", this));
-    hotkeysLayout->addRow("Добавить изображение:", new QLabel("Ctrl+I", this));
 
     hotkeysLayout->addRow(new QLabel("<br><b>Редактирование:</b>", this));
     hotkeysLayout->addRow("Отменить:", new QLabel("Ctrl+Z", this));
@@ -148,6 +147,12 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Удалить объект:", new QLabel("Delete / Backspace", this));
     hotkeysLayout->addRow("Сгруппировать:", new QLabel("Ctrl+G", this));
     hotkeysLayout->addRow("Разгруппировать:", new QLabel("Ctrl+Shift+G", this));
+    hotkeysLayout->addRow("Объединить в staticgroup:", new QLabel("Ctrl+Alt+G", this));
+    hotkeysLayout->addRow("Изменить прозрачность:", new QLabel("Ctrl+Alt+T", this));
+    hotkeysLayout->addRow("Сохранять пропорции (вкл/выкл):", new QLabel("Ctrl+Shift+P", this));
+    hotkeysLayout->addRow("Поворот с шагом 15° (вкл/выкл):", new QLabel("Ctrl+Shift+R", this));
+    hotkeysLayout->addRow("Пропорции при перетаскивании ручки:", new QLabel("Shift + мышь", this));
+    hotkeysLayout->addRow("Поворот с шагом 15° / 90°:", new QLabel("Shift / Ctrl + мышь", this));
     hotkeysLayout->addRow("На передний план:", new QLabel("Ctrl+]", this));
     hotkeysLayout->addRow("На задний план:", new QLabel("Ctrl+[", this));
 
@@ -168,6 +173,9 @@ void SettingsWindow::createWidgets()
 
     hotkeysLayout->addRow(new QLabel("<br><b>Добавление объектов:</b>", this));
     hotkeysLayout->addRow("Добавить объект по типу:", new QLabel("Alt+1, Alt+2, ...", this));
+    hotkeysLayout->addRow("Добавить статическое изображение:", new QLabel("Ctrl+I", this));
+    hotkeysLayout->addRow("Добавить вращающееся изображение:", new QLabel("Ctrl+Shift+I", this));
+    hotkeysLayout->addRow("Проверить память ПЛИС:", new QLabel("Ctrl+Alt+M", this));
 
     hotkeysLayout->addRow(new QLabel("<br><b>ПЛИС:</b>", this));
     hotkeysLayout->addRow("Запустить режимы:", new QLabel("Ctrl+Enter", this));

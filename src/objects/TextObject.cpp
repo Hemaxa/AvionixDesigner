@@ -216,8 +216,9 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
     return true;
 }
 
-void TextObject::resizeBy(int edgeFlags, double dx, double dy)
+void TextObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
+    Q_UNUSED(proportional);
     if (restrictedAtlasEditing || !canResize())
         return;
 

@@ -53,6 +53,7 @@ signals:
     void groupRequested();
     //запрашивает удаление редакторской группы
     void ungroupRequested();
+    void mergeStaticRequested();
 
 private:
     //создаёт кнопку панели быстрых действий с иконкой и подсказкой

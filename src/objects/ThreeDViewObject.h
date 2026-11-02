@@ -22,7 +22,7 @@ public:
     bool canResize() const override { return false; }
     bool contains(const QPointF &point) const override;
     void moveBy(double dx, double dy) override;
-    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;
 
