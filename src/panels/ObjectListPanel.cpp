@@ -1,4 +1,4 @@
-//ObjectListPanel - панель со списком объектов проекта
+// ObjectListPanel - панель со списком объектов проекта.
 
 #include "ObjectListPanel.h"
 #include "ProjectManager.h"
@@ -25,6 +25,7 @@
 namespace {
 enum ObjectListRoles { KindRole = Qt::UserRole, ObjectIndexRole, GroupIdRole };
 
+// RowKind - различение строк объектов и редакторских групп в списке.
 enum class RowKind { Object = 0, Group = 1 };
 
 QString typeLabelForObject(const BaseObject *object) {

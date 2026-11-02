@@ -1,9 +1,11 @@
-// ElidedLabel — однострочная подпись с многоточием вместо обрезанных букв.
+// ElidedLabel - однострочная подпись с многоточием вместо обрезанных букв.
+
 #pragma once
 
 #include <QLabel>
 #include <QPainter>
 
+// ElidedLabel - однострочная подпись с многоточием вместо обрезанных букв.
 class ElidedLabel : public QLabel
 {
 public:

@@ -1,4 +1,4 @@
-//ObjectLibraryPanel - компактная библиотека добавления поддерживаемых объектов
+// ObjectLibraryPanel - компактная библиотека добавления поддерживаемых объектов.
 
 #pragma once
 
@@ -7,6 +7,7 @@
 class FlowLayout;
 class QToolButton;
 
+// ObjectLibraryPanel - компактная библиотека добавления поддерживаемых объектов.
 class ObjectLibraryPanel : public BasePanel
 {
     Q_OBJECT

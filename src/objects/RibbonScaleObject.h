@@ -1,9 +1,10 @@
-//RibbonScaleObject - объект аппаратной ленточной шкалы
+// RibbonScaleObject - объект аппаратной ленточной шкалы.
 
 #pragma once
 
 #include "BaseObject.h"
 
+// RibbonScaleObject - объект аппаратной ленточной шкалы.
 class RibbonScaleObject : public BaseObject
 {
     Q_OBJECT
@@ -29,7 +30,7 @@ public:
     QRectF getBoundingRect() const override;
 
     void moveBy(double dx, double dy) override;
-    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;
 };

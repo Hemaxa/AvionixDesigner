@@ -1,9 +1,10 @@
-//DashedLineObject - объект аппаратной штриховой линии
+// DashedLineObject - объект аппаратной штриховой линии.
 
 #pragma once
 
 #include "BaseObject.h"
 
+// DashedLineObject - объект аппаратной штриховой линии.
 class DashedLineObject : public BaseObject
 {
     Q_OBJECT
@@ -32,7 +33,7 @@ public:
     bool contains(const QPointF &point) const override;
 
     void moveBy(double dx, double dy) override;
-    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     void setEndpoint(int endpointIndex, const QPointF &point);
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;

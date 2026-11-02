@@ -1,4 +1,4 @@
-//EditorWorkspacePanel - центральная рабочая область с холстом и вертикальной панелью действий
+// EditorWorkspacePanel - центральная рабочая область с холстом и вертикальной панелью действий.
 
 #include "EditorWorkspacePanel.h"
 

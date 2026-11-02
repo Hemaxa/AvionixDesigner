@@ -1,41 +1,16 @@
-//FpgaSimulator - программная модель загрузки пакетов и предпросмотра кадра ПЛИС
+// FpgaSimulator - программная модель загрузки пакетов и предпросмотра кадра ПЛИС.
 
 #include "fpga/simulator/FpgaSimulator.h"
 
 #include "BitParser.h"
+#include "RectanglePainting.h"
 
 #include <QPainter>
-#include <QRegularExpression>
 #include <QtMath>
 
 #include <algorithm>
 
 namespace {
-// Метрики глифа и адрес его маски в памяти симулятора.
-struct SimGlyph
-{
-    uint code = 0;
-    int width = 0;
-    int height = 0;
-    int advance = 0;
-    int bearingX = 0;
-    int bearingY = 0;
-    int ascent = 0;
-    int descent = 0;
-    int offset = 0;
-    int maskSize = 0;
-};
-
-// Загруженный ресурс шрифта вместе с глифами, масками и кернингом.
-struct SimFont
-{
-    int index = 0;
-    int spaceAdvance = 4;
-    QByteArray memory;
-    QMap<uint, SimGlyph> glyphs;
-    QMap<QString, int> kerningPairs;
-};
-
 quint8 byteAt(const QByteArray &bytes, int index)
 {
     return static_cast<quint8>(bytes.at(index));
@@ -76,35 +51,6 @@ QColor colorFromBgr(quint32 value)
     );
 }
 
-bool isSpaceCode(uint code)
-{
-    return code == QLatin1Char(' ').unicode()
-        || code == QLatin1Char('\t').unicode()
-        || code == QLatin1Char('\n').unicode()
-        || code == QLatin1Char('\r').unicode();
-}
-
-QString kerningKey(uint left, uint right)
-{
-    if (left > 0xFFFF || right > 0xFFFF)
-        return {};
-    return QString(QChar(static_cast<ushort>(left))) + QString(QChar(static_cast<ushort>(right)));
-}
-
-QList<uint> parseCharacterCodes(const QString &data)
-{
-    QList<uint> codes;
-    const QStringList parts = data.split(QRegularExpression(QStringLiteral("[,\\s]+")), Qt::SkipEmptyParts);
-    codes.reserve(parts.size());
-    for (const QString &part : parts) {
-        bool ok = false;
-        const uint code = part.trimmed().toUInt(&ok);
-        if (ok)
-            codes.append(code);
-    }
-    return codes;
-}
-
 void blendPixel(QImage *image, int x, int y, const QColor &color, int mask)
 {
     if (!image || mask <= 0 || x < 0 || y < 0 || x >= image->width() || y >= image->height())
@@ -134,55 +80,6 @@ void blendPixel256(QImage *image, int x, int y, const QColor &color, int mask)
         (color.green() * mask + dst.green() * inv) >> 8,
         (color.blue() * mask + dst.blue() * inv) >> 8
     ));
-}
-
-QMap<int, SimFont> buildFonts(const FpgaCompiledDocument &document,
-                              const QMap<int, QByteArray> &parameters,
-                              const QMap<int, QByteArray> &staticMemory)
-{
-    QMap<int, SimFont> fonts;
-    const ParamSchema schema = document.schemas.value(QStringLiteral("font"));
-    if (schema.isEmpty())
-        return fonts;
-
-    for (const FpgaCompiledObject &object : document.objects) {
-        if (object.type != QStringLiteral("font"))
-            continue;
-
-        for (int i = 0; i < object.paramCount; ++i) {
-            const QString paramHex = bytesToHex(parameters.value(object.startParamIndex + i));
-            if (paramHex.isEmpty() || extractField(paramHex, schema, QStringLiteral("enb")) == 0)
-                continue;
-
-            SimGlyph glyph;
-            glyph.code = extractField(paramHex, schema, QStringLiteral("code"));
-            glyph.width = static_cast<int>(extractField(paramHex, schema, QStringLiteral("w")));
-            glyph.height = static_cast<int>(extractField(paramHex, schema, QStringLiteral("h")));
-            glyph.advance = static_cast<int>(extractField(paramHex, schema, QStringLiteral("advance")));
-            glyph.bearingX = extractSignedField(paramHex, schema, QStringLiteral("bearing_x"));
-            glyph.bearingY = extractSignedField(paramHex, schema, QStringLiteral("bearing_y"));
-            glyph.ascent = static_cast<int>(extractField(paramHex, schema, QStringLiteral("ascent")));
-            glyph.descent = static_cast<int>(extractField(paramHex, schema, QStringLiteral("descent")));
-            glyph.offset = static_cast<int>(extractField(paramHex, schema, QStringLiteral("offset")));
-            glyph.maskSize = static_cast<int>(extractField(paramHex, schema, QStringLiteral("mask_size")));
-            if (glyph.maskSize <= 0)
-                glyph.maskSize = qMax(0, glyph.width * glyph.height);
-            if (glyph.advance <= 0)
-                glyph.advance = qMax(1, glyph.width);
-
-            const int fontIndex = static_cast<int>(extractField(paramHex, schema, QStringLiteral("font_index")));
-            SimFont &font = fonts[fontIndex];
-            font.index = fontIndex;
-            font.memory = staticMemory.value(object.memId);
-            font.kerningPairs = object.kerningPairs;
-            if (isSpaceCode(glyph.code))
-                font.spaceAdvance = qMax(1, glyph.advance);
-            if (glyph.code > 0 && glyph.width > 0 && glyph.height > 0)
-                font.glyphs.insert(glyph.code, glyph);
-        }
-    }
-
-    return fonts;
 }
 
 QVector<int> unpackRotationWord(const QByteArray &word)
@@ -267,24 +164,24 @@ void renderRectangle(QImage *frame, const QString &paramHex, const ParamSchema &
         return;
 
     QColor color = colorFromBgr(extractField(paramHex, schema, QStringLiteral("color")));
+    QColor border = colorFromBgr(extractField(paramHex, schema, QStringLiteral("colorb")));
     if (alphaMode) {
         const int alph = extractField(paramHex, schema, QStringLiteral("alph"));
         color.setAlpha(qRound(qBound(1, alph + 1, 8) * 255.0 / 8.0));
+        border.setAlpha(color.alpha());
     }
 
     QPainter painter(frame);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(color);
-    painter.drawRect(QRect(
+    paintHardwareRectangle(painter, QRectF(
         static_cast<int>(extractField(paramHex, schema, QStringLiteral("x0"))),
         static_cast<int>(extractField(paramHex, schema, QStringLiteral("y0"))),
         qMax(1, static_cast<int>(extractField(paramHex, schema, QStringLiteral("w")))),
         qMax(1, static_cast<int>(extractField(paramHex, schema, QStringLiteral("h"))))
-    ));
+    ), color, border, extractField(paramHex, schema, QStringLiteral("a")));
 }
 
 void renderStaticGroup(QImage *frame,
-                       const FpgaCompiledObject &object,
+                       const FpgaHardwareObject &object,
                        const QMap<int, QByteArray> &parameters,
                        const QByteArray &memory,
                        const ParamSchema &schema)
@@ -292,7 +189,7 @@ void renderStaticGroup(QImage *frame,
     if (!frame || schema.isEmpty())
         return;
 
-    for (int i = 0; i < object.paramCount; ++i) {
+    for (int i = 0; i < object.iparams.size(); ++i) {
         const QString paramHex = bytesToHex(parameters.value(object.startParamIndex + i));
         if (paramHex.isEmpty() || extractField(paramHex, schema, QStringLiteral("enb")) == 0)
             continue;
@@ -312,103 +209,6 @@ void renderStaticGroup(QImage *frame,
                 blendPixel(frame, x0 + x, y0 + y, color, byteAt(memory, memIndex));
             }
         }
-    }
-}
-
-void renderText(QImage *frame,
-                const FpgaCompiledObject &object,
-                const QMap<int, QByteArray> &parameters,
-                const QMap<int, SimFont> &fonts,
-                const ParamSchema &schema)
-{
-    if (!frame || schema.isEmpty() || object.paramCount <= 0)
-        return;
-
-    const QString paramHex = bytesToHex(parameters.value(object.startParamIndex));
-    if (paramHex.isEmpty() || extractField(paramHex, schema, QStringLiteral("enb")) == 0)
-        return;
-
-    const int fontIndex = static_cast<int>(extractField(paramHex, schema, QStringLiteral("font_index")));
-    if (!fonts.contains(fontIndex))
-        return;
-
-    const QList<uint> allCodes = parseCharacterCodes(object.data);
-    if (allCodes.isEmpty())
-        return;
-
-    const int charOffset = static_cast<int>(extractField(paramHex, schema, QStringLiteral("char_offset")));
-    const int charCount = static_cast<int>(extractField(paramHex, schema, QStringLiteral("char_count")));
-    if (charOffset < 0 || charOffset >= allCodes.size() || charCount <= 0)
-        return;
-
-    const int end = qMin(allCodes.size(), charOffset + charCount);
-    const SimFont &font = fonts.value(fontIndex);
-    const QColor color = colorFromBgr(extractField(paramHex, schema, QStringLiteral("color")));
-    const int originX = static_cast<int>(extractField(paramHex, schema, QStringLiteral("x")));
-    const int originY = static_cast<int>(extractField(paramHex, schema, QStringLiteral("y")));
-
-    int penX = 0;
-    int minX = 0;
-    int top = 0;
-    bool firstGlyph = true;
-    uint previous = 0;
-
-    for (int i = charOffset; i < end; ++i) {
-        const uint code = allCodes[i];
-        if (isSpaceCode(code)) {
-            penX += font.spaceAdvance;
-            previous = code;
-            continue;
-        }
-        const SimGlyph glyph = font.glyphs.value(code);
-        if (glyph.width <= 0 || glyph.height <= 0)
-            continue;
-
-        if (previous != 0)
-            penX += font.kerningPairs.value(kerningKey(previous, code), 0);
-
-        minX = qMin(minX, penX + glyph.bearingX);
-        const int glyphTop = glyph.bearingY;
-        if (firstGlyph) {
-            top = glyphTop;
-            firstGlyph = false;
-        } else {
-            top = qMin(top, glyphTop);
-        }
-        penX += glyph.advance;
-        previous = code;
-    }
-
-    penX = 0;
-    previous = 0;
-    for (int i = charOffset; i < end; ++i) {
-        const uint code = allCodes[i];
-        if (isSpaceCode(code)) {
-            penX += font.spaceAdvance;
-            previous = code;
-            continue;
-        }
-
-        const SimGlyph glyph = font.glyphs.value(code);
-        if (glyph.width <= 0 || glyph.height <= 0)
-            continue;
-
-        if (previous != 0)
-            penX += font.kerningPairs.value(kerningKey(previous, code), 0);
-
-        const int dstX = originX + penX + glyph.bearingX - minX;
-        const int dstY = originY + glyph.bearingY - top;
-        for (int y = 0; y < glyph.height; ++y) {
-            for (int x = 0; x < glyph.width; ++x) {
-                const int memIndex = glyph.offset + y * glyph.width + x;
-                if (memIndex < 0 || memIndex >= font.memory.size() || memIndex >= glyph.offset + glyph.maskSize)
-                    continue;
-                blendPixel(frame, dstX + x, dstY + y, color, byteAt(font.memory, memIndex));
-            }
-        }
-
-        penX += glyph.advance;
-        previous = code;
     }
 }
 
@@ -582,12 +382,11 @@ void FpgaSimulator::decodePackets()
 
 QImage FpgaSimulator::renderFrame() const
 {
-    const FpgaCompiledDocument &document = m_bundle.document;
+    const FpgaHardwareScene &document = m_bundle.document;
     QImage frame(qMax(1, document.width), qMax(1, document.height), QImage::Format_ARGB32);
     frame.fill(document.backgroundColor);
-    const QMap<int, SimFont> fonts = buildFonts(document, m_parameters, m_staticMemory);
 
-    for (const FpgaCompiledObject &object : document.objects) {
+    for (const FpgaHardwareObject &object : document.objects) {
         const QString paramHex = bytesToHex(m_parameters.value(object.startParamIndex));
         if (object.type == QStringLiteral("rectangle")) {
             renderRectangle(&frame, paramHex, document.schemas.value(QStringLiteral("rectangle")), false);
@@ -595,11 +394,9 @@ QImage FpgaSimulator::renderFrame() const
             renderRectangle(&frame, paramHex, document.schemas.value(QStringLiteral("rectangle_a")), true);
         } else if (object.type == QStringLiteral("staticgroup")) {
             renderStaticGroup(&frame, object, m_parameters, m_staticMemory.value(object.memId), document.schemas.value(QStringLiteral("staticgroup")));
-        } else if (object.type == QStringLiteral("text")) {
-            renderText(&frame, object, m_parameters, fonts, document.schemas.value(QStringLiteral("text")));
         } else if (object.type == QStringLiteral("rotationobject")) {
             const ParamSchema schema = document.schemas.value(QStringLiteral("rotationobject"));
-            for (int i = 0; i < object.paramCount; ++i) {
+            for (int i = 0; i < object.iparams.size(); ++i) {
                 const QString layerParamHex = bytesToHex(m_parameters.value(object.startParamIndex + i));
                 renderRotationObject(&frame, layerParamHex, m_rotationMemory.value(object.memId), schema);
             }

@@ -1,9 +1,10 @@
-//AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта
+// AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта.
 
 #pragma once
 
 #include "BaseObject.h"
 
+// AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта.
 class AviaHorizonObject : public BaseObject
 {
     Q_OBJECT
@@ -33,7 +34,7 @@ public:
     bool canResize() const override { return false; }
 
     void moveBy(double dx, double dy) override;
-    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     void setRotation(double angle) override;
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;

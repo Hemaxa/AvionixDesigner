@@ -1,4 +1,4 @@
-//MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели
+// MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели.
 
 #include "MainWindow.h"
 
@@ -20,6 +20,8 @@
 #include "ViewportPanel.h"
 #include "ViewportSettingsPanel.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
+#include "RectangleObject.h"
 
 #include <QAction>
 #include <QDockWidget>
@@ -451,6 +453,17 @@ void MainWindow::createMenus() {
   editMenu->addAction(createAction("Разгруппировать",
                                    QKeySequence("Ctrl+Shift+G"), this,
                                    SLOT(ungroupSelectedObjects())));
+  auto *proportional = editMenu->addAction(tr("Сохранять пропорции при масштабировании"));
+  proportional->setObjectName("ProportionalResizeAction");
+  proportional->setCheckable(true); proportional->setShortcut(QKeySequence("Ctrl+Shift+P"));
+  proportional->setToolTip(tr("Также можно удерживать Shift на ручке изменения размера."));
+  connect(proportional, &QAction::toggled, m_viewport, &ViewportPanel::setProportionalResize);
+  auto *steppedRotation = editMenu->addAction(tr("Поворот с шагом 15°"));
+  steppedRotation->setObjectName("SteppedRotationAction");
+  steppedRotation->setCheckable(true); steppedRotation->setShortcut(QKeySequence("Ctrl+Shift+R"));
+  steppedRotation->setToolTip(tr("Shift при повороте — 15°, Ctrl — 90°."));
+  connect(steppedRotation, &QAction::toggled, m_viewport, &ViewportPanel::setRotationSnapping);
+  editMenu->addAction(createAction(tr("Изменить прозрачность…"), QKeySequence("Ctrl+Alt+T"), this, SLOT(editTransparency())));
   editMenu->addSeparator();
 
   auto addAlignAction = [this, editMenu](const QString &title,
@@ -531,6 +544,13 @@ void MainWindow::createMenus() {
     action->setShortcut(QKeySequence(rotating ? "Ctrl+Shift+I" : "Ctrl+I"));
     connect(action, &QAction::triggered, this, [this, rotating]() { onImportImage(rotating); });
   }
+
+  objectsMenu->addSeparator();
+  auto *mergeStatic = createAction(tr("Объединить в staticgroup"), QKeySequence("Ctrl+Alt+G"), this, SLOT(mergeSelectedStaticGroups()));
+  mergeStatic->setObjectName("MergeStaticAction");
+  mergeStatic->setIcon(QIcon(":/icons/icons/selection/merge-static.svg"));
+  objectsMenu->addAction(mergeStatic);
+  objectsMenu->addAction(createAction(tr("Проверить память ПЛИС…"), QKeySequence("Ctrl+Alt+M"), this, SLOT(checkHardwareResources())));
 
   QMenu *viewMenu = menuBar()->addMenu("Вид");
   viewMenu->addAction(m_objectListDock->toggleViewAction());
@@ -669,6 +689,8 @@ void MainWindow::connectSignals() {
           &MainWindow::groupSelectedObjects);
   connect(m_selectionToolStrip, &SelectionToolStrip::ungroupRequested, this,
           &MainWindow::ungroupSelectedObjects);
+  connect(m_selectionToolStrip, &SelectionToolStrip::mergeStaticRequested, this,
+          &MainWindow::mergeSelectedStaticGroups);
   connect(m_viewport, &ViewportPanel::imageDropped, this,
           [this](const QString &fileName) {
             const int index =
@@ -964,6 +986,42 @@ void MainWindow::groupSelectedObjects() {
   m_viewport->update();
 }
 
+void MainWindow::mergeSelectedStaticGroups() {
+  QString error;
+  const int index = ProjectManager::instance()->mergeStaticGroups(m_viewport->getSelectedIndexes(), &error);
+  if (index < 0) {
+    QMessageBox::warning(this, tr("Объединение статических объектов"), error);
+    return;
+  }
+  m_objectList->refreshList();
+  m_objectList->selectRows({index});
+  m_viewport->setSelectedIndexes({index});
+  handleSelectionChanged({index});
+  m_viewport->update();
+}
+
+void MainWindow::checkHardwareResources() {
+  QStringList messages;
+  for (const auto &object : ProjectManager::instance()->getObjects()) {
+    if (!object->isExportEnabled()) continue;
+    const auto report = FpgaResourceLimits::inspect(*object);
+    if (!report.messages().isEmpty())
+      messages.append((object->customName().isEmpty() ? object->getDisplayName() : object->customName()) + ":\n" + report.messages().join('\n'));
+  }
+  if (messages.isEmpty())
+    QMessageBox::information(this, tr("Память ПЛИС"), tr("Статические группы и вращающиеся изображения укладываются в ограничения памяти и параметров."));
+  else
+    QMessageBox::warning(this, tr("Ограничения ПЛИС"), messages.join("\n\n"));
+}
+
+void MainWindow::editTransparency() {
+  const auto indexes = m_viewport->getSelectedIndexes();
+  if (indexes.size() != 1 || !dynamic_cast<RectangleObject *>(ProjectManager::instance()->getObjectAt(indexes.first()).data())) return;
+  m_objectPropertiesDock->show(); m_objectPropertiesDock->raise();
+  m_objectProperties->showObjectProperties(indexes.first());
+  m_objectProperties->focusTransparency();
+}
+
 void MainWindow::ungroupSelectedObjects() {
   const QList<int> indexes = m_viewport->getSelectedIndexes();
   if (indexes.isEmpty())
@@ -1044,6 +1102,7 @@ void MainWindow::alignSelectedObject(int actionId) {
 
   auto *project = ProjectManager::instance();
 
+  // AlignUnit - объект или целая редакторская группа, участвующие в выравнивании.
   struct AlignUnit {
     QList<int> members;
     QRectF bounds;
@@ -1106,6 +1165,7 @@ void MainWindow::alignSelectedObject(int actionId) {
   if (!hasBounds || bounds.isEmpty())
     return;
 
+  // MoveDelta - индекс объекта и запланированное смещение при выравнивании.
   struct MoveDelta {
     int index = -1;
     QPointF delta;

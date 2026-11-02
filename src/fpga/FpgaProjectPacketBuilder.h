@@ -1,4 +1,4 @@
-//FpgaProjectPacketBuilder - единая точка сборки текущего проекта в пакетный bundle
+// FpgaProjectPacketBuilder - единая точка сборки текущего проекта в пакетный bundle.
 
 #pragma once
 
@@ -6,6 +6,7 @@
 
 class QString;
 
+// FpgaProjectPacketBuilder - единая точка сборки текущего проекта в пакетный bundle.
 class FpgaProjectPacketBuilder
 {
 public:

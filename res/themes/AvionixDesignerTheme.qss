@@ -227,7 +227,7 @@ QCheckBox::indicator:checked {
 }
 
 #LibraryCard,
-#SelectionToolButton,
+#SelectionToolStrip QToolButton,
 #SettingsToolButton {
     background-color: #121922;
     border: 1px solid #22303c;
@@ -239,14 +239,14 @@ QCheckBox::indicator:checked {
 }
 
 #LibraryCard:hover,
-#SelectionToolButton:hover,
+#SelectionToolStrip QToolButton:hover,
 #SettingsToolButton:hover {
     background-color: #17212b;
     border-color: #00c8f0;
 }
 
 #LibraryCard:pressed,
-#SelectionToolButton:pressed,
+#SelectionToolStrip QToolButton:pressed,
 #SettingsToolButton:pressed {
     background-color: #0a0f14;
 }
@@ -256,7 +256,7 @@ QCheckBox::indicator:checked {
     border-color: #00c8f0;
 }
 
-#SelectionToolButton,
+#SelectionToolStrip QToolButton,
 #SettingsToolButton {
     padding: 0;
     font-size: 11px;
@@ -366,7 +366,7 @@ QToolButton#LibraryCard {
     qproperty-iconSize: 36px 36px;
 }
 
-QToolButton#SelectionToolButton,
+#SelectionToolStrip QToolButton,
 QToolButton#SettingsToolButton,
 QPushButton#SettingsColorButton {
     min-width: 52px;
@@ -376,7 +376,7 @@ QPushButton#SettingsColorButton {
     padding: 0;
 }
 
-QToolButton#SelectionToolButton,
+#SelectionToolStrip QToolButton,
 QToolButton#SettingsToolButton {
     qproperty-iconSize: 32px 32px;
 }
@@ -414,6 +414,34 @@ QToolButton#SettingsToolButton {
 
 #FpgaSimulatorWarningsLabel {
     color: #f05050;
+}
+
+#PropertiesHardwareWarning {
+    color: #ffd28a;
+    background-color: #342b1d;
+    border: 1px solid #8e6b32;
+    border-radius: 6px;
+    padding: 10px;
+}
+#PropertiesHardwareWarning[severity="error"] {
+    color: #ffb2ac;
+    background-color: #382126;
+    border-color: #a14e54;
+}
+#TransparencyEditor { background-color: transparent; }
+#TransparencySpin { min-height: 18px; padding: 3px 6px; border-radius: 5px; }
+#TransparencySpin QLineEdit { background: transparent; border: none; min-height: 0; padding: 0; }
+#TransparencySlider::groove:horizontal {
+    height: 5px;
+    background: #304454;
+    border-radius: 2px;
+}
+#TransparencySlider::sub-page:horizontal { background: #00bada; border-radius: 2px; }
+#TransparencySlider::handle:horizontal {
+    background: #d5f8ff;
+    width: 10px;
+    margin: -5px 0;
+    border-radius: 4px;
 }
 
 #AircraftXSpin,

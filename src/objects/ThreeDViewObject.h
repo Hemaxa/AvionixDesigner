@@ -1,4 +1,4 @@
-//ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС
+// ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС.
 
 #pragma once
 
@@ -6,6 +6,7 @@
 #include <QSvgRenderer>
 #include "fpga/model/Layer3dFormat.h"
 
+// ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС.
 class ThreeDViewObject : public BaseObject
 {
     Q_OBJECT
@@ -22,7 +23,7 @@ public:
     bool canResize() const override { return false; }
     bool contains(const QPointF &point) const override;
     void moveBy(double dx, double dy) override;
-    void resizeBy(int edgeFlags, double dx, double dy) override;
+    void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     bool setObjectProperty(const QString &name, const QString &value) override;
     QMap<QString, quint32> serializeParams() const override;
 

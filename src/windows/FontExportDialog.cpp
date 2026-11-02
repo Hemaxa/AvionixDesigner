@@ -1,4 +1,4 @@
-//FontExportDialog - диалог выбора алфавитов, которые будут зашиты в font-ресурсы XML
+// FontExportDialog - диалог выбора алфавитов, которые будут зашиты в font-ресурсы XML.
 
 #include "FontExportDialog.h"
 
@@ -11,7 +11,7 @@
 #include <QVBoxLayout>
 
 namespace {
-// Описание столбца с выбором набора символов для экспорта шрифта.
+// AlphabetColumn - столбец выбора набора символов при экспорте шрифта.
 struct AlphabetColumn
 {
     QString id;

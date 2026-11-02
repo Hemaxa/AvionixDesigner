@@ -1,4 +1,4 @@
-//RotationObject - класс растрового объекта с маской и поддержкой вращения
+// RotationObject - класс растрового объекта с маской и поддержкой вращения.
 
 #include "RotationObject.h"
 #include "BitParser.h"
@@ -39,29 +39,29 @@ RotationObjectLayer layerFromInit(const QString &hexInit, const ParamSchema &sch
 void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
     enabled = BitParser::extract(hexInit, schema.value("enb").offset, schema.value("enb").size) != 0;
-    //парсинг центра вращения (пиксельные координаты)
-    if (schema.contains("xrot")) 
+    // парсинг центра вращения (пиксельные координаты)
+    if (schema.contains("xrot"))
         xRot = BitParser::extract(hexInit, schema["xrot"].offset, schema["xrot"].size);
-    if (schema.contains("yrot")) 
+    if (schema.contains("yrot"))
         yRot = BitParser::extract(hexInit, schema["yrot"].offset, schema["yrot"].size);
 
-    //парсинг смещений от точки вращения (знаковые пиксельные расстояния)
-    if (schema.contains("top")) 
+    // парсинг смещений от точки вращения (знаковые пиксельные расстояния)
+    if (schema.contains("top"))
         top = BitParser::extractSigned(hexInit, schema["top"].offset, schema["top"].size);
-    if (schema.contains("left")) 
+    if (schema.contains("left"))
         left = BitParser::extractSigned(hexInit, schema["left"].offset, schema["left"].size);
-    if (schema.contains("bottom")) 
+    if (schema.contains("bottom"))
         bottom = BitParser::extractSigned(hexInit, schema["bottom"].offset, schema["bottom"].size);
-    if (schema.contains("right")) 
+    if (schema.contains("right"))
         right = BitParser::extractSigned(hexInit, schema["right"].offset, schema["right"].size);
 
-    //парсинг цвета
+    // парсинг цвета
     if (schema.contains("color")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["color"].offset, schema["color"].size);
         color = BitParser::parseColor(colorVal);
     }
 
-    //парсинг синуса и косинуса (знаковые, с фиксированной точкой xx.xxxxxxxxxxxxxxxx)
+    // парсинг синуса и косинуса (знаковые, с фиксированной точкой xx.xxxxxxxxxxxxxxxx)
     if (schema.contains("sin")) {
         sinVal = BitParser::extractSigned(hexInit, schema["sin"].offset, schema["sin"].size);
     }
@@ -77,7 +77,7 @@ void RotationObject::parseExtraData(const QDomElement &element)
     QDomElement dataEl = element.firstChildElement("data");
     if (dataEl.isNull()) return;
 
-    //чтение размеров маски
+    // чтение размеров маски
     int w = XmlReader::readInt(dataEl, "width", 0);
     int h = XmlReader::readInt(dataEl, "height", 0);
     QString text = dataEl.text().trimmed();
@@ -139,8 +139,8 @@ QString RotationObject::getDisplayName() const
 
 double RotationObject::getAngleDegrees() const
 {
-    //sinVal и cosVal — значения с фиксированной точкой xx.xxxxxxxxxxxxxxxx
-    //2 бита целая часть, 16 бит дробная → делим на 65536.0 (декодирование из int в float)
+    // sinVal и cosVal — значения с фиксированной точкой xx.xxxxxxxxxxxxxxxx
+    // 2 бита целая часть, 16 бит дробная → делим на 65536.0 (декодирование из int в float)
     double s = sinVal / 65536.0;
     double c = cosVal / 65536.0;
     return qRadiansToDegrees(qAtan2(s, c));
@@ -160,13 +160,16 @@ QList<QPair<QString, QString>> RotationObject::getProperties() const
         {"Позиция Y", QString::number(yRot + top)},
         {"Цвет", color.name()}
     };
-    
+
     if (!maskImage.isNull()) {
         props.append({"Маска", QString("%1x%2").arg(maskImage.width()).arg(maskImage.height())});
     }
     if (m_layers.size() > 1)
         props.append({"Цветовых слоев", QString::number(m_layers.size())});
-    
+    const int width = maskImage.isNull() ? qMax(1,qRound(right-left)) : maskImage.width();
+    const int height = maskImage.isNull() ? qMax(1,qRound(bottom-top)) : maskImage.height();
+    props.append({QStringLiteral("Память"), QStringLiteral("%1/2048 тайлов").arg(qint64((width+7)/8)*((height+7)/8))});
+
     return props;
 }
 
@@ -192,11 +195,11 @@ bool RotationObject::contains(const QPointF &point) const
     QTransform transform;
     transform.translate(xRot, yRot);
     transform.rotate(getAngleDegrees());
-    
+
     // Инвертируем трансформацию, чтобы перевести точку клика в локальные координаты
     QTransform invTransform = transform.inverted();
     QPointF localPoint = invTransform.map(point);
-    
+
     QRectF localRect(left, top, right - left, bottom - top);
     return localRect.contains(localPoint);
 }
@@ -212,8 +215,9 @@ void RotationObject::moveBy(double dx, double dy)
     emit changed();
 }
 
-void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
+void RotationObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
+    Q_UNUSED(proportional);
     if (!canResize())
         return;
 
@@ -237,7 +241,7 @@ void RotationObject::resizeBy(int edgeFlags, double dx, double dy)
         maskImage = maskImage.scaled(newWidth, newHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
     }
     syncFirstLayerFromPublicFields();
-    
+
     emit changed();
 }
 
@@ -256,7 +260,7 @@ void RotationObject::setRotation(double angle)
 bool RotationObject::setObjectProperty(const QString &name, const QString &value)
 {
     bool ok = false;
-    
+
     if (name == "Left" || name == "Left (смещ.)") {
         if (!canResize()) {
             setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
@@ -303,7 +307,7 @@ bool RotationObject::setObjectProperty(const QString &name, const QString &value
         color = QColor(value);
         ok = color.isValid();
     }
-    
+
     if (ok) {
         syncFirstLayerFromPublicFields();
         emit changed();

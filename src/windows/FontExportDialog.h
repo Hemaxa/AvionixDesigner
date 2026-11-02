@@ -1,4 +1,4 @@
-//FontExportDialog - диалог выбора алфавитов, которые будут зашиты в font-ресурсы XML
+// FontExportDialog - диалог выбора алфавитов, которые будут зашиты в font-ресурсы XML.
 
 #pragma once
 
@@ -9,6 +9,7 @@
 
 class QTableWidget;
 
+// FontExportDialogEntry - шрифт, размер и выбранные для экспорта наборы символов.
 struct FontExportDialogEntry
 {
     QString fontFamily;
@@ -18,19 +19,20 @@ struct FontExportDialogEntry
     QStringList alphabetGroups;
 };
 
+// FontExportDialog - диалог выбора алфавитов, которые будут зашиты в font-ресурсы XML.
 class FontExportDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    //создаёт диалог настройки алфавитов для списка экспортируемых шрифтов
+    // создаёт диалог настройки алфавитов для списка экспортируемых шрифтов
     explicit FontExportDialog(const QList<FontExportDialogEntry> &entries, QWidget *parent = nullptr);
 
-    //возвращает выбранные пользователем алфавиты для каждого шрифта
+    // возвращает выбранные пользователем алфавиты для каждого шрифта
     QList<FontExportDialogEntry> entries() const;
 
 private:
-    //заполняет таблицу строками шрифтов и чекбоксами алфавитов
+    // заполняет таблицу строками шрифтов и чекбоксами алфавитов
     void populateTable();
 
     QList<FontExportDialogEntry> m_entries;

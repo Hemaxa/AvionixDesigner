@@ -1,4 +1,4 @@
-//DashedLineObject - объект аппаратной штриховой линии
+// DashedLineObject - объект аппаратной штриховой линии.
 
 #include "DashedLineObject.h"
 
@@ -134,8 +134,9 @@ void DashedLineObject::moveBy(double dx, double dy)
     emit changed();
 }
 
-void DashedLineObject::resizeBy(int edgeFlags, double dx, double dy)
+void DashedLineObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
+    Q_UNUSED(proportional);
     const QRectF oldBounds = getBoundingRect();
     const auto resized = proportionalResizeRect(oldBounds, edgeFlags, dx, dy);
 

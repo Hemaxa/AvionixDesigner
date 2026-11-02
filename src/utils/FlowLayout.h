@@ -1,4 +1,5 @@
-// FlowLayout — перенос компактных органов управления на новые строки.
+// FlowLayout - перенос компактных органов управления на новые строки.
+
 #pragma once
 
 #include <QLayout>
@@ -7,6 +8,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+// FlowLayout - перенос компактных органов управления на новые строки.
 class FlowLayout : public QLayout
 {
 public:
@@ -53,7 +55,7 @@ private:
     QList<QLayoutItem *> m_items;
 };
 
-// Прокрутка сохраняет доступ к кнопкам, если высоты плавающей панели не хватает.
+// FlowScrollArea - прокрутка панели инструментов с учётом переноса кнопок по ширине.
 class FlowScrollArea : public QScrollArea
 {
 public:

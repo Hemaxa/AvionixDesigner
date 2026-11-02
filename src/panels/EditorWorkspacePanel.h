@@ -1,4 +1,4 @@
-//EditorWorkspacePanel - центральная рабочая область с холстом и вертикальной панелью действий
+// EditorWorkspacePanel - центральная рабочая область с холстом и вертикальной панелью действий.
 
 #pragma once
 
@@ -7,6 +7,7 @@
 class ViewportPanel;
 class SelectionToolStrip;
 
+// EditorWorkspacePanel - центральная рабочая область с холстом и вертикальной панелью действий.
 class EditorWorkspacePanel : public QWidget
 {
     Q_OBJECT

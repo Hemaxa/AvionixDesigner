@@ -1,4 +1,4 @@
-//AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта
+// AviaHorizonObject - объект авиагоризонта с закраской неба, земли и линии горизонта.
 
 #include "AviaHorizonObject.h"
 
@@ -96,8 +96,9 @@ void AviaHorizonObject::moveBy(double dx, double dy)
     Q_UNUSED(dy);
 }
 
-void AviaHorizonObject::resizeBy(int edgeFlags, double dx, double dy)
+void AviaHorizonObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
+    Q_UNUSED(proportional);
     Q_UNUSED(edgeFlags);
     Q_UNUSED(dx);
     Q_UNUSED(dy);

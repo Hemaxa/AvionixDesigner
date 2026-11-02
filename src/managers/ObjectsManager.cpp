@@ -1,4 +1,4 @@
-//ObjectsManager - менеджер создания объектов по принципу фабрики
+// ObjectsManager - менеджер создания объектов по принципу фабрики.
 
 #include "ObjectsManager.h"
 
@@ -15,7 +15,7 @@ void ObjectsManager::registerType(const QString &typeName, ObjectCreator creator
 
 BaseObject* ObjectsManager::createObject(const QString &typeName)
 {
-    //создаём объект через зарегистрированный конструктор
+    // создаём объект через зарегистрированный конструктор
     if (m_creators.contains(typeName)) {
         return m_creators[typeName]();
     }
@@ -30,18 +30,18 @@ bool ObjectsManager::hasType(const QString &typeName) const
 QMap<QString, ParamSchema> ObjectsManager::parseSchemas(const QDomElement &parametersNode)
 {
     QMap<QString, ParamSchema> schemas;
-    
+
     if (parametersNode.isNull()) return schemas;
-    
-    //проходим по всем типам объектов
+
+    // проходим по всем типам объектов
     QDomNode typeNode = parametersNode.firstChild();
     while (!typeNode.isNull()) {
         QDomElement typeEl = typeNode.toElement();
         if (!typeEl.isNull()) {
             QString typeName = typeEl.tagName();
             ParamSchema schema;
-            
-            //читаем все параметры типа
+
+            // читаем все параметры типа
             QDomNode paramNode = typeEl.firstChild();
             while (!paramNode.isNull()) {
                 QDomElement paramEl = paramNode.toElement();
@@ -53,12 +53,12 @@ QMap<QString, ParamSchema> ObjectsManager::parseSchemas(const QDomElement &param
                 }
                 paramNode = paramNode.nextSibling();
             }
-            
+
             schemas.insert(typeName, schema);
         }
         typeNode = typeNode.nextSibling();
     }
-    
+
     return schemas;
 }
 

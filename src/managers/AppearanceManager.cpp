@@ -1,4 +1,4 @@
-//AppearanceManager - менеджер внешнего вида приложения
+// AppearanceManager - менеджер внешнего вида приложения.
 
 #include "AppearanceManager.h"
 #include <QApplication>

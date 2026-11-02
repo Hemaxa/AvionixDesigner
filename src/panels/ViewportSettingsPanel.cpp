@@ -1,4 +1,4 @@
-//ViewportSettingsPanel - компактная панель параметров рабочей области
+// ViewportSettingsPanel - компактная панель параметров рабочей области.
 
 #include "ViewportSettingsPanel.h"
 

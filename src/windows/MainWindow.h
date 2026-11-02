@@ -1,4 +1,4 @@
-//MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели
+// MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели.
 
 #pragma once
 
@@ -24,6 +24,7 @@ class FpgaStreamingPanel;
 class FpgaSimulatorPanel;
 class AircraftPositionPanel;
 
+// MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели.
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -32,45 +33,48 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
 
 public slots:
-    //сбрасывает расположение dock-панелей к стандартному виду
+    // сбрасывает расположение dock-панелей к стандартному виду
     void resetToDefaultLayout();
 
 private slots:
-    //создаёт новый проект через диалог параметров
+    // создаёт новый проект через диалог параметров
     void onNewProject();
-    //открывает XML-файл проекта
+    // открывает XML-файл проекта
     void onOpenFile();
-    //сохраняет текущий проект
+    // сохраняет текущий проект
     void onSaveFile();
-    //сохраняет текущий проект по новому пути
+    // сохраняет текущий проект по новому пути
     void onSaveFileAs();
-    //импортирует статическое или вращающееся изображение
+    // импортирует статическое или вращающееся изображение
     void onImportImage(bool rotating = false);
-    //обновляет заголовок окна по текущему проекту
+    // обновляет заголовок окна по текущему проекту
     void updateWindowTitle();
-    //открывает окно настроек приложения
+    // открывает окно настроек приложения
     void openSettings();
-    //создаёт объект выбранного типа в стандартной позиции
+    // создаёт объект выбранного типа в стандартной позиции
     void createObjectOfType(const QString &typeName);
-    //создаёт объект выбранного типа в позиции на холсте
+    // создаёт объект выбранного типа в позиции на холсте
     void createObjectAtPosition(const QString &typeName, const QPointF &pos);
-    //удаляет выбранные объекты
+    // удаляет выбранные объекты
     void deleteSelectedObject();
-    //отменяет последнее действие
+    // отменяет последнее действие
     void undo();
-    //повторяет отменённое действие
+    // повторяет отменённое действие
     void redo();
-    //копирует выбранные объекты
+    // копирует выбранные объекты
     void copySelectedObjects();
-    //вставляет объекты из внутреннего буфера
+    // вставляет объекты из внутреннего буфера
     void pasteObjects();
-    //выравнивает выбранные объекты или меняет их порядок слоёв
+    // выравнивает выбранные объекты или меняет их порядок слоёв
     void alignSelectedObject(int actionId);
-    //создаёт редакторскую группу из выбранных объектов
+    // создаёт редакторскую группу из выбранных объектов
     void groupSelectedObjects();
-    //разгруппировывает выбранную редакторскую группу
+    // разгруппировывает выбранную редакторскую группу
     void ungroupSelectedObjects();
-    //синхронизирует панели со сменой выделения
+    void mergeSelectedStaticGroups();
+    void checkHardwareResources();
+    void editTransparency();
+    // синхронизирует панели со сменой выделения
     void handleSelectionChanged(const QList<int> &indexes);
 
 protected:
@@ -78,35 +82,35 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
-    //создаёт центральные и dock-виджеты главного окна
+    // создаёт центральные и dock-виджеты главного окна
     void createWidgets();
-    //создаёт пункты главного меню
+    // создаёт пункты главного меню
     void createMenus();
-    //соединяет сигналы между панелями и менеджером проекта
+    // соединяет сигналы между панелями и менеджером проекта
     void connectSignals();
-    //задаёт начальные размеры dock-панелей
+    // задаёт начальные размеры dock-панелей
     void setupDockSizes();
-    //задаёт стандартные размеры плавающих служебных панелей
+    // задаёт стандартные размеры плавающих служебных панелей
     void applyDefaultFloatingDockSizes();
-    //создаёт QAction с текстом, shortcut и receiver/member
+    // создаёт QAction с текстом, shortcut и receiver/member
     QAction* createAction(const QString &text, const QKeySequence &shortcut, const QObject *receiver, const char *member);
-    //сохраняет геометрию и состояние dock-панелей
+    // сохраняет геометрию и состояние dock-панелей
     void saveLayoutSettings();
-    //восстанавливает геометрию и состояние dock-панелей
+    // восстанавливает геометрию и состояние dock-панелей
     void restoreLayoutSettings();
-    //обновляет доступность команд, зависящих от выделения
+    // обновляет доступность команд, зависящих от выделения
     void setSelectionState(bool active);
-    //обновляет доступность команд истории и вставки
+    // обновляет доступность команд истории и вставки
     void updateCommandState();
-    //возвращает выбранную группу, если текущее выделение полностью ей соответствует
+    // возвращает выбранную группу, если текущее выделение полностью ей соответствует
     int selectedGroupId() const;
-    //показывает диалог выбора алфавитов для новых текстовых font-ресурсов перед XML-экспортом
+    // показывает диалог выбора алфавитов для новых текстовых font-ресурсов перед XML-экспортом
     bool configureFontExportAlphabets();
-    //планирует отложенное обновление live-симулятора ПЛИС
+    // планирует отложенное обновление live-симулятора ПЛИС
     void scheduleFpgaSimulatorUpdate();
-    //пересобирает пакеты и обновляет панель live-симулятора
+    // пересобирает пакеты и обновляет панель live-симулятора
     void updateFpgaSimulatorNow();
-    //обновляет доступность панели позиционирования самолета
+    // обновляет доступность панели позиционирования самолета
     void updateAircraftPositionAvailability();
 
     EditorWorkspacePanel *m_workspacePanel = nullptr;

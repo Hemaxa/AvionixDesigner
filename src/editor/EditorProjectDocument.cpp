@@ -1,4 +1,4 @@
-//EditorProjectDocument - внутренняя модель проекта редактора
+// EditorProjectDocument - внутренняя модель проекта редактора.
 
 #include "EditorProjectDocument.h"
 

@@ -1,4 +1,4 @@
-//FpgaStreamingPanel - панель выбора способа загрузки пакетов ПЛИС
+// FpgaStreamingPanel - панель выбора способа загрузки пакетов ПЛИС.
 
 #include "FpgaStreamingPanel.h"
 
@@ -71,7 +71,7 @@ QStringList availablePortNames()
     return names;
 }
 
-// Параметры порта, двух скоростей и интервала перед началом UART-сеанса.
+// UartStreamingDialog - диалог порта, скоростей и интервала перед началом передачи.
 class UartStreamingDialog : public QDialog
 {
 public:

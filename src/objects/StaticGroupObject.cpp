@@ -1,67 +1,67 @@
-//StaticGroupObject - класс группы статических растровых объектов с несколькими состояниями
+// StaticGroupObject - класс группы статических растровых объектов с несколькими состояниями.
 
 #include "StaticGroupObject.h"
 #include "BitParser.h"
 #include "ProportionalResize.h"
-#include "XmlReader.h"
+#include <QtMath>
 
 StaticGroupObject::StaticGroupObject(QObject *parent) : BaseObject(parent) {}
 
 GroupState StaticGroupObject::parseState(const QString &hexInit, const ParamSchema &schema)
 {
     GroupState state;
-    
-    //пиксельные координаты левого верхнего угла
+
+    // пиксельные координаты левого верхнего угла
     if (schema.contains("x"))
         state.x = BitParser::extract(hexInit, schema["x"].offset, schema["x"].size);
     if (schema.contains("y"))
         state.y = BitParser::extract(hexInit, schema["y"].offset, schema["y"].size);
-    
-    //ширина и высота габаритного прямоугольника
+
+    // ширина и высота габаритного прямоугольника
     if (schema.contains("w"))
         state.w = BitParser::extract(hexInit, schema["w"].offset, schema["w"].size);
     if (schema.contains("h"))
         state.h = BitParser::extract(hexInit, schema["h"].offset, schema["h"].size);
-    
-    //адрес смещения в блочной памяти
+
+    // адрес смещения в блочной памяти
     if (schema.contains("addr"))
         state.addr = BitParser::extract(hexInit, schema["addr"].offset, schema["addr"].size);
-    
-    //цвет
+
+    // цвет
     if (schema.contains("color")) {
         quint32 colorVal = BitParser::extract(hexInit, schema["color"].offset, schema["color"].size);
         state.color = BitParser::parseColor(colorVal);
     }
-    
-    //разрешение видимости
+
+    // разрешение видимости
     if (schema.contains("enb"))
         state.enabled = BitParser::extract(hexInit, schema["enb"].offset, schema["enb"].size) != 0;
-    
+
     return state;
 }
 
 void StaticGroupObject::parse(const QString &hexInit, const ParamSchema &schema)
 {
-    //сохраняем схему для парсинга дополнительных init-строк в parseExtraData
+    // сохраняем схему для парсинга дополнительных init-строк в parseExtraData
     m_schema = schema;
-    
-    //парсим первое состояние
+
+    // парсим первое состояние
     GroupState state = parseState(hexInit, schema);
     states.append(state);
 }
 
 void StaticGroupObject::parseExtraData(const QDomElement &element)
 {
-    //читаем атрибут nomber (количество состояний)
+    // читаем атрибут nomber (количество состояний)
     groupNumber = element.attribute("nomber", "0").toInt();
-    
-    //парсим дополнительные init-строки (со 2-й и далее)
+
+    // парсим дополнительные init-строки (со 2-й и далее)
     QDomElement initEl = element.firstChildElement("init");
     bool firstSkipped = false;
-    
+
     while (!initEl.isNull()) {
         if (!firstSkipped) {
-            //первый <init> уже распарсен в parse()
+            // первый <init> уже распарсен в parse()
             firstSkipped = true;
         }
         else {
@@ -73,44 +73,44 @@ void StaticGroupObject::parseExtraData(const QDomElement &element)
         }
         initEl = initEl.nextSiblingElement("init");
     }
-    
-    //парсим общую блочную память из <data>
+
+    // парсим общую блочную память из <data>
     QDomElement dataEl = element.firstChildElement("data");
     if (dataEl.isNull() || states.isEmpty()) return;
-    
+
     QString text = dataEl.text().trimmed();
     if (text.isEmpty()) return;
-    
-    //разбираем все пиксели в единый массив
+
+    // разбираем все пиксели в единый массив
     QStringList parts = text.split(',');
     QVector<int> sharedData;
     sharedData.reserve(parts.size());
     for (const QString &part : parts) {
         sharedData.append(part.trimmed().toInt());
     }
-    
-    //для каждого состояния создаём маску из общей памяти
+
+    // для каждого состояния создаём маску из общей памяти
     for (int i = 0; i < states.size(); ++i) {
         GroupState &state = states[i];
         int w = state.w;
         int h = state.h;
         int startAddr = state.addr;
-        
+
         if (w <= 0 || h <= 0) continue;
-        
+
         QImage mask(w, h, QImage::Format_ARGB32);
         mask.fill(Qt::transparent);
-        
+
         QColor maskColor = state.color.isValid() ? state.color : Qt::white;
-        
+
         int idx = startAddr;
         for (int py = 0; py < h; ++py) {
             for (int px = 0; px < w; ++px) {
                 if (idx >= sharedData.size()) break;
-                
+
                 int val = sharedData[idx];
                 idx++;
-                
+
                 if (val > 0) {
                     int alpha8bit = (val * 255) / 7;
                     QColor pixelColor = maskColor;
@@ -119,7 +119,7 @@ void StaticGroupObject::parseExtraData(const QDomElement &element)
                 }
             }
         }
-        
+
         maskImages.append(mask);
     }
 }
@@ -127,21 +127,21 @@ void StaticGroupObject::parseExtraData(const QDomElement &element)
 void StaticGroupObject::draw(QPainter &painter)
 {
     if (states.isEmpty()) return;
-    
+
     painter.save();
-    
-    //рисуем все включённые состояния
+
+    // рисуем все включённые состояния
     for (int i = 0; i < states.size(); ++i) {
         const GroupState &state = states[i];
-        
+
         if (!state.enabled) continue;
-        
+
         if (i < maskImages.size() && !maskImages[i].isNull()) {
-            //рисуем растровую маску в позиции данного состояния
+            // рисуем растровую маску в позиции данного состояния
             painter.drawImage(QPointF(state.x, state.y), maskImages[i]);
         }
         else {
-            //если маски нет, рисуем рамку-заглушку
+            // если маски нет, рисуем рамку-заглушку
             QPen pen(Qt::gray, 1, Qt::DashLine);
             painter.setPen(pen);
             QColor fillColor = state.color.isValid() ? state.color.lighter(150) : Qt::lightGray;
@@ -149,7 +149,7 @@ void StaticGroupObject::draw(QPainter &painter)
             painter.drawRect(QRectF(state.x, state.y, state.w, state.h));
         }
     }
-    
+
     painter.restore();
 }
 
@@ -166,11 +166,15 @@ QString StaticGroupObject::getDisplayName() const
 QList<QPair<QString, QString>> StaticGroupObject::getProperties() const
 {
     QList<QPair<QString, QString>> props;
-    
+
     props.append({"Номер группы", QString::number(groupNumber)});
     props.append({"Кол-во состояний", QString::number(states.size())});
-    
-    //показываем свойства каждого состояния
+    qint64 memoryEnd = 0;
+    for (const auto &state : states)
+        memoryEnd = qMax(memoryEnd, qint64(state.addr) + qint64(state.w) * state.h);
+    props.append({QStringLiteral("Память"), QStringLiteral("%1/65536 ячеек, %2/8 init").arg(memoryEnd).arg(states.size())});
+
+    // показываем свойства каждого состояния
     for (int i = 0; i < states.size(); ++i) {
         const GroupState &s = states[i];
         QString prefix = QString("Состояние %1: ").arg(i);
@@ -181,20 +185,20 @@ QList<QPair<QString, QString>> StaticGroupObject::getProperties() const
         props.append({prefix + "Цвет", s.color.name()});
         props.append({prefix + "Адрес", QString::number(s.addr)});
         props.append({prefix + "Видимость", s.enabled ? "да" : "нет"});
-        
+
         if (i < maskImages.size() && !maskImages[i].isNull()) {
             props.append({prefix + "Маска", QString("%1x%2").arg(maskImages[i].width()).arg(maskImages[i].height())});
         }
     }
-    
+
     return props;
 }
 
 QRectF StaticGroupObject::getBoundingRect() const
 {
     if (states.isEmpty()) return QRectF();
-    
-    //объединяем прямоугольники всех включённых состояний
+
+    // объединяем прямоугольники всех включённых состояний
     QRectF result;
     bool first = true;
     for (const GroupState &s : states) {
@@ -207,7 +211,7 @@ QRectF StaticGroupObject::getBoundingRect() const
             result = result.united(r);
         }
     }
-    
+
     return result;
 }
 
@@ -221,8 +225,9 @@ void StaticGroupObject::moveBy(double dx, double dy)
     emit changed();
 }
 
-void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
+void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
+    Q_UNUSED(proportional);
     if (!canResize())
         return;
 
@@ -270,50 +275,57 @@ void StaticGroupObject::resizeBy(int edgeFlags, double dx, double dy)
 
 bool StaticGroupObject::setObjectProperty(const QString &name, const QString &value)
 {
+    clearValidationMessage();
     bool ok = false;
-    
     if (name == "Номер группы") {
-        groupNumber = value.toInt(&ok);
-    }
-    else if (name.startsWith("Состояние ")) {
-        // Парсинг "Состояние N: Свойство"
-        int colonIdx = name.indexOf(':');
-        if (colonIdx > 0) {
-            QString stateStr = name.mid(10, colonIdx - 10);
-            int stateIdx = stateStr.toInt(&ok);
-            if (ok && stateIdx >= 0 && stateIdx < states.size()) {
-                QString prop = name.mid(colonIdx + 2).trimmed();
-                GroupState &s = states[stateIdx];
-                
-                if (prop == "X") s.x = value.toDouble(&ok);
-                else if (prop == "Y") s.y = value.toDouble(&ok);
-                else if (prop == "Ширина") {
-                    if (!canResize()) {
-                        setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
-                        return false;
-                    }
-                    s.w = value.toDouble(&ok);
+        const int number = value.toInt(&ok);
+        if (ok) groupNumber = number;
+    } else if (name.startsWith("Состояние ")) {
+        const int colon = name.indexOf(':');
+        const int index = name.mid(10, colon - 10).toInt(&ok);
+        if (!ok || colon < 10 || index < 0 || index >= states.size()) return false;
+        const QString property = name.mid(colon + 1).trimmed();
+        GroupState state = states[index];
+        const bool sizeChange = property == "Ширина" || property == "Высота";
+        if (sizeChange && !canResize()) {
+            setValidationMessage(tr("Размер растрового объекта заблокирован в ограниченном режиме."));
+            return false;
+        }
+        if (property == "X" || property == "Y" || sizeChange) {
+            const double number = value.toDouble(&ok);
+            if (!ok || !qIsFinite(number) || number < -4095 || number > 4095 || (sizeChange && number < 1)) return false;
+            if (property == "X") state.x = qRound(number);
+            else if (property == "Y") state.y = qRound(number);
+            else if (property == "Ширина") state.w = qRound(number);
+            else state.h = qRound(number);
+        } else if (property == "Адрес") {
+            state.addr = value.toInt(&ok);
+        } else if (property == "Цвет") {
+            state.color = QColor(value); ok = state.color.isValid();
+        } else if (property == "Видимость") {
+            const auto normalized = value.trimmed().toLower();
+            ok = normalized == "да" || normalized == "нет";
+            state.enabled = normalized == "да";
+        } else {
+            return false;
+        }
+        if (!ok) return false;
+        states[index] = state;
+        if (index < maskImages.size() && !maskImages[index].isNull()) {
+            if (sizeChange)
+                maskImages[index] = maskImages[index].scaled(state.w,state.h,Qt::IgnoreAspectRatio,Qt::FastTransformation);
+            if (property == "Цвет") {
+                QImage image = maskImages[index].convertToFormat(QImage::Format_ARGB32);
+                for (int y=0;y<image.height();++y) {
+                    auto *row=reinterpret_cast<QRgb *>(image.scanLine(y));
+                    for (int x=0;x<image.width();++x)
+                        row[x]=qRgba(state.color.red(),state.color.green(),state.color.blue(),qAlpha(row[x]));
                 }
-                else if (prop == "Высота") {
-                    if (!canResize()) {
-                        setValidationMessage(QObject::tr("Размер растрового объекта заблокирован в ограниченном режиме."));
-                        return false;
-                    }
-                    s.h = value.toDouble(&ok);
-                }
-                else if (prop == "Адрес") s.addr = value.toInt(&ok);
-                else if (prop == "Цвет") {
-                    s.color = QColor(value);
-                    ok = s.color.isValid();
-                }
-                else if (prop == "Видимость") {
-                    if (value.toLower() == "да" || value.toLower() == "yes" || value == "1") { s.enabled = true; ok = true; }
-                    else if (value.toLower() == "нет" || value.toLower() == "no" || value == "0") { s.enabled = false; ok = true; }
-                }
+                maskImages[index] = image;
             }
         }
+        if (sizeChange) rebuildStateAddresses();
     }
-    
     if (ok) emit changed();
     return ok;
 }
@@ -326,7 +338,7 @@ QMap<QString, quint32> StaticGroupObject::serializeParams() const
 QMap<QString, quint32> StaticGroupObject::serializeState(int stateIndex) const
 {
     if (stateIndex < 0 || stateIndex >= states.size()) return {};
-    
+
     const GroupState &s = states[stateIndex];
     return {
         {"x", static_cast<quint32>(s.x)},

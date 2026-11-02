@@ -1,9 +1,11 @@
-//ViewportPanel - панель рабочей области приложения
+// ViewportPanel - панель рабочей области приложения.
 
 #include "ViewportPanel.h"
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
 #include "DashedLineObject.h"
+#include "ImageObject.h"
+#include "RotationObject.h"
 #include <algorithm>
 #include <QPainter>
 #include <QWheelEvent>
@@ -89,16 +91,17 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     , m_offsetX(0)
     , m_offsetY(0)
 {
-    //устанавливаем имя для стилизации через QSS
+    // устанавливаем имя для стилизации через QSS
     setPanelName("ViewportPanel");
-    
+
     setMinimumSize(200, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setAcceptDrops(true);
-    
-    //подключаемся к сигналу загрузки проекта
+    setToolTip(tr("Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°."));
+
+    // подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, QOverload<>::of(&QWidget::update));
-    
+
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, [this]() {
         const auto previous = m_selectedIndexes;
         setSelectedIndexes(previous);
@@ -108,13 +111,13 @@ ViewportPanel::ViewportPanel(QWidget *parent)
         }
     });
 
-    //подключаемся к сигналу смены темы для перерисовки
+    // подключаемся к сигналу смены темы для перерисовки
     connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, QOverload<>::of(&QWidget::update));
 }
 
 void ViewportPanel::setScale(double scale)
 {
-    //ограничиваем масштаб в разумных пределах
+    // ограничиваем масштаб в разумных пределах
     m_scale = qBound(0.1, scale, 10.0);
     update();
 }
@@ -126,7 +129,7 @@ double ViewportPanel::getScale() const
 
 void ViewportPanel::resetView()
 {
-    //сбрасываем все параметры вида
+    // сбрасываем все параметры вида
     m_scale = 1.0;
     m_offsetX = 0;
     m_offsetY = 0;
@@ -167,15 +170,15 @@ QPointF ViewportPanel::mapToCanvas(const QPoint &widgetPoint) const
     auto pm = ProjectManager::instance();
     double canvasW = pm->getCanvasWidth();
     double canvasH = pm->getCanvasHeight();
-    
+
     double scaleX = static_cast<double>(width()) / canvasW;
     double scaleY = static_cast<double>(height()) / canvasH;
     double fitScale = qMin(scaleX, scaleY) * 0.95;
     double totalScale = fitScale * m_scale;
-    
+
     double offsetX = (width() - canvasW * totalScale) / 2.0 + m_offsetX;
     double offsetY = (height() - canvasH * totalScale) / 2.0 + m_offsetY;
-    
+
     return QPointF((widgetPoint.x() - offsetX) / totalScale, (widgetPoint.y() - offsetY) / totalScale);
 }
 
@@ -200,14 +203,14 @@ double ViewportPanel::handleSizeInCanvas() const
 void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate)
 {
     painter.save();
-    
+
     // Рамка выделения
     QPen dashPen(Qt::blue, 1, Qt::DashLine);
     dashPen.setCosmetic(true);
     painter.setPen(dashPen);
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(rect);
-    
+
     const double size = handleSizeInCanvas();
     const double half = size / 2.0;
 
@@ -229,14 +232,14 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
         drawHandle(rect.left(), rect.bottom());
         drawHandle(rect.left(), rect.center().y());
     }
-    
+
     // Маркер поворота
     if (canRotate) {
         painter.drawLine(QPointF(rect.center().x(), rect.top()), QPointF(rect.center().x(), rect.top() - size * 3));
         painter.setBrush(Qt::yellow);
         painter.drawEllipse(QPointF(rect.center().x(), rect.top() - size * 3), half, half);
     }
-    
+
     painter.restore();
 }
 
@@ -770,11 +773,11 @@ int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, b
     const double baseSize = handleSizeInCanvas();
     const double size = baseSize * 1.5; // Чуть больше зона клика
     const double half = size / 2.0;
-    
+
     auto isHit = [pos, half](double x, double y) {
         return qAbs(pos.x() - x) <= half && qAbs(pos.y() - y) <= half;
     };
-    
+
     if (canRotate && isHit(rect.center().x(), rect.top() - baseSize * 3)) return 100; // Идентификаторы направлений курсора изменения размеров.
 
     if (!canResize)
@@ -788,7 +791,7 @@ int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, b
     if (isHit(rect.center().x(), rect.bottom())) return 8;    // Снизу
     if (isHit(rect.left(), rect.bottom())) return 1 | 8;      // Снизу слева
     if (isHit(rect.left(), rect.center().y())) return 1;      // Слева
-    
+
     return 0; // Нет попадания
 }
 
@@ -812,37 +815,37 @@ int ViewportPanel::hitTestDashedLineEndpoints(const QPointF &canvasPos, const Da
 void ViewportPanel::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
-    
+
     QPainter painter(this);
     auto pm = ProjectManager::instance();
-    
-    //заливаем фон виджета цветом, заданным для #ViewportPanel в QSS
+
+    // заливаем фон виджета цветом, заданным для #ViewportPanel в QSS
     painter.fillRect(rect(), palette().color(QPalette::Window));
-    
+
     int canvasW = pm->getCanvasWidth();
     int canvasH = pm->getCanvasHeight();
-    
-    //вычисляем масштаб для вписывания холста в окно
+
+    // вычисляем масштаб для вписывания холста в окно
     double scaleX = static_cast<double>(width()) / canvasW;
     double scaleY = static_cast<double>(height()) / canvasH;
     double fitScale = qMin(scaleX, scaleY) * 0.95;
-    
+
     double totalScale = fitScale * m_scale;
-    
-    //центрируем холст
+
+    // центрируем холст
     double offsetX = (width() - canvasW * totalScale) / 2.0 + m_offsetX;
     double offsetY = (height() - canvasH * totalScale) / 2.0 + m_offsetY;
-    
+
     painter.save();
     painter.translate(offsetX, offsetY);
     painter.scale(totalScale, totalScale);
-    
-    //рисуем холст
+
+    // рисуем холст
     painter.fillRect(0, 0, canvasW, canvasH, pm->getBackgroundColor());
     if (pm->showGrid())
         drawGrid(painter, canvasW, canvasH, totalScale);
-    
-    //рисуем все объекты
+
+    // рисуем все объекты
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     const auto &objects = pm->getObjects();
@@ -851,7 +854,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
             continue;
 
         objects[i]->draw(painter);
-        
+
         // Рисуем выделение
         if (m_selectedIndexes.contains(i)) {
             const bool singleSelection = m_selectedIndexes.size() == 1;
@@ -875,7 +878,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     }
 
     drawSnapGuides(painter, canvasW, canvasH);
-    
+
     // Рисуем рамку выделения
     if (m_dragMode == MarqueeSelect) {
         painter.save();
@@ -887,10 +890,10 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         painter.drawRect(marqueeRect.normalized());
         painter.restore();
     }
-    
+
     painter.restore();
-    
-    //рисуем рамку вокруг холста
+
+    // рисуем рамку вокруг холста
     QColor canvasFrameColor = palette().color(QPalette::WindowText);
     canvasFrameColor.setAlpha(90);
     painter.setPen(QPen(canvasFrameColor, 1));
@@ -899,7 +902,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
 
 void ViewportPanel::wheelEvent(QWheelEvent *event)
 {
-    //масштабирование при зажатом Ctrl
+    // масштабирование при зажатом Ctrl
     if (event->modifiers() & Qt::ControlModifier) {
         const double zoomStep = 0.1;
         if (event->angleDelta().y() > 0) {
@@ -923,6 +926,36 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         QPointF canvasPos = mapToCanvas(event->pos());
         m_lastMousePos = canvasPos;
         auto pm = ProjectManager::instance();
+
+        // Модификаторы манипуляторов проверяются до добавления к выделению:
+        // Shift/Ctrl на ручке меняют преобразование, а на объекте — выделение.
+        if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
+            const auto object = pm->getObjectAt(m_selectedIndex);
+            if (object->isViewVisible() && !object->isSelectionLocked()) {
+                if (const auto *line = dynamic_cast<const DashedLineObject *>(object.data())) {
+                    const int endpoint = hitTestDashedLineEndpoints(canvasPos, line);
+                    if (endpoint >= 0) {
+                        m_dragMode = LineEndpoint;
+                        m_lineEndpointIndex = endpoint;
+                        m_dragStartCanvasPos = canvasPos;
+                        return;
+                    }
+                }
+                const int handle = hitTestManipulators(canvasPos, object->getBoundingRect(), object->canResize(), object->supportsRotationHandle());
+                if (handle == 100) {
+                    m_dragMode = Rotate;
+                    m_rotationCenter = object->getBoundingRect().center();
+                    if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data()))
+                        m_rotationCenter = QPointF(rotation->xRot, rotation->yRot);
+                    return;
+                }
+                if (handle > 0) {
+                    m_dragMode = Resize;
+                    m_resizeEdgeFlags = handle;
+                    return;
+                }
+            }
+        }
 
         const bool additive = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier);
         m_marqueeBaseSelection = additive ? m_selectedIndexes : QList<int>{};
@@ -966,7 +999,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             beginMoveDrag(canvasPos, selectedObjectsRect());
             return;
         }
-        
+
         // 1. Проверяем клик по манипуляторам выделенного объекта
         if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
             auto obj = pm->getObjectAt(m_selectedIndex);
@@ -976,9 +1009,6 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 emit selectionChanged({});
                 return;
             }
-            QRectF rect = obj->getBoundingRect();
-            bool canRotate = obj->supportsRotationHandle();
-
             if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
                 const int endpoint = hitTestDashedLineEndpoints(canvasPos, dashedLine);
                 if (endpoint >= 0) {
@@ -988,23 +1018,14 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                     return;
                 }
             }
-            
-            int hit = hitTestManipulators(canvasPos, rect, obj->canResize(), canRotate);
-            if (hit == 100) {
-                m_dragMode = Rotate;
-                return;
-            } else if (hit > 0) {
-                m_dragMode = Resize;
-                m_resizeEdgeFlags = hit;
-                return;
-            }
-            
+
+
             if (obj->contains(canvasPos)) {
                 beginMoveDrag(canvasPos, obj->getBoundingRect());
                 return;
             }
         }
-        
+
         // 2. Ищем объект под курсором (верхние строки списка считаются верхними слоями)
         m_dragMode = None;
         int newSelection = -1;
@@ -1021,7 +1042,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             const QList<int> groupMembers = pm->groupMembersForObject(newSelection);
             newSelectionIndexes = groupMembers.isEmpty() ? QList<int>{newSelection} : groupMembers;
         }
-        
+
         if (m_selectedIndexes != newSelectionIndexes) {
             setSelectedIndexes(newSelectionIndexes);
             emit objectSelected(m_selectedIndex);
@@ -1050,7 +1071,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 }
             }
         }
-        
+
         if (m_dragMode == None) {
             m_dragMode = MarqueeSelect;
             m_marqueeStartPos = canvasPos;
@@ -1065,11 +1086,10 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
 void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_dragMode == None) {
-        // Меняем курсор при наведении на ручки
-        // Можно реализовать позже
+        // Перемещение без активного жеста не изменяет геометрию объектов.
         return;
     }
-    
+
     if (m_dragMode == Pan) {
         QPoint delta = event->pos() - m_lastMousePos.toPoint();
         m_offsetX += delta.x();
@@ -1078,17 +1098,17 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         update();
         return;
     }
-    
+
     if (m_dragMode == MarqueeSelect) {
         m_marqueeCurrentPos = mapToCanvas(event->pos());
         update();
         return;
     }
-    
+
     QPointF canvasPos = mapToCanvas(event->pos());
     double dx = canvasPos.x() - m_lastMousePos.x();
     double dy = canvasPos.y() - m_lastMousePos.y();
-    
+
     if (m_dragMode == Move && m_selectedIndexes.size() > 1) {
         const QPointF desiredDelta = canvasPos - m_dragStartCanvasPos;
         const SnapResult snap = snappedMoveDeltaForSelection(m_selectedIndexes, m_dragStartBounds, desiredDelta);
@@ -1145,7 +1165,8 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
                 return;
             }
             ensureDragHistoryRecorded();
-            obj->resizeBy(m_resizeEdgeFlags, resizeDelta.x(), resizeDelta.y());
+            obj->resizeBy(m_resizeEdgeFlags, resizeDelta.x(), resizeDelta.y(),
+                m_proportionalResize || event->modifiers().testFlag(Qt::ShiftModifier));
             moveObjectInsideCanvas(
                 obj.data(),
                 ProjectManager::instance()->getCanvasWidth(),
@@ -1165,31 +1186,32 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
             }
         } else if (m_dragMode == Rotate && obj->supportsRotationHandle()) {
             m_activeSnapGuides.clear();
-            QRectF rect = obj->getBoundingRect();
-            QPointF center = rect.center();
+            const QPointF center = m_rotationCenter;
             double angleRad = qAtan2(canvasPos.y() - center.y(), canvasPos.x() - center.x());
             // Добавляем 90 градусов так как 0 градусов указывает направо, а ручка смотрит вверх
             double angleDeg = qRadiansToDegrees(angleRad) + 90.0;
             if (event->modifiers() & Qt::ControlModifier)
                 angleDeg = qRound(angleDeg / 90.0) * 90.0;
+            else if (m_rotationSnapping || event->modifiers().testFlag(Qt::ShiftModifier))
+                angleDeg = qRound(angleDeg / 15.0) * 15.0;
             ensureDragHistoryRecorded();
             obj->setRotation(angleDeg);
             emit objectChanged();
             update();
         }
     }
-    
+
     m_lastMousePos = canvasPos;
 }
 
 void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_UNUSED(event);
-    
+
     if (m_dragMode == MarqueeSelect) {
         auto pm = ProjectManager::instance();
         QRectF marqueeRect = QRectF(m_marqueeStartPos, m_marqueeCurrentPos).normalized();
-        
+
         QList<int> newSelection = m_marqueeBaseSelection;
         QSet<int> selectedSet(newSelection.begin(), newSelection.end());
         for (int i = pm->getObjectCount() - 1; i >= 0; --i) {
@@ -1207,7 +1229,7 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
             }
         }
         std::sort(newSelection.begin(), newSelection.end());
-        
+
         if (m_selectedIndexes != newSelection) {
             setSelectedIndexes(newSelection);
             emit objectSelected(m_selectedIndex);
@@ -1215,7 +1237,7 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
         }
         update();
     }
-    
+
     if (m_dragEditedObjects)
         ProjectManager::instance()->finishObjectEdit();
 

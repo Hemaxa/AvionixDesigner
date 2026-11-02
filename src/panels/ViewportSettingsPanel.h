@@ -1,4 +1,4 @@
-//ViewportSettingsPanel - компактная панель параметров рабочей области
+// ViewportSettingsPanel - компактная панель параметров рабочей области.
 
 #pragma once
 
@@ -10,6 +10,7 @@ class QPushButton;
 class QSpinBox;
 class QToolButton;
 
+// ViewportSettingsPanel - компактная панель параметров рабочей области.
 class ViewportSettingsPanel : public BasePanel
 {
     Q_OBJECT

@@ -1,11 +1,13 @@
-//FpgaPacketCompiler - компилирует строгий FPGA-документ в UART/BIN пакеты
+// FpgaPacketCompiler - упаковывает готовую аппаратную сцену в UART/BIN пакеты.
 
 #include "fpga/packets/FpgaPacketCompiler.h"
 
 #include "BitParser.h"
 #include "fpga/packets/FpgaPacketFramer.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 
 #include <QtGlobal>
+#include <QSet>
 #include <algorithm>
 
 namespace {
@@ -83,22 +85,74 @@ QByteArray framePacket(FpgaPacketType type, const QByteArray &payload, quint32 *
 }
 }
 
-FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaCompiledDocument &document) const
+FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaHardwareScene &document, QString *errorMessage) const
 {
+    if (errorMessage)
+        errorMessage->clear();
+    auto fail = [errorMessage](const QString &message) {
+        if (errorMessage)
+            *errorMessage = message;
+        return FpgaPacketBundle{};
+    };
+    if (!document.isValid())
+        return fail(QStringLiteral("Некорректная аппаратная сцена."));
+    if (document.memories.size() > 256)
+        return fail(QStringLiteral("Идентификатор банка памяти не помещается в 8 бит."));
+    for (const auto &memory : document.memories) {
+        if (memory.kind == FpgaMemoryKind::StaticMask && memory.data.size() > 65536)
+            return fail(QStringLiteral("Статическая память превышает 65536 адресуемых ячеек."));
+        for (const auto level : memory.data)
+            if (level < QLatin1Char('0') || level > QLatin1Char('7'))
+                return fail(QStringLiteral("Растр должен содержать только уровни маски 0…7."));
+    }
+
     FpgaPacketBundle bundle;
     bundle.document = document;
     bundle.warnings = document.warnings;
+    QSet<int> uploadedMemories;
+    auto appendMemory = [&](int memId, int objectIndex, const QString &type, const QList<QByteArray> &blocks) {
+        for (int address = 0; address < blocks.size(); ++address) {
+            FpgaPacket packet;
+            packet.type = FpgaPacketType::RotationMemory;
+            packet.objectType = type;
+            packet.objectIndex = objectIndex;
+            packet.memId = memId;
+            packet.address = address;
+            packet.payloadSize = blocks[address].size();
+            packet.bytes = framePacket(packet.type, memoryPayload(memId, address, blocks[address]), &packet.fcs);
+            bundle.packets.append(packet);
+        }
+    };
+    auto appendStaticMemory = [&](int memId, int objectIndex, const QString &type) {
+        const QByteArray data = encodeStaticMaskData(document.memories[memId].data, &bundle.warnings);
+        for (int address = 0; address < data.size(); address += 1024) {
+            const QByteArray chunk = data.mid(address, 1024);
+            FpgaPacket packet;
+            packet.type = FpgaPacketType::StaticMemory;
+            packet.objectType = type;
+            packet.objectIndex = objectIndex;
+            packet.memId = memId;
+            packet.address = address;
+            packet.payloadSize = chunk.size();
+            packet.bytes = framePacket(packet.type, memoryPayload(memId, address, chunk), &packet.fcs);
+            bundle.packets.append(packet);
+        }
+    };
 
     for (int objectIndex = 0; objectIndex < document.objects.size(); ++objectIndex) {
-        const FpgaCompiledObject &object = document.objects[objectIndex];
-
+        const auto &object = document.objects[objectIndex];
+        if (object.type == QStringLiteral("font") || object.type == QStringLiteral("text"))
+            return fail(QStringLiteral("Перед упаковкой текст должен быть преобразован в статические объекты."));
         if (object.type == QStringLiteral("layer3d"))
             continue;
+        if (object.startParamIndex < 0 || object.startParamIndex + object.iparams.size() > 65536)
+            return fail(QStringLiteral("Индекс параметра не помещается в 16 бит."));
 
         for (int paramIndex = 0; paramIndex < object.iparams.size(); ++paramIndex) {
             const int objId = object.startParamIndex + paramIndex;
             const QByteArray paramBytes = hexToBytes(object.iparams[paramIndex]);
-            quint32 fcs = 0;
+            if (paramBytes.size() != 19)
+                return fail(QStringLiteral("Слово параметров должно занимать 19 байт (150 бит)."));
             FpgaPacket packet;
             packet.type = FpgaPacketType::Parameter;
             packet.objectType = object.type;
@@ -106,44 +160,30 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaCompiledDocument &documen
             packet.parameterIndex = paramIndex;
             packet.objId = objId;
             packet.payloadSize = paramBytes.size();
-            packet.bytes = framePacket(packet.type, parameterPayload(objId, paramBytes), &fcs);
-            packet.fcs = fcs;
+            packet.bytes = framePacket(packet.type, parameterPayload(objId, paramBytes), &packet.fcs);
             bundle.packets.append(packet);
         }
 
-        if (object.memoryKind == FpgaMemoryKind::RotationTiles) {
-            const QList<QByteArray> blocks = encodeRotationTiles(document, object, &bundle.warnings);
-            for (int address = 0; address < blocks.size(); ++address) {
-                quint32 fcs = 0;
-                FpgaPacket packet;
-                packet.type = FpgaPacketType::RotationMemory;
-                packet.objectType = object.type;
-                packet.objectIndex = objectIndex;
-                packet.memId = object.memId;
-                packet.address = address;
-                packet.payloadSize = blocks[address].size();
-                packet.bytes = framePacket(packet.type, memoryPayload(object.memId, address, blocks[address]), &fcs);
-                packet.fcs = fcs;
-                bundle.packets.append(packet);
-            }
-        } else if (object.memoryKind == FpgaMemoryKind::StaticMask) {
-            const QByteArray data = encodeStaticMaskData(object.data, &bundle.warnings);
-            for (int address = 0; address < data.size(); address += 1024) {
-                const QByteArray chunk = data.mid(address, 1024);
-                quint32 fcs = 0;
-                FpgaPacket packet;
-                packet.type = FpgaPacketType::StaticMemory;
-                packet.objectType = object.type;
-                packet.objectIndex = objectIndex;
-                packet.memId = object.memId;
-                packet.address = address;
-                packet.payloadSize = chunk.size();
-                packet.bytes = framePacket(packet.type, memoryPayload(object.memId, address, chunk), &fcs);
-                packet.fcs = fcs;
-                bundle.packets.append(packet);
-            }
+        if (object.memId == -1)
+            continue;
+        if (object.memId < 0 || object.memId >= document.memories.size())
+            return fail(QStringLiteral("У объекта некорректный идентификатор банка памяти."));
+        if (uploadedMemories.contains(object.memId))
+            continue;
+        uploadedMemories.insert(object.memId);
+        if (document.memories[object.memId].kind == FpgaMemoryKind::RotationTiles) {
+            const auto blocks = encodeRotationTiles(document, object, &bundle.warnings);
+            if (blocks.size() > FpgaResourceLimits::rotationTiles)
+                return fail(QStringLiteral("Число тайлов вращаемой маски превышает ёмкость памяти: 2048 тайлов."));
+            appendMemory(object.memId, objectIndex, object.type, blocks);
+        } else {
+            appendStaticMemory(object.memId, objectIndex, object.type);
         }
     }
+    // Алфавит нужен и тогда, когда строка пока пустая или содержит только пробелы.
+    for (int memId = 0; memId < document.memories.size(); ++memId)
+        if (!uploadedMemories.contains(memId) && document.memories[memId].kind == FpgaMemoryKind::StaticMask)
+            appendStaticMemory(memId, -1, QStringLiteral("staticgroup"));
 
     // После загрузки сцены идут команда стороны 3D-вида и первое положение самолета.
     for (int i = 0; i < document.objects.size(); ++i) {
@@ -213,8 +253,8 @@ FpgaPacket FpgaPacketCompiler::layer3dPositionPacket(const QString &initHex)
     return packet;
 }
 
-QList<QByteArray> FpgaPacketCompiler::encodeRotationTiles(const FpgaCompiledDocument &document,
-                                                          const FpgaCompiledObject &object,
+QList<QByteArray> FpgaPacketCompiler::encodeRotationTiles(const FpgaHardwareScene &document,
+                                                          const FpgaHardwareObject &object,
                                                           QStringList *warnings) const
 {
     QList<QByteArray> blocks;
@@ -241,7 +281,7 @@ QList<QByteArray> FpgaPacketCompiler::encodeRotationTiles(const FpgaCompiledDocu
         return blocks;
     }
 
-    QVector<int> source = digitsToMaskValues(object.data, warnings);
+    QVector<int> source = digitsToMaskValues(document.memories[object.memId].data, warnings);
     const int expectedSize = width * height;
     if (source.size() < expectedSize) {
         if (warnings)

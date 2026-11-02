@@ -1,4 +1,4 @@
-//main - точка входа в приложение
+// main - точка входа в приложение.
 
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
@@ -21,7 +21,7 @@
 #define APP_VERSION "1.0.0"
 #endif
 
-//главная функция приложения
+// главная функция приложения
 int main(int argc, char *argv[])
 {
     bool commandLineExport = false;
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
             if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
         }
     }
-    //создание приложения Qt
+    // создание приложения Qt
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
     if (!installRussianTranslation(app)) {
@@ -49,14 +49,14 @@ int main(int argc, char *argv[])
         }
         qputenv("AVIONIX_SETTINGS_FILE",exportSettings->filePath("designer.ini").toUtf8());
     }
-    
-    //мета-информация о приложении
+
+    // мета-информация о приложении
     app.setApplicationName("Avionix Designer");
     app.setOrganizationName("Avionix");
     app.setApplicationVersion(QString::fromLatin1(APP_VERSION));
     app.setWindowIcon(QIcon(QStringLiteral(":/app/icon.png")));
-    
-    //регистрируем стандартные типы объектов (получаем словарь поддерживаемых объектов)
+
+    // регистрируем стандартные типы объектов (получаем словарь поддерживаемых объектов)
     ProjectManager::instance()->registerStandardTypes();
 
     QCommandLineParser parser;
@@ -90,11 +90,11 @@ int main(int argc, char *argv[])
         if (!success) QTextStream(stderr) << error << '\n';
         return success ? 0 : 1;
     }
-    
-    //создаем и показываем главное окно
+
+    // создаем и показываем главное окно
     MainWindow mainWindow;
     mainWindow.show();
-    
-    //запускаем бесконечный цикл событий
+
+    // запускаем бесконечный цикл событий
     return app.exec();
 }

@@ -1,4 +1,4 @@
-//NewProjectDialog - диалог создания нового проекта
+// NewProjectDialog - диалог создания нового проекта.
 
 #pragma once
 
@@ -9,6 +9,7 @@ class QLineEdit;
 class QPushButton;
 class QSpinBox;
 
+// NewProjectDialog - диалог создания нового проекта.
 class NewProjectDialog : public QDialog
 {
     Q_OBJECT

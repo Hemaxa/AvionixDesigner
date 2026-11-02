@@ -1,9 +1,10 @@
-//FpgaPacketFramer - общий каркас пакетов SAIN/length/type/payload/FCS
+// FpgaPacketFramer - общий каркас пакетов SAIN/length/type/payload/FCS.
 
 #pragma once
 
 #include <QByteArray>
 
+// FpgaPacketFramer - общий каркас пакетов SAIN/length/type/payload/FCS.
 class FpgaPacketFramer
 {
 public:
