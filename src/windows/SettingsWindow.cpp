@@ -21,6 +21,7 @@
 #include <QColorDialog>
 #include <QPainter>
 #include <QPixmap>
+#include <QShowEvent>
 
 SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
 {
@@ -67,6 +68,20 @@ void SettingsWindow::createWidgets()
     m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
     generalLayout->addRow(m_autoLoadCheck);
     settingsLayout->addWidget(generalGroup);
+
+    auto *fpgaGroup = new QGroupBox(QStringLiteral("ПЛИС — STATICGROUP"), this);
+    auto *fpgaLayout = new QFormLayout(fpgaGroup);
+    fpgaLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    m_staticGroupPixelsSpin = new QSpinBox(this);
+    m_staticGroupPixelsSpin->setObjectName("StaticGroupPixelsSpin");
+    m_staticGroupPixelsSpin->setRange(1, 65536);
+    m_staticGroupPixelsSpin->setSuffix(QStringLiteral(" пикселей"));
+    fpgaLayout->addRow(QStringLiteral("Ёмкость памяти:"), m_staticGroupPixelsSpin);
+    m_staticGroupElementsSpin = new QSpinBox(this);
+    m_staticGroupElementsSpin->setObjectName("StaticGroupElementsSpin");
+    m_staticGroupElementsSpin->setRange(1, 65536);
+    fpgaLayout->addRow(QStringLiteral("Количество элементов:"), m_staticGroupElementsSpin);
+    settingsLayout->addWidget(fpgaGroup);
 
     auto *snapGroup = new QGroupBox(QStringLiteral("Сетка и привязки"), this);
     auto *formLayout = new QFormLayout(snapGroup);
@@ -255,16 +270,32 @@ void SettingsWindow::updateColorButtonIcon(QPushButton *button, const QColor &co
     button->setIconSize(pixmap.size());
 }
 
+void SettingsWindow::showEvent(QShowEvent *event)
+{
+    loadSettings();
+    QDialog::showEvent(event);
+}
+
 void SettingsWindow::loadSettings()
 {
     auto settings = ApplicationSettings::create();
     m_autoLoadCheck->setChecked(settings.value("autoLoad", false).toBool());
+    m_staticGroupPixelsSpin->setValue(ApplicationSettings::staticGroupPixels());
+    m_staticGroupElementsSpin->setValue(ApplicationSettings::staticGroupElements());
 
     m_gridStepSpin->setValue(qBound(1, settings.value("gridStep", 10).toInt(), 1000));
     m_currentGridColor = QColor(settings.value("gridColor", "#3778b4c8").toString());
     m_currentSnapCanvasColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
     m_currentSnapGridColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
     m_currentSnapObjectColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
+    auto *project = ProjectManager::instance();
+    if (project->getCanvasWidth() > 0 && project->getCanvasHeight() > 0) {
+        m_gridStepSpin->setValue(project->gridStep());
+        m_currentGridColor = project->gridColor();
+        m_currentSnapCanvasColor = project->snapCanvasGuideColor();
+        m_currentSnapGridColor = project->snapGridGuideColor();
+        m_currentSnapObjectColor = project->snapObjectGuideColor();
+    }
     updateColorButtonIcon(m_gridColorButton, m_currentGridColor);
     updateColorButtonIcon(m_snapCanvasColorButton, m_currentSnapCanvasColor);
     updateColorButtonIcon(m_snapGridColorButton, m_currentSnapGridColor);
@@ -275,6 +306,8 @@ void SettingsWindow::saveSettings()
 {
     auto settings = ApplicationSettings::create();
     settings.setValue("autoLoad", m_autoLoadCheck->isChecked());
+    settings.setValue("fpga/staticGroupPixels", m_staticGroupPixelsSpin->value());
+    settings.setValue("fpga/staticGroupElements", m_staticGroupElementsSpin->value());
     settings.setValue("gridStep", m_gridStepSpin->value());
     settings.setValue("gridColor", m_currentGridColor.name(QColor::HexArgb));
     settings.setValue("snapCanvasGuideColor", m_currentSnapCanvasColor.name(QColor::HexArgb));

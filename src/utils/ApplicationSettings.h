@@ -13,4 +13,16 @@ inline QSettings create()
     if (path.isEmpty()) return QSettings(QStringLiteral("Avionix"), QStringLiteral("Designer"));
     return QSettings(path, QSettings::IniFormat);
 }
+
+// Возможности целевой ПЛИС. Значения общие для всех проектов; адрес маски
+// в текущем протоколе имеет 16 бит независимо от настроенной ёмкости банка.
+inline int staticGroupPixels()
+{
+    return qBound(1, create().value("fpga/staticGroupPixels", 65536).toInt(), 65536);
+}
+
+inline int staticGroupElements()
+{
+    return qBound(1, create().value("fpga/staticGroupElements", 8).toInt(), 65536);
+}
 }

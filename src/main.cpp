@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addVersionOption();
     const QCommandLineOption binOption(QStringLiteral("export-bin"), QStringLiteral("Compile XML to BIN without opening the editor."), QStringLiteral("xml"));
-    const QCommandLineOption xmlOption(QStringLiteral("export-xml"), QStringLiteral("Load and save a canonical FPGA XML without opening the editor."), QStringLiteral("xml"));
+    const QCommandLineOption xmlOption(QStringLiteral("export-xml"), QStringLiteral("Load and save project XML without opening the editor."), QStringLiteral("xml"));
     parser.addOption(binOption);
     parser.addOption(xmlOption);
     parser.addPositionalArgument(QStringLiteral("output"), QStringLiteral("Output BIN or XML path."));
@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
             const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
             success = error.isEmpty() && FpgaPacketDump::writeBinary(output, bundle, &error);
         } else {
-            success = project->exportToFpgaXml(output);
+            success = project->saveToFile(output);
             error = project->lastErrorMessage();
         }
         if (!success) QTextStream(stderr) << error << '\n';

@@ -24,6 +24,9 @@ signals:
     // сигнал сброса всех настроек
     void settingsReset();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private slots:
     // сохранить настройки и применить изменения
     void saveSettings();
@@ -44,6 +47,8 @@ private:
     QListWidget *m_listWidget;
     QStackedWidget *m_stackedWidget;
     QCheckBox *m_autoLoadCheck;
+    QSpinBox *m_staticGroupPixelsSpin;
+    QSpinBox *m_staticGroupElementsSpin;
 
     QSpinBox *m_gridStepSpin;
     QPushButton *m_gridColorButton;

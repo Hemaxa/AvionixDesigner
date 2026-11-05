@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 1.0.8 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.9 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg SerialPort)
 
@@ -34,6 +34,9 @@ qt_add_executable(AvionixDesigner
     # Внутренняя модель редактора
     src/editor/EditorProjectDocument.h
     src/editor/EditorProjectDocument.cpp
+    src/editor/EditorViewState.h
+    src/editor/EditorProjectXml.h
+    src/editor/EditorProjectXml.cpp
 
     # Реестр FPGA-схем
     src/schema/FpgaSchemaRegistry.h
@@ -48,6 +51,8 @@ qt_add_executable(AvionixDesigner
     src/managers/AppearanceManager.cpp
 
     # Панели
+    src/panels/LayersPanel.h
+    src/panels/LayersPanel.cpp
     src/panels/ViewportPanel.h
     src/panels/ViewportPanel.cpp
     src/panels/ObjectListPanel.h
@@ -136,7 +141,6 @@ qt_add_executable(AvionixDesigner
 
     # Утилиты (header-only)
     src/utils/BitParser.h
-    src/utils/XmlReader.h
     src/utils/ProportionalResize.h
     src/utils/RectanglePainting.h
     src/utils/RasterGeometry.h

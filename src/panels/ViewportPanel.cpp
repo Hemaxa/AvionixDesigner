@@ -111,15 +111,32 @@ ViewportPanel::ViewportPanel(QWidget *parent)
         }
     });
 
+    connect(ProjectManager::instance(), &ProjectManager::editorLayerViewChanged, this, [this]() {
+        const auto previous = m_selectedIndexes;
+        setSelectedIndexes(previous);
+        m_activeSnapGuides.clear();
+        if (previous != m_selectedIndexes) {
+            m_dragMode = None;
+            emit objectSelected(m_selectedIndex);
+            emit selectionChanged(m_selectedIndexes);
+        }
+        update();
+    });
+
+    connect(ProjectManager::instance(), &ProjectManager::editorLayerObjectsChanged, this, [this]() {
+        setSelectedIndexes({});
+        m_dragMode = None;
+        m_activeSnapGuides.clear();
+        emit objectSelected(-1);
+        emit selectionChanged({});
+        update();
+    });
+
+    connect(ProjectManager::instance(), &ProjectManager::editorViewStateChanged, this, &ViewportPanel::restoreViewState);
+    restoreViewState();
+
     // подключаемся к сигналу смены темы для перерисовки
     connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, QOverload<>::of(&QWidget::update));
-}
-
-void ViewportPanel::setScale(double scale)
-{
-    // ограничиваем масштаб в разумных пределах
-    m_scale = qBound(0.1, scale, 10.0);
-    update();
 }
 
 double ViewportPanel::getScale() const
@@ -133,6 +150,7 @@ void ViewportPanel::resetView()
     m_scale = 1.0;
     m_offsetX = 0;
     m_offsetY = 0;
+    storeViewState();
     update();
 }
 
@@ -151,7 +169,7 @@ void ViewportPanel::setSelectedIndexes(const QList<int> &indexes)
         if (index < 0 || index >= objectCount || seen.contains(index))
             continue;
         const auto object = ProjectManager::instance()->getObjectAt(index);
-        if (object->isSelectionLocked() || !object->isViewVisible())
+        if (object->isSelectionLocked() || !ProjectManager::instance()->isObjectVisibleInEditor(object.data()))
             continue;
         seen.insert(index);
         normalized.append(index);
@@ -205,7 +223,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     painter.save();
 
     // Рамка выделения
-    QPen dashPen(Qt::blue, 1, Qt::DashLine);
+    QPen dashPen(m_selectionColor, 1, Qt::DashLine);
     dashPen.setCosmetic(true);
     painter.setPen(dashPen);
     painter.setBrush(Qt::NoBrush);
@@ -216,7 +234,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
 
     if (canResize) {
         // Маркеры ресайза
-        painter.setPen(Qt::blue);
+        painter.setPen(m_selectionColor);
         painter.setBrush(Qt::white);
 
         auto drawHandle = [&](double x, double y) {
@@ -236,7 +254,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     // Маркер поворота
     if (canRotate) {
         painter.drawLine(QPointF(rect.center().x(), rect.top()), QPointF(rect.center().x(), rect.top() - size * 3));
-        painter.setBrush(Qt::yellow);
+        painter.setBrush(m_selectionColor);
         painter.drawEllipse(QPointF(rect.center().x(), rect.top() - size * 3), half, half);
     }
 
@@ -250,7 +268,7 @@ void ViewportPanel::drawDashedLineEndpointManipulators(QPainter &painter, const 
 
     painter.save();
 
-    QPen guidePen(Qt::blue, 1, Qt::DashLine);
+    QPen guidePen(m_selectionColor, 1, Qt::DashLine);
     guidePen.setCosmetic(true);
     painter.setPen(guidePen);
     painter.setBrush(Qt::NoBrush);
@@ -259,7 +277,7 @@ void ViewportPanel::drawDashedLineEndpointManipulators(QPainter &painter, const 
     const double size = handleSizeInCanvas();
     const double radius = size * 0.55;
 
-    QPen endpointPen(Qt::blue, 1.4);
+    QPen endpointPen(m_selectionColor, 1.4);
     endpointPen.setCosmetic(true);
     painter.setPen(endpointPen);
     painter.setBrush(Qt::white);
@@ -330,7 +348,7 @@ QRectF visibleBoundsForIndexes(const QList<int> &indexes)
 
     for (int index : indexes) {
         const auto object = project->getObjectAt(index);
-        if (!object || !object->isViewVisible())
+        if (!object || !ProjectManager::instance()->isObjectVisibleInEditor(object.data()))
             continue;
         bounds = hasBounds ? bounds.united(object->getBoundingRect()) : object->getBoundingRect();
         hasBounds = true;
@@ -366,7 +384,7 @@ QList<QRectF> snapTargetRectsForSelection(const QSet<int> &selectedSet)
             continue;
 
         const auto object = project->getObjectAt(i);
-        if (!object || !object->isViewVisible())
+        if (!object || !ProjectManager::instance()->isObjectVisibleInEditor(object.data()))
             continue;
 
         const QRectF bounds = object->getBoundingRect();
@@ -698,7 +716,7 @@ QRectF ViewportPanel::selectedObjectsRect() const
 
     for (int index : m_selectedIndexes) {
         const auto object = project->getObjectAt(index);
-        if (!object || !object->isViewVisible())
+        if (!object || !ProjectManager::instance()->isObjectVisibleInEditor(object.data()))
             continue;
 
         if (!hasBounds) {
@@ -717,7 +735,7 @@ bool ViewportPanel::selectedObjectContains(const QPointF &canvasPos) const
     auto *project = ProjectManager::instance();
     for (int i = m_selectedIndexes.size() - 1; i >= 0; --i) {
         const auto object = project->getObjectAt(m_selectedIndexes[i]);
-        if (object && object->isViewVisible() && object->contains(canvasPos))
+        if (object && ProjectManager::instance()->isObjectVisibleInEditor(object.data()) && object->contains(canvasPos))
             return true;
     }
     return false;
@@ -850,13 +868,14 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     const auto &objects = pm->getObjects();
     for (int i = objects.size() - 1; i >= 0; --i) {
-        if (!objects[i]->isViewVisible())
+        if (!ProjectManager::instance()->isObjectVisibleInEditor(objects[i].data()))
             continue;
 
         objects[i]->draw(painter);
 
         // Рисуем выделение
         if (m_selectedIndexes.contains(i)) {
+            m_selectionColor = pm->editorLayerColor(objects[i]->editorLayerId());
             const bool singleSelection = m_selectedIndexes.size() == 1;
             if (singleSelection) {
                 if (auto dashedLine = dynamic_cast<DashedLineObject*>(objects[i].data())) {
@@ -872,9 +891,15 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     }
 
     if (m_selectedIndexes.size() > 1) {
+        const int layer = objects[m_selectedIndexes.first()]->editorLayerId();
+        const bool sameLayer = std::all_of(m_selectedIndexes.cbegin(), m_selectedIndexes.cend(), [&objects, layer](int index) {
+            return objects[index]->editorLayerId() == layer;
+        });
         const QRectF groupRect = selectedObjectsRect();
-        if (!groupRect.isNull())
+        if (sameLayer && !groupRect.isNull()) {
+            m_selectionColor = pm->editorLayerColor(layer);
             drawManipulators(painter, groupRect, false, false);
+        }
     }
 
     drawSnapGuides(painter, canvasW, canvasH);
@@ -910,6 +935,7 @@ void ViewportPanel::wheelEvent(QWheelEvent *event)
         } else {
             m_scale = qMax(m_scale * (1.0 - zoomStep), 0.1);
         }
+        storeViewState();
         update();
         event->accept();
     } else {
@@ -931,7 +957,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         // Shift/Ctrl на ручке меняют преобразование, а на объекте — выделение.
         if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
             const auto object = pm->getObjectAt(m_selectedIndex);
-            if (object->isViewVisible() && !object->isSelectionLocked()) {
+            if (ProjectManager::instance()->isObjectVisibleInEditor(object.data()) && !object->isSelectionLocked()) {
                 if (const auto *line = dynamic_cast<const DashedLineObject *>(object.data())) {
                     const int endpoint = hitTestDashedLineEndpoints(canvasPos, line);
                     if (endpoint >= 0) {
@@ -964,7 +990,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             int hit = -1;
             for (int i = 0; i < pm->getObjectCount(); ++i) {
                 const auto object = pm->getObjectAt(i);
-                if (object->isViewVisible() && !object->isSelectionLocked() && object->contains(canvasPos)) {
+                if (ProjectManager::instance()->isObjectVisibleInEditor(object.data()) && !object->isSelectionLocked() && object->contains(canvasPos)) {
                     hit = i;
                     break;
                 }
@@ -976,7 +1002,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 const bool toggle = event->modifiers() & (Qt::ControlModifier | Qt::MetaModifier);
                 const bool allSelected = std::all_of(members.begin(), members.end(), [&](int index) {
                     const auto object = pm->getObjectAt(index);
-                    return !object || object->isSelectionLocked() || !object->isViewVisible() || next.contains(index);
+                    return !object || object->isSelectionLocked() || !ProjectManager::instance()->isObjectVisibleInEditor(object.data()) || next.contains(index);
                 });
                 for (int index : members) {
                     if (toggle && allSelected) next.removeAll(index);
@@ -1003,7 +1029,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         // 1. Проверяем клик по манипуляторам выделенного объекта
         if (m_selectedIndex >= 0 && m_selectedIndex < pm->getObjectCount()) {
             auto obj = pm->getObjectAt(m_selectedIndex);
-            if (!obj->isViewVisible()) {
+            if (!ProjectManager::instance()->isObjectVisibleInEditor(obj.data())) {
                 setSelectedIndex(-1);
                 emit objectSelected(-1);
                 emit selectionChanged({});
@@ -1031,7 +1057,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         int newSelection = -1;
         for (int i = 0; i < pm->getObjectCount(); ++i) {
             auto candidate = pm->getObjectAt(i);
-            if (candidate->isViewVisible() && !candidate->isSelectionLocked() && candidate->contains(canvasPos)) {
+            if (ProjectManager::instance()->isObjectVisibleInEditor(candidate.data()) && !candidate->isSelectionLocked() && candidate->contains(canvasPos)) {
                 newSelection = i;
                 break;
             }
@@ -1095,6 +1121,7 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         m_offsetX += delta.x();
         m_offsetY += delta.y();
         m_lastMousePos = event->pos();
+        storeViewState();
         update();
         return;
     }
@@ -1216,12 +1243,12 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
         QSet<int> selectedSet(newSelection.begin(), newSelection.end());
         for (int i = pm->getObjectCount() - 1; i >= 0; --i) {
             auto candidate = pm->getObjectAt(i);
-            if (candidate->isViewVisible() && !candidate->isSelectionLocked() && marqueeRect.intersects(candidate->getBoundingRect())) {
+            if (ProjectManager::instance()->isObjectVisibleInEditor(candidate.data()) && !candidate->isSelectionLocked() && marqueeRect.intersects(candidate->getBoundingRect())) {
                 const QList<int> groupMembers = pm->groupMembersForObject(i);
                 const QList<int> indexes = groupMembers.isEmpty() ? QList<int>{i} : groupMembers;
                 for (int index : indexes) {
                     const auto member = pm->getObjectAt(index);
-                    if (!member || member->isSelectionLocked() || !member->isViewVisible() || selectedSet.contains(index))
+                    if (!member || member->isSelectionLocked() || !ProjectManager::instance()->isObjectVisibleInEditor(member.data()) || selectedSet.contains(index))
                         continue;
                     selectedSet.insert(index);
                     newSelection.append(index);
@@ -1296,4 +1323,29 @@ void ViewportPanel::dropEvent(QDropEvent *event)
         }
     }
     event->ignore();
+}
+
+void ViewportPanel::storeViewState()
+{
+    ProjectManager::instance()->setEditorViewState({m_scale, QPointF(m_offsetX, m_offsetY), m_proportionalResize, m_rotationSnapping});
+}
+
+void ViewportPanel::restoreViewState()
+{
+    const auto &state = ProjectManager::instance()->editorViewState();
+    m_scale = state.scale; m_offsetX = state.offset.x(); m_offsetY = state.offset.y();
+    m_proportionalResize = state.proportionalResize; m_rotationSnapping = state.rotationSnapping;
+    update();
+}
+
+void ViewportPanel::setProportionalResize(bool enabled)
+{
+    m_proportionalResize = enabled;
+    storeViewState();
+}
+
+void ViewportPanel::setRotationSnapping(bool enabled)
+{
+    m_rotationSnapping = enabled;
+    storeViewState();
 }

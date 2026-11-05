@@ -167,6 +167,7 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
             setValidationMessage(QStringLiteral("Выберите один из базовых шрифтов."));
             return false;
         }
+        m_hasFontAtlas = false;
         fontFamily = value.trimmed();
         ok = !fontFamily.isEmpty();
         needsRebuild = ok;
@@ -176,14 +177,14 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
             setValidationMessage(QStringLiteral("Размер шрифта заблокирован: в XML уже зашит фиксированный атлас."));
             return false;
         }
-        pixelSize = value.toInt(&ok);
-        if (ok) {
-            if (pixelSize < 6 || pixelSize > 128) {
-                setValidationMessage(QStringLiteral("Размер шрифта должен быть от 6 до 128 пикселей."));
-                return false;
-            }
-            needsRebuild = true;
+        const int requestedSize = value.toInt(&ok);
+        if (!ok || requestedSize < 6 || requestedSize > 128) {
+            setValidationMessage(QStringLiteral("Размер шрифта должен быть от 6 до 128 пикселей."));
+            return false;
         }
+        m_hasFontAtlas = false;
+        pixelSize = requestedSize;
+        needsRebuild = true;
     }
     else if (name == "Индекс шрифта") {
         if (restrictedAtlasEditing || isImportedHardwareObject()) {
@@ -232,6 +233,7 @@ void TextObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional
     const auto resized = proportionalResizeRect(oldBounds, edgeFlags, dx, dy);
 
     pixelSize = qBound(6, qRound(pixelSize * resized.scale), 128);
+    m_hasFontAtlas = false;
     rebuildMask();
 
     if (states.isEmpty())
@@ -265,55 +267,41 @@ void TextObject::rebuildMask()
 
     QFont font(fontFamily);
     font.setPixelSize(pixelSize);
+    if (m_hasFontAtlas && !restrictedAtlasEditing && !canUseText(text)) m_hasFontAtlas = false;
     const FpgaFont atlas = m_hasFontAtlas ? m_fontAtlas : rasterizeFont(font, text);
-    TextLayout layout;
+    TextMask mask;
     QString error;
-    if (!layoutText(text, atlas, &layout, &error)) {
+    if (!composeTextMask(text, atlas, &mask, &error)) {
         setValidationMessage(error);
         return;
     }
 
     GroupState &state = states[0];
-    QImage image(layout.size, QImage::Format_ARGB32);
+    if (qint64(mask.layoutSize.width()) * mask.layoutSize.height() > 64 * 1024 * 1024) {
+        setValidationMessage(QStringLiteral("Недостаточно памяти для предпросмотра текста."));
+        return;
+    }
+    QImage image(mask.layoutSize, QImage::Format_ARGB32);
     if (image.isNull()) {
         setValidationMessage(QStringLiteral("Недостаточно памяти для предпросмотра текста."));
         return;
     }
     image.fill(Qt::transparent);
-    QPainter painter(&image);
-    for (const auto &positioned : layout.glyphs) {
-        const auto glyph = atlas.glyphs.value(positioned.character);
-        if (glyph.enabled)
-            painter.drawImage(positioned.position, glyphMaskToImage(glyph, state.color));
+    for (int y = 0; y < mask.size.height(); ++y) {
+        for (int x = 0; x < mask.size.width(); ++x) {
+            const int level = mask.data[y * mask.size.width() + x].digitValue();
+            if (!level) continue;
+            QColor pixel = state.color;
+            pixel.setAlpha(qRound((level + 1) * 255.0 / 8.0));
+            image.setPixelColor(mask.offset.x() + x, mask.offset.y() + y, pixel);
+        }
     }
-    painter.end();
 
     state.w = image.width();
     state.h = image.height();
     groupNumber = 1;
     maskImages = {image};
     rebuildStateAddresses();
-}
-
-QImage TextObject::glyphMaskToImage(const FpgaGlyph &glyph, const QColor &color) const
-{
-    QImage image(qMax(1, glyph.width), qMax(1, glyph.height), QImage::Format_ARGB32);
-    image.fill(Qt::transparent);
-
-    const QStringList rows = glyph.maskRows.split('\n', Qt::SkipEmptyParts);
-    for (int y = 0; y < qMin(glyph.height, rows.size()); ++y) {
-        const QString row = rows[y].trimmed();
-        for (int x = 0; x < qMin(glyph.width, row.size()); ++x) {
-            const int level = row[x].digitValue();
-            if (level <= 0)
-                continue;
-
-            QColor pixel = color;
-            pixel.setAlpha(qRound((level + 1) * 255.0 / 8.0));
-            image.setPixelColor(x, y, pixel);
-        }
-    }
-    return image;
 }
 
 bool TextObject::canUseText(const QString &candidate, QString *missingCharacters) const

@@ -5,6 +5,7 @@
 #include "BasePanel.h"
 
 #include <QList>
+#include <QColor>
 #include <QMap>
 
 // ViewportPanel - панель рабочей области приложения.
@@ -15,14 +16,10 @@ class ViewportPanel : public BasePanel
 public:
     explicit ViewportPanel(QWidget *parent = nullptr);
 
-    // устанавливает масштаб отображения
-    void setScale(double scale);
-
     // возвращает текущий масштаб
     double getScale() const;
 
-    // возвращает индекс выделенного объекта
-    int getSelectedIndex() const { return m_selectedIndex; }
+    // возвращает индексы выделенных объектов
     QList<int> getSelectedIndexes() const { return m_selectedIndexes; }
 
     // сбрасывает вид к начальному состоянию
@@ -55,10 +52,11 @@ public slots:
     // Слот для внешней синхронизации выделения (например, из списка)
     void setSelectedIndex(int index);
     void setSelectedIndexes(const QList<int> &indexes);
-    void setProportionalResize(bool enabled) { m_proportionalResize = enabled; }
-    void setRotationSnapping(bool enabled) { m_rotationSnapping = enabled; }
+    void setProportionalResize(bool enabled);
+    void setRotationSnapping(bool enabled);
 
 private:
+    QColor m_selectionColor = QColor("#00c8f0");
     double m_scale; //текущий масштаб
     double m_offsetX; //смещение по X
     double m_offsetY; //смещение по Y
@@ -66,7 +64,7 @@ private:
     int m_selectedIndex = -1; // Индекс выделенного объекта
     QList<int> m_selectedIndexes; // Индексы выделенных объектов
 
-    // Состояния манипуляторов
+    // DragMode - текущее действие мыши: выделение, перемещение, размер, поворот или панорамирование.
     enum DragMode { None, Move, Resize, Rotate, LineEndpoint, Pan, MarqueeSelect };
     DragMode m_dragMode = None;
     int m_resizeEdgeFlags = 0; // Битовая маска: 1=Left, 2=Right, 4=Top, 8=Bottom
@@ -141,4 +139,6 @@ private:
     // Перемещает объект к позиции, рассчитанной от начала перетаскивания
     void moveObjectToDragDelta(int index, const QPointF &delta);
     void ensureDragHistoryRecorded();
+    void storeViewState();
+    void restoreViewState();
 };

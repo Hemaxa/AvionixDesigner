@@ -11,6 +11,7 @@
 
 #include "BaseObject.h"
 #include "TextObject.h"
+#include "EditorViewState.h"
 
 class EditorProjectDocument;
 class ThreeDViewObject;
@@ -35,7 +36,7 @@ public:
     // возвращает единственный экземпляр менеджера проекта
     static ProjectManager* instance();
 
-    // загружает проект из XML-файла редактора/ПЛИС
+    // загружает единый XML с аппаратными данными и метаданными редактора
     bool loadFromFile(const QString &fileName);
     // возвращает последнюю ошибку загрузки/сохранения для показа в интерфейсе
     QString lastErrorMessage() const;
@@ -43,8 +44,6 @@ public:
     bool createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath = QString());
     // сохраняет текущий проект в XML; если путь не задан, использует текущий путь проекта
     bool saveToFile(const QString &targetFile = QString());
-    // экспортирует текущий проект в строгий XML-формат для ПЛИС
-    bool exportToFpgaXml(const QString &targetFile);
     // собирает строгий XML-формат для ПЛИС в памяти без записи на диск
     QDomDocument buildCompiledFpgaXml() const;
     // Импортирует изображение выбранного аппаратного типа и выделяет цветовые маски.
@@ -59,8 +58,6 @@ public:
     int addObject(const QString &typeName, double x, double y);
     // добавляет существующий объект в редакторскую группу
     bool addObjectToGroup(int groupId, int index, bool recordChange = true);
-    // удаляет один объект по индексу
-    bool removeObject(int index);
     // удаляет набор объектов по индексам
     bool removeObjects(const QList<int> &indexes);
     // переставляет объекты в порядке старых индексов, переданных в order
@@ -117,6 +114,35 @@ public:
     void finishObjectEdit(const QString &message = QString());
     // меняет свойство объекта через единую точку, чтобы сохранить историю действий
     bool setObjectProperty(BaseObject *object, const QString &propertyName, const QString &value);
+    // Проверяем весь набор до изменения, затем записываем одну операцию истории.
+    bool setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects, const QString &name, const QString &value);
+    bool isObjectPropertyEditable(const BaseObject *object, const QString &name) const;
+
+    // EditorLayer - имя, цвет выделения и идентификатор редакторского слоя.
+    struct EditorLayer {
+        int id = 1;
+        QString name;
+        QColor selectionColor;
+    };
+    const QList<EditorLayer> &editorLayers() const { return m_editorLayers; }
+    int activeLayerId() const { return m_activeLayerId; }
+    bool showAllLayers() const { return m_showAllLayers; }
+    bool hasEditorLayer(int id) const;
+    QString editorLayerName(int id) const;
+    QColor editorLayerColor(int id) const;
+    int layerObjectCount(int id) const;
+    bool isObjectOnVisibleLayer(const BaseObject *object) const;
+    bool isObjectVisibleInEditor(const BaseObject *object) const;
+    int addEditorLayer();
+    bool renameEditorLayer(int id, const QString &name);
+    bool setEditorLayerColor(int id, const QColor &color);
+    int duplicateEditorLayer(int id);
+    bool mergeEditorLayer(int sourceId, int targetId);
+    bool mergeEditorLayers(const QList<int> &layerIds, int targetId);
+    bool removeEditorLayer(int id);
+    bool setObjectsLayer(const QList<QSharedPointer<BaseObject>> &objects, int layerId);
+    void setActiveLayer(int id);
+    void setShowAllLayers(bool enabled);
 
     // возвращает плоский список объектов в порядке слоёв
     const QList<QSharedPointer<BaseObject>>& getObjects() const;
@@ -124,8 +150,8 @@ public:
     QSharedPointer<BaseObject> getObjectAt(int index) const;
     // возвращает количество объектов проекта
     int getObjectCount() const;
-    // описание редакторской группы, не сериализуемой в аппаратный XML
-    // ObjectGroup - редакторская группа выделения, не сохраняемая в аппаратный XML.
+    // ObjectGroup - именованный набор объектов для выделения и совместного редактирования.
+    // Сохраняется в <editor>, отдельно от аппаратных объектов.
     struct ObjectGroup
     {
         int id = -1;
@@ -185,11 +211,17 @@ public:
     void setSnapToGrid(bool enabled);
     // включает или выключает привязку к объектам
     void setSnapToObjects(bool enabled);
+    const EditorViewState &editorViewState() const { return m_editorViewState; }
+    void setEditorViewState(const EditorViewState &state);
 
 signals:
     void projectLoaded();
     void projectChanged();
     void logMessage(const QString &message);
+    void editorLayersChanged();
+    void editorLayerObjectsChanged();
+    void editorLayerViewChanged();
+    void editorViewStateChanged();
 
 private:
     // ProjectSnapshot - снимок объектов и редакторских групп для undo/redo.
@@ -199,18 +231,24 @@ private:
         QStringList objectTags;
         QList<ObjectGroup> groups;
         int nextGroupId = 1;
+        QList<EditorLayer> layers;
+        int nextLayerId = 2;
+        int activeLayerId = 1;
+        bool showAllLayers = false;
     };
 
     ProjectManager();
 
-    bool loadXmlProject(const QString &fileName);
-    void applyRestrictedMode();
     void recordHistory();
     ProjectSnapshot captureSnapshot() const;
     void restoreSnapshot(const ProjectSnapshot &snapshot);
     void clearHistory();
     void insertObjectAtFront(BaseObject *object, const QString &tagName);
     void syncNextGroupId();
+    void resetEditorLayers();
+    void notifyEditorLayersChanged();
+    QString uniqueLayerName(const QString &base) const;
+    void readGlobalWorkspaceSettings();
 
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
@@ -219,6 +257,11 @@ private:
     QStringList m_objectTags;
     QList<ObjectGroup> m_groups;
     int m_nextGroupId = 1;
+    QList<EditorLayer> m_editorLayers;
+    int m_nextLayerId = 2;
+    int m_activeLayerId = 1;
+    bool m_showAllLayers = false;
+    EditorViewState m_editorViewState;
     QMap<QString, ParamSchema> m_schemas;
     QMap<int, FpgaFont> m_fonts;
     QList<ProjectSnapshot> m_undoStack;

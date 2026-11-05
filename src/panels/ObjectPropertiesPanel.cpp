@@ -12,6 +12,8 @@
 #include <QFrame>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
+#include <algorithm>
 #include <QMessageBox>
 #include <QScrollArea>
 #include <QSet>
@@ -38,10 +40,19 @@ public:
 
     void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
-        if (editor->objectName() == QStringLiteral("TransparencyEditor")) {
+        if (editor->objectName() == QStringLiteral("TransparencyEditor")
+            || editor->objectName() == QStringLiteral("PropertyFieldEditor")) {
             // У составного поля свои отступы: используем всю высоту обычной строки,
             // без повторного вычитания padding из стиля ячейки.
             editor->setGeometry(option.rect);
+            return;
+        }
+        if (qobject_cast<QComboBox *>(editor)) {
+            QRect rect = option.rect.adjusted(10, 3, -10, -3);
+            const int height = qMin(rect.height(), editor->maximumHeight());
+            rect.setTop(rect.top() + (rect.height() - height) / 2);
+            rect.setHeight(height);
+            editor->setGeometry(rect);
             return;
         }
         QStyledItemDelegate::updateEditorGeometry(editor, option, index);
@@ -56,11 +67,13 @@ public:
         const QString propertyName = index.siblingAtColumn(0).data().toString();
         if (propertyName == QStringLiteral("Положение")) {
             auto *combo = new QComboBox(parent);
+            combo->setObjectName("PropertyValueCombo");
             combo->addItems({QStringLiteral("Справа"), QStringLiteral("Слева")});
             return combo;
         }
         if (propertyName == QStringLiteral("Шрифт")) {
             auto *combo = new QComboBox(parent);
+            combo->setObjectName("PropertyValueCombo");
             combo->addItem(QStringLiteral("Arial"));
             combo->addItem(QStringLiteral("Times New Roman"));
             combo->addItem(QStringLiteral("Helvetica"));
@@ -73,11 +86,13 @@ public:
 
         const QSet<QString> boolNames = {
             QStringLiteral("Включен"),
-            QStringLiteral("Видимость")
+            QStringLiteral("Видимость"),
+            QStringLiteral("Автоцвет")
         };
 
         if (boolNames.contains(propertyName) || propertyName.endsWith(QStringLiteral("Видимость"))) {
             auto *combo = new QComboBox(parent);
+            combo->setObjectName("PropertyValueCombo");
             combo->addItem(QStringLiteral("да"));
             combo->addItem(QStringLiteral("нет"));
             return combo;
@@ -94,18 +109,27 @@ public:
             if (exactIndex >= 0) {
                 combo->setCurrentIndex(exactIndex);
             } else {
-                combo->setCurrentIndex(current == QStringLiteral("нет") ? 1 : 0);
+                combo->setCurrentIndex(index.data(Qt::UserRole).toBool() ? -1 : (current == QStringLiteral("нет") ? 1 : 0));
             }
             return;
         }
         QStyledItemDelegate::setEditorData(editor, index);
+        if (index.data(Qt::UserRole).toBool()) {
+            if (auto *line = qobject_cast<QLineEdit *>(editor)) {
+                line->clear();
+                line->setPlaceholderText(QObject::tr("Разные значения"));
+            }
+        }
     }
 
     void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override
     {
         if (auto *combo = qobject_cast<QComboBox*>(editor)) {
-            model->setData(index, combo->currentText());
+            if (combo->currentIndex() >= 0) model->setData(index, combo->currentText());
             return;
+        }
+        if (index.data(Qt::UserRole).toBool()) {
+            if (auto *line = qobject_cast<QLineEdit *>(editor); line && !line->isModified()) return;
         }
         QStyledItemDelegate::setModelData(editor, model, index);
     }
@@ -195,6 +219,19 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
 
     connect(m_tableWidget, &QTableWidget::cellChanged, this, &ObjectPropertiesPanel::onCellChanged);
     connect(m_tableWidget, &QTableWidget::cellDoubleClicked, this, &ObjectPropertiesPanel::onCellDoubleClicked);
+    auto refresh = [this]() {
+        QTimer::singleShot(0, this, [this]() {
+            const auto &objects = ProjectManager::instance()->getObjects();
+            for (const auto &object : m_currentObjects) {
+                if (!objects.contains(object)) { clearProperties(); return; }
+            }
+            refreshTableValues();
+        });
+    };
+    connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, [refresh]() {
+        if (!ProjectManager::instance()->isAircraftStateChange()) refresh();
+    });
+    connect(ProjectManager::instance(), &ProjectManager::editorLayersChanged, this, refresh);
 }
 
 void ObjectPropertiesPanel::showObjectProperties(int index)
@@ -208,30 +245,41 @@ void ObjectPropertiesPanel::showObjectProperties(int index)
     showProperties(obj);
 }
 
+void ObjectPropertiesPanel::showSelectedObjects(const QList<int> &indexes)
+{
+    QList<QSharedPointer<BaseObject>> objects;
+    for (int index : indexes) {
+        auto object = ProjectManager::instance()->getObjectAt(index);
+        if (object && !objects.contains(object)) objects.append(object);
+    }
+    if (objects.isEmpty()) { clearProperties(); return; }
+    if (m_currentObjects == objects) { refreshTableValues(); return; }
+    for (const auto &connection : m_objectConnections) disconnect(connection);
+    m_objectConnections.clear();
+    clearTable();
+    m_currentObjects = objects;
+    m_currentObject = objects.first();
+    m_titleLabel->setText(objects.size() == 1 ? objects.first()->getDisplayName() : tr("Выбрано объектов: %1").arg(objects.size()));
+    m_titleLabel->show();
+    populateTable(commonProperties());
+    refreshHardwareWarnings();
+    for (const auto &object : objects)
+        m_objectConnections.append(connect(object.data(), &BaseObject::changed, this, &ObjectPropertiesPanel::refreshHardwareWarnings));
+    m_contentStack->setCurrentIndex(1);
+}
+
 void ObjectPropertiesPanel::showProperties(QSharedPointer<BaseObject> obj)
 {
-    disconnect(m_objectConnection);
-    clearTable();
-    m_currentObject = obj;
-
-    if (!obj) {
-        clearProperties();
-        return;
-    }
-
-    m_titleLabel->setText(obj->getDisplayName());
-    m_titleLabel->show();
-    m_subtitleLabel->hide();
-    populateTable(obj->getProperties());
-    refreshHardwareWarnings();
-    m_objectConnection = connect(obj.data(), &BaseObject::changed, this, &ObjectPropertiesPanel::refreshHardwareWarnings);
-    m_contentStack->setCurrentIndex(1);
+    const int index = ProjectManager::instance()->getObjects().indexOf(obj);
+    showSelectedObjects(index >= 0 ? QList<int>{index} : QList<int>{});
 }
 
 void ObjectPropertiesPanel::clearProperties()
 {
-    disconnect(m_objectConnection);
+    for (const auto &connection : m_objectConnections) disconnect(connection);
+    m_objectConnections.clear();
     clearTable();
+    m_currentObjects.clear();
     m_currentObject.reset();
     m_titleLabel->clear();
     m_titleLabel->hide();
@@ -240,45 +288,128 @@ void ObjectPropertiesPanel::clearProperties()
     m_contentStack->setCurrentIndex(0);
 }
 
+QList<QPair<QString, QString>> ObjectPropertiesPanel::commonProperties() const
+{
+    m_mixedProperties.clear();
+    if (m_currentObjects.isEmpty()) return {};
+    auto props = m_currentObjects.first()->getProperties();
+    QList<QMap<QString, QString>> propertyMaps;
+    for (const auto &object : m_currentObjects) {
+        QMap<QString, QString> map;
+        for (const auto &property : object->getProperties()) map.insert(property.first, property.second);
+        propertyMaps.append(map);
+    }
+    for (int i = props.size() - 1; i >= 0; --i) {
+        bool common = true, mixed = false;
+        for (const auto &map : propertyMaps) {
+            const auto it = map.constFind(props[i].first);
+            if (it == map.cend()) { common = false; break; }
+            if (it.value() != props[i].second) mixed = true;
+        }
+        if (!common) props.removeAt(i);
+        else if (mixed) { m_mixedProperties.insert(props[i].first); props[i].second = tr("Разные значения"); }
+    }
+    const int layer = m_currentObjects.first()->editorLayerId();
+    const bool sameLayer = std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [layer](const auto &o) { return o->editorLayerId() == layer; });
+    if (!sameLayer) m_mixedProperties.insert(tr("Слой"));
+    props.append({tr("Слой"), sameLayer ? ProjectManager::instance()->editorLayerName(layer) : tr("Разные значения")});
+    return props;
+}
+
 void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &props)
 {
     m_updating = true;
     m_tableWidget->setRowCount(props.size());
-
+    m_readOnlyProperties.clear();
+    for (const auto &property : props) {
+        if (property.first == tr("Слой")) continue;
+        for (const auto &object : m_currentObjects) {
+            if (!ProjectManager::instance()->isObjectPropertyEditable(object.data(), property.first)) {
+                m_readOnlyProperties.insert(property.first);
+                break;
+            }
+        }
+    }
     for (int i = 0; i < props.size(); ++i) {
         auto *nameItem = new QTableWidgetItem(props[i].first);
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
         m_tableWidget->setItem(i, 0, nameItem);
-
-        auto *valueItem = new QTableWidgetItem(props[i].second);
-        if (isReadOnlyProperty(props[i].first)) {
-            valueItem->setFlags((valueItem->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-            valueItem->setForeground(QBrush(QColor("#9DB3C3")));
-        } else if (isColorProperty(props[i].first)) {
-            valueItem->setFlags((valueItem->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-            const QColor previewColor(props[i].second);
-            if (previewColor.isValid()) {
-                QPixmap pixmap(16, 16);
-                pixmap.fill(Qt::transparent);
-                QPainter p(&pixmap);
-                p.setRenderHint(QPainter::Antialiasing);
-                p.setBrush(previewColor);
-                p.setPen(QPen(Qt::gray, 1));
-                p.drawEllipse(1, 1, 14, 14);
-                p.end();
-                valueItem->setIcon(QIcon(pixmap));
-            }
+        m_tableWidget->setItem(i, 1, new QTableWidgetItem());
+        if (props[i].first == tr("Слой")) {
+            auto *editor = new QWidget(m_tableWidget);
+            editor->setObjectName("PropertyFieldEditor");
+            auto *layout = new QHBoxLayout(editor);
+            layout->setContentsMargins(10, 3, 10, 3);
+            layout->setSpacing(0);
+            auto *combo = new QComboBox(editor);
+            combo->setObjectName("ObjectLayerCombo");
+            combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            combo->setMinimumContentsLength(6);
+            combo->setPlaceholderText(tr("Разные значения"));
+            layout->addWidget(combo);
+            m_tableWidget->setCellWidget(i, 1, editor);
+            connect(combo, &QComboBox::activated, this, [this, combo](int index) {
+                const auto objects = m_currentObjects;
+                ProjectManager::instance()->setObjectsLayer(objects, combo->itemData(index).toInt());
+                emit propertyChanged();
+            });
+        } else if (props[i].first == QStringLiteral("Прозрачность")) {
+            auto *editor = createTransparencyEditor(m_mixedProperties.contains(props[i].first) ? -1 : props[i].second.toDouble());
+            m_tableWidget->setCellWidget(i, 1, editor);
         }
-        m_tableWidget->setItem(i, 1, valueItem);
-        if (props[i].first == QStringLiteral("Прозрачность")) {
-            valueItem->setText(QString());
-            valueItem->setFlags(valueItem->flags() & ~Qt::ItemIsEditable);
-            m_tableWidget->setCellWidget(i, 1, createTransparencyEditor(props[i].second.toDouble()));
-        }
+        updateValueItem(i, props[i].first, props[i].second);
     }
-
     resizePropertyRows();
     m_updating = false;
+}
+
+void ObjectPropertiesPanel::updateValueItem(int row, const QString &name, const QString &value)
+{
+    auto *item = m_tableWidget->item(row, 1);
+    const bool mixed = m_mixedProperties.contains(name);
+    item->setText(value);
+    item->setData(Qt::UserRole, mixed);
+    item->setIcon(QIcon());
+    const bool readOnly = isReadOnlyProperty(name);
+    item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+    if (!readOnly && !isColorProperty(name) && name != tr("Слой") && name != QStringLiteral("Прозрачность"))
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
+    item->setForeground(readOnly || mixed ? QBrush(QColor("#9fb3c1")) : QBrush());
+    if (name == tr("Слой")) {
+        auto *combo = m_tableWidget->cellWidget(row, 1)->findChild<QComboBox *>("ObjectLayerCombo");
+        const QSignalBlocker blocker(combo);
+        const auto &layers = ProjectManager::instance()->editorLayers();
+        bool rebuild = combo->count() != layers.size();
+        for (int i = 0; !rebuild && i < layers.size(); ++i)
+            rebuild = combo->itemData(i).toInt() != layers[i].id || combo->itemText(i) != layers[i].name;
+        if (rebuild) {
+            combo->clear();
+            for (const auto &layer : layers) combo->addItem(layer.name, layer.id);
+        }
+        combo->setCurrentIndex(mixed ? -1 : combo->findData(m_currentObjects.first()->editorLayerId()));
+        item->setText({});
+    } else if (name == QStringLiteral("Прозрачность")) {
+        auto *editor = m_tableWidget->cellWidget(row, 1);
+        auto *spin = editor->findChild<QSpinBox *>("TransparencySpin");
+        auto *slider = editor->findChild<QSlider *>("TransparencySlider");
+        const QSignalBlocker spinBlocker(spin), sliderBlocker(slider);
+        spin->setSpecialValueText(mixed ? tr("Разные") : QString());
+        spin->setMinimum(mixed ? -1 : 0);
+        spin->setValue(mixed ? -1 : qRound(value.toDouble()));
+        slider->setValue(mixed ? 0 : qRound(value.toDouble()));
+        item->setText({});
+    } else if (isColorProperty(name) && !mixed) {
+        const QColor color(value);
+        if (color.isValid()) {
+            QPixmap pixmap(16, 16); pixmap.fill(Qt::transparent);
+            QPainter painter(&pixmap);
+            painter.setRenderHint(QPainter::Antialiasing);
+            painter.setBrush(color); painter.setPen(QColor("#334656"));
+            painter.drawEllipse(1, 1, 14, 14); painter.end();
+            item->setIcon(QIcon(pixmap));
+        }
+    }
 }
 
 void ObjectPropertiesPanel::clearTable()
@@ -302,7 +433,9 @@ QWidget *ObjectPropertiesPanel::createTransparencyEditor(double value)
     layout->setSpacing(8);
     auto *spin = new QSpinBox(editor);
     spin->setObjectName("TransparencySpin");
-    spin->setRange(0, 100); spin->setSingleStep(1);
+    spin->setRange(value < 0 ? -1 : 0, 100);
+    spin->setSpecialValueText(value < 0 ? tr("Разные") : QString());
+    spin->setSingleStep(1);
     spin->setSuffix(QStringLiteral(" %")); spin->setKeyboardTracking(false);
     spin->setMinimumWidth(78);
     spin->setValue(value);
@@ -314,7 +447,7 @@ QWidget *ObjectPropertiesPanel::createTransparencyEditor(double value)
     spin->setToolTip(hint); slider->setToolTip(hint);
     layout->addWidget(spin); layout->addWidget(slider, 1);
     connect(spin, &QSpinBox::valueChanged, this, [this](int value) {
-        if (!m_updating) applyTransparency(value, false);
+        if (!m_updating && value >= 0) applyTransparency(value, false);
     });
     connect(slider, &QSlider::sliderPressed, this, [this]() {
         ProjectManager::instance()->recordObjectEdit();
@@ -325,8 +458,9 @@ QWidget *ObjectPropertiesPanel::createTransparencyEditor(double value)
         spin->setValue(value);
         if (!m_updating) applyTransparency(value, m_transparencyDragging);
     });
-    connect(slider, &QSlider::sliderReleased, this, [this]() {
+    connect(slider, &QSlider::sliderReleased, this, [this, slider]() {
         if (!m_transparencyDragging) return;
+        applyTransparency(slider->value(), true);
         m_transparencyDragging = false;
         ProjectManager::instance()->finishObjectEdit();
         refreshTableValues();
@@ -337,18 +471,35 @@ QWidget *ObjectPropertiesPanel::createTransparencyEditor(double value)
 void ObjectPropertiesPanel::resizePropertyRows()
 {
     m_tableWidget->resizeRowsToContents();
+    int editorHeight = m_tableWidget->verticalHeader()->defaultSectionSize();
+    for (int row = 0; row < m_tableWidget->rowCount(); ++row)
+        if (m_tableWidget->cellWidget(row, 1)) editorHeight = qMax(editorHeight, m_tableWidget->rowHeight(row));
+    for (int row = 0; row < m_tableWidget->rowCount(); ++row)
+        m_tableWidget->setRowHeight(row, qMax(editorHeight, m_tableWidget->rowHeight(row)));
 }
 
 void ObjectPropertiesPanel::applyTransparency(double value, bool interactive)
 {
-    if (!m_currentObject) return;
+    if (m_currentObjects.isEmpty()) return;
     const QString percent = QString::number(qRound(value));
-    const bool changed = interactive
-        ? m_currentObject->setObjectProperty(QStringLiteral("Прозрачность"), percent)
-        : ProjectManager::instance()->setObjectProperty(m_currentObject.data(), QStringLiteral("Прозрачность"), percent);
-    if (!changed) return;
-    if (!interactive) refreshTableValues();
-    emit propertyChanged();
+    if (interactive) {
+        const auto objects = m_currentObjects;
+        for (const auto &object : objects) object->setObjectProperty(QStringLiteral("Прозрачность"), percent);
+        emit propertyChanged();
+    } else {
+        applyProperty(QStringLiteral("Прозрачность"), percent);
+    }
+}
+
+bool ObjectPropertiesPanel::applyProperty(const QString &name, const QString &value)
+{
+    const auto objects = m_currentObjects;
+    const bool success = ProjectManager::instance()->setObjectsProperty(objects, name, value);
+    if (!success && !ProjectManager::instance()->lastErrorMessage().isEmpty())
+        QMessageBox::warning(this, tr("Ограничение редактирования"), ProjectManager::instance()->lastErrorMessage());
+    refreshTableValues();
+    if (success) emit propertyChanged();
+    return success;
 }
 
 void ObjectPropertiesPanel::focusTransparency()
@@ -361,47 +512,26 @@ void ObjectPropertiesPanel::focusTransparency()
 
 void ObjectPropertiesPanel::refreshHardwareWarnings()
 {
-    const auto report = m_currentObject ? FpgaResourceLimits::inspect(*m_currentObject) : FpgaResourceLimits::Report{};
-    m_subtitleLabel->setText(report.messages().join('\n'));
-    m_subtitleLabel->setProperty("severity", report.errors.isEmpty() ? "warning" : "error");
+    QStringList messages;
+    bool errors = false;
+    for (const auto &object : m_currentObjects) {
+        const auto report = FpgaResourceLimits::inspect(*object);
+        errors |= !report.errors.isEmpty();
+        for (const auto &message : report.messages()) if (!messages.contains(message)) messages.append(message);
+    }
+    m_subtitleLabel->setText(messages.join('\n'));
+    m_subtitleLabel->setProperty("severity", errors ? "error" : "warning");
     m_subtitleLabel->style()->unpolish(m_subtitleLabel);
     m_subtitleLabel->style()->polish(m_subtitleLabel);
-    m_subtitleLabel->setVisible(!report.messages().isEmpty());
+    m_subtitleLabel->setVisible(!messages.isEmpty());
 }
 
 void ObjectPropertiesPanel::onCellChanged(int row, int column)
 {
-    if (m_updating || column != 1 || !m_currentObject)
-        return;
-
-    QTableWidgetItem *nameItem = m_tableWidget->item(row, 0);
-    QTableWidgetItem *valueItem = m_tableWidget->item(row, 1);
-    if (!nameItem || !valueItem)
-        return;
-
-    const QString propName = nameItem->text();
-    const QString newValue = valueItem->text();
-
-    if (ProjectManager::instance()->setObjectProperty(m_currentObject.data(), propName, newValue)) {
-        refreshTableValues();
-        emit propertyChanged();
-    }
-    else {
-        const QString message = m_currentObject->lastValidationMessage();
-        if (!message.isEmpty()) {
-            QMessageBox::warning(this, tr("Ограничение редактирования"), message);
-            m_currentObject->clearValidationMessage();
-        }
-        m_updating = true;
-        const auto props = m_currentObject->getProperties();
-        for (const auto &prop : props) {
-            if (prop.first == propName) {
-                valueItem->setText(prop.second);
-                break;
-            }
-        }
-        m_updating = false;
-    }
+    if (m_updating || column != 1 || m_currentObjects.isEmpty()) return;
+    auto *name = m_tableWidget->item(row, 0);
+    auto *value = m_tableWidget->item(row, 1);
+    if (name && value && !isReadOnlyProperty(name->text())) applyProperty(name->text(), value->text());
 }
 
 void ObjectPropertiesPanel::onCellDoubleClicked(int row, int column)
@@ -415,7 +545,7 @@ void ObjectPropertiesPanel::onCellDoubleClicked(int row, int column)
         return;
 
     const QString propertyName = nameItem->text();
-    if (!isColorProperty(propertyName))
+    if (!isColorProperty(propertyName) || isReadOnlyProperty(propertyName))
         return;
 
     const QColor currentColor(valueItem->text());
@@ -423,63 +553,25 @@ void ObjectPropertiesPanel::onCellDoubleClicked(int row, int column)
     if (!selectedColor.isValid())
         return;
 
-    if (ProjectManager::instance()->setObjectProperty(m_currentObject.data(), propertyName, selectedColor.name())) {
-        refreshTableValues();
-        emit propertyChanged();
-    }
+    applyProperty(propertyName, selectedColor.name());
 }
 
 void ObjectPropertiesPanel::refreshTableValues()
 {
-    if (!m_currentObject)
-        return;
-
-    m_updating = true;
-    const auto props = m_currentObject->getProperties();
-    for (int i = 0; i < props.size(); ++i) {
-        if (i >= m_tableWidget->rowCount())
-            break;
-
-        if (auto *name = m_tableWidget->item(i, 0)) {
-            name->setText(props[i].first);
-        }
-        if (auto *value = m_tableWidget->item(i, 1)) {
-            value->setText(props[i].first == QStringLiteral("Прозрачность") ? QString() : props[i].second);
-            if (props[i].first == QStringLiteral("Прозрачность")) {
-                if (auto *editor = m_tableWidget->cellWidget(i, 1)) {
-                    auto *spin = editor->findChild<QSpinBox *>("TransparencySpin");
-                    auto *slider = editor->findChild<QSlider *>("TransparencySlider");
-                    const QSignalBlocker spinBlocker(spin), sliderBlocker(slider);
-                    spin->setValue(props[i].second.toDouble());
-                    slider->setValue(qRound(props[i].second.toDouble()));
-                }
-            }
-            if (isReadOnlyProperty(props[i].first)) {
-                value->setFlags((value->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-                value->setIcon(QIcon());
-                value->setBackground(QBrush());
-                value->setForeground(QBrush(QColor("#9DB3C3")));
-            } else if (isColorProperty(props[i].first)) {
-                value->setFlags((value->flags() & ~Qt::ItemIsEditable) | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-                const QColor previewColor(props[i].second);
-                if (previewColor.isValid()) {
-                    QPixmap pixmap(16, 16);
-                    pixmap.fill(Qt::transparent);
-                    QPainter p(&pixmap);
-                    p.setRenderHint(QPainter::Antialiasing);
-                    p.setBrush(previewColor);
-                    p.setPen(QPen(Qt::gray, 1));
-                    p.drawEllipse(1, 1, 14, 14);
-                    p.end();
-                    value->setIcon(QIcon(pixmap));
-                    value->setBackground(QBrush());
-                    value->setForeground(QBrush());
-                }
-            }
-        }
+    if (m_currentObjects.isEmpty()) return;
+    const auto props = commonProperties();
+    bool rebuild = props.size() != m_tableWidget->rowCount();
+    for (int i = 0; !rebuild && i < props.size(); ++i)
+        rebuild = !m_tableWidget->item(i, 0) || m_tableWidget->item(i, 0)->text() != props[i].first;
+    if (rebuild) {
+        clearTable();
+        populateTable(props);
+    } else {
+        m_updating = true;
+        for (int i = 0; i < props.size(); ++i) updateValueItem(i, props[i].first, props[i].second);
+        resizePropertyRows();
+        m_updating = false;
     }
-    resizePropertyRows();
-    m_updating = false;
     refreshHardwareWarnings();
 }
 
@@ -492,8 +584,5 @@ bool ObjectPropertiesPanel::isColorProperty(const QString &name) const
 
 bool ObjectPropertiesPanel::isReadOnlyProperty(const QString &name) const
 {
-    if (dynamic_cast<ThreeDViewObject*>(m_currentObject.data()))
-        return name != QStringLiteral("Положение");
-    return name == QStringLiteral("XML экспорт") || name == QStringLiteral("Память")
-        || name == QStringLiteral("Кол-во состояний");
+    return m_readOnlyProperties.contains(name);
 }

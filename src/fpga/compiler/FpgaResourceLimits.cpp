@@ -7,6 +7,9 @@
 #include "StaticGroupObject.h"
 #include "TextObject.h"
 #include "RasterGeometry.h"
+#include "text/FontRasterizer.h"
+#include "text/TextLayout.h"
+#include <QFont>
 
 #include <QtMath>
 
@@ -14,8 +17,14 @@ namespace FpgaResourceLimits {
 Report inspect(const BaseObject &object)
 {
     Report report;
-    if (dynamic_cast<const TextObject *>(&object))
+    if (const auto *text = dynamic_cast<const TextObject *>(&object)) {
+        QFont qfont(text->fontFamily); qfont.setPixelSize(text->pixelSize);
+        const auto font = text->hasFontAtlas() ? text->fontAtlas() : rasterizeFont(qfont, text->text);
+        TextMask mask;
+        QString error;
+        if (!composeTextMask(text->text, font, &mask, &error, staticPixels())) report.errors.append(error);
         return report;
+    }
 
     if (const auto *image = dynamic_cast<const ImageObject *>(&object)) {
         if (image->isRotationObject()) {
@@ -39,29 +48,29 @@ Report inspect(const BaseObject &object)
             }
             if (components.isEmpty())
                 pixels = qint64(qMax(1, qRound(image->width))) * qMax(1, qRound(image->height));
-            if (pixels > staticPixels)
+            if (pixels > staticPixels())
                 report.warnings.append(QStringLiteral("Память статической группы: %1/%2 ячеек. При экспорте растр будет уменьшен; детализация изменится.")
-                    .arg(pixels).arg(staticPixels));
+                    .arg(pixels).arg(staticPixels()));
             if (largeDimensions)
                 report.warnings.append(QStringLiteral("Габарит маски превышает 4095 пикселей. При экспорте растр будет уменьшен."));
-            if (components.size() > staticParameters)
+            if (components.size() > staticParameters())
                 report.errors.append(QStringLiteral("Статической группе требуется %1 init; допускается не более %2. Уменьшите число цветовых слоёв.")
-                    .arg(components.size()).arg(staticParameters));
+                    .arg(components.size()).arg(staticParameters()));
         }
     } else if (const auto *group = dynamic_cast<const StaticGroupObject *>(&object)) {
         qint64 end = 0;
         for (const auto &state : group->states) {
             end = qMax(end, qint64(state.addr) + qint64(state.w) * state.h);
-            if (state.w < 0 || state.h < 0 || state.w > 4095 || state.h > 4095 || state.addr < 0 || state.addr >= staticPixels
+            if (state.w < 0 || state.h < 0 || state.w > 4095 || state.h > 4095 || state.addr < 0 || state.addr >= staticPixels()
                 || state.x < 0 || state.y < 0 || state.x > 4095 || state.y > 4095)
                 report.errors.append(QStringLiteral("Габариты или адрес статической маски выходят за диапазон полей XML."));
         }
-        if (end > staticPixels)
+        if (end > staticPixels())
             report.errors.append(QStringLiteral("Память статической группы: %1/%2 ячеек. Экспорт невозможен: уменьшите растры или разделите группу.")
-                .arg(end).arg(staticPixels));
-        if (group->states.size() > staticParameters)
+                .arg(end).arg(staticPixels()));
+        if (group->states.size() > staticParameters())
             report.errors.append(QStringLiteral("В статической группе %1 init; допускается не более %2.")
-                .arg(group->states.size()).arg(staticParameters));
+                .arg(group->states.size()).arg(staticParameters()));
     } else if (const auto *rotation = dynamic_cast<const RotationObject *>(&object)) {
         const qint64 width = rotation->maskImage.isNull() ? qMax(1, qRound(rotation->right - rotation->left)) : rotation->maskImage.width();
         const qint64 height = rotation->maskImage.isNull() ? qMax(1, qRound(rotation->bottom - rotation->top)) : rotation->maskImage.height();

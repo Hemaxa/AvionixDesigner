@@ -6,6 +6,10 @@
         <file>themes/AvionixDesignerTheme.qss</file>
     </qresource>
     <qresource prefix="/icons">
+        <file>icons/layers/add.svg</file>
+        <file>icons/layers/delete.svg</file>
+        <file>icons/layers/duplicate.svg</file>
+        <file>icons/layers/merge.svg</file>
         <file>icons/library/rectangle.svg</file>
         <file>icons/library/dashedline.svg</file>
         <file>icons/library/ribonscale.svg</file>

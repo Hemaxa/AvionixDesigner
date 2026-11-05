@@ -35,7 +35,6 @@ public:
 
 private:
     void rebuildMask();
-    QImage glyphMaskToImage(const FpgaGlyph &glyph, const QColor &color) const;
 
     FpgaFont m_fontAtlas;
     bool m_hasFontAtlas = false;

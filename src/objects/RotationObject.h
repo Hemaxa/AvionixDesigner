@@ -59,11 +59,11 @@ public:
     void setRotation(double angle) override;
 
     bool setObjectProperty(const QString &name, const QString &value) override;
-    void parseExtraData(const QDomElement &element) override;
     QMap<QString, quint32> serializeParams() const override;
     QList<QMap<QString, quint32>> serializeLayerParams() const;
     void setHardwareLayersFromInitHex(const QStringList &initHexList, const ParamSchema &schema);
     QVector<RotationObjectLayer> hardwareLayers() const;
+    void restoreHardwareLayers(const QVector<RotationObjectLayer> &layers) { m_layers = layers; }
 
     // метод, который возвращает угол вращения в градусах, вычисленный из sinVal/cosVal
     double getAngleDegrees() const;
@@ -72,7 +72,6 @@ private:
     RotationObjectLayer currentLayer() const;
     void applyLayerToPublicFields(const RotationObjectLayer &layer);
     void syncFirstLayerFromPublicFields();
-    void setMaskFromDataText(const QString &text, int width, int height);
 
     QVector<RotationObjectLayer> m_layers;
 };

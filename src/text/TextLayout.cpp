@@ -3,6 +3,10 @@
 #include "text/TextLayout.h"
 
 #include <limits>
+#include <QRect>
+#include <QRegularExpression>
+#include <QVector>
+#include <QtMath>
 
 bool layoutText(const QString &text, const FpgaFont &font, TextLayout *layout, QString *errorMessage)
 {
@@ -73,5 +77,60 @@ bool layoutText(const QString &text, const FpgaFont &font, TextLayout *layout, Q
         glyph.position -= QPoint(static_cast<int>(minX), top);
     layout->glyphs = positioned;
     layout->size = QSize(qMax(1, static_cast<int>(maxX - minX)), qMax(1, bottom - top));
+    return true;
+}
+
+bool composeTextMask(const QString &text, const FpgaFont &font, TextMask *mask,
+                     QString *errorMessage, qint64 maxPixels)
+{
+    *mask = {};
+    TextLayout layout;
+    if (!layoutText(text, font, &layout, errorMessage))
+        return false;
+    mask->layoutSize = layout.size;
+    QRect bounds;
+    // Сначала находим полезные пиксели, не выделяя память под прозрачные поля.
+    for (const auto &positioned : layout.glyphs) {
+        const auto &glyph = font.glyphs[positioned.character];
+        if (!glyph.enabled) continue;
+        QString pixels = glyph.maskRows;
+        pixels.remove('\n'); pixels.remove('\r');
+        if (pixels.size() != qint64(glyph.width) * glyph.height || pixels.contains(QRegularExpression("[^0-7]"))) {
+            if (errorMessage) *errorMessage = QStringLiteral("Повреждена маска символа U+%1.").arg(QString::number(glyph.code, 16));
+            return false;
+        }
+        for (int y = 0; y < glyph.height; ++y)
+            for (int x = 0; x < glyph.width; ++x)
+                if (pixels[y * glyph.width + x] != QLatin1Char('0'))
+                    bounds = bounds.united(QRect(positioned.position + QPoint(x, y), QSize(1, 1)));
+    }
+    if (bounds.isEmpty()) return true;
+    const qint64 area = qint64(bounds.width()) * bounds.height();
+    if (area > maxPixels || area > std::numeric_limits<int>::max()) {
+        if (errorMessage) *errorMessage = QStringLiteral("Маске текста требуется %1 пикселей; доступно %2. Уменьшите размер текста.").arg(area).arg(maxPixels);
+        return false;
+    }
+    QVector<double> alpha(area, 0.0);
+    for (const auto &positioned : layout.glyphs) {
+        const auto &glyph = font.glyphs[positioned.character];
+        if (!glyph.enabled) continue;
+        QString pixels = glyph.maskRows;
+        pixels.remove('\n'); pixels.remove('\r');
+        for (int y = 0; y < glyph.height; ++y) {
+            for (int x = 0; x < glyph.width; ++x) {
+                const int level = pixels[y * glyph.width + x].digitValue();
+                if (!level) continue;
+                const QPoint p = positioned.position + QPoint(x, y) - bounds.topLeft();
+                double &a = alpha[p.y() * bounds.width() + p.x()];
+                const double source = (level + 1) / 8.0;
+                a = source + a * (1.0 - source);
+            }
+        }
+    }
+    mask->offset = bounds.topLeft();
+    mask->size = bounds.size();
+    mask->data.reserve(area);
+    for (double a : alpha)
+        mask->data.append(QChar('0' + (a == 0.0 ? 0 : qBound(1, qRound(a * 8.0) - 1, 7))));
     return true;
 }

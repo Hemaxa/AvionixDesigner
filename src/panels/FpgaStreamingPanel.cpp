@@ -312,16 +312,6 @@ void FpgaStreamingPanel::stopStreaming()
     setRunning(false);
 }
 
-void FpgaStreamingPanel::toggleBinMode()
-{
-    m_binButton->setChecked(!m_binButton->isChecked());
-}
-
-void FpgaStreamingPanel::toggleSimulatorMode()
-{
-    m_simulatorButton->setChecked(!m_simulatorButton->isChecked());
-}
-
 void FpgaStreamingPanel::toggleUartMode()
 {
     m_uartButton->setChecked(!m_uartButton->isChecked());

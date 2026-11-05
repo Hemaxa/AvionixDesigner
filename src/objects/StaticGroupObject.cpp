@@ -1,6 +1,7 @@
 // StaticGroupObject - класс группы статических растровых объектов с несколькими состояниями.
 
 #include "StaticGroupObject.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 #include "BitParser.h"
 #include "ProportionalResize.h"
 #include <QtMath>
@@ -172,7 +173,7 @@ QList<QPair<QString, QString>> StaticGroupObject::getProperties() const
     qint64 memoryEnd = 0;
     for (const auto &state : states)
         memoryEnd = qMax(memoryEnd, qint64(state.addr) + qint64(state.w) * state.h);
-    props.append({QStringLiteral("Память"), QStringLiteral("%1/65536 ячеек, %2/8 init").arg(memoryEnd).arg(states.size())});
+    props.append({QStringLiteral("Память"), QStringLiteral("%1/%3 ячеек, %2/%4 init").arg(memoryEnd).arg(states.size()).arg(FpgaResourceLimits::staticPixels()).arg(FpgaResourceLimits::staticParameters())});
 
     // показываем свойства каждого состояния
     for (int i = 0; i < states.size(); ++i) {

@@ -23,6 +23,7 @@
 #include <algorithm>
 
 namespace {
+// ObjectListRoles - служебные роли строк для различения объектов и редакторских групп.
 enum ObjectListRoles { KindRole = Qt::UserRole, ObjectIndexRole, GroupIdRole };
 
 // RowKind - различение строк объектов и редакторских групп в списке.
@@ -131,6 +132,8 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
   m_listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   layout->addWidget(m_listWidget);
 
+  connect(ProjectManager::instance(), &ProjectManager::editorLayerViewChanged, this, &ObjectListPanel::refreshList);
+
   // подключаем сигналы
   connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this,
           &ObjectListPanel::refreshList);
@@ -183,6 +186,7 @@ void ObjectListPanel::refreshList() {
     if (obj->isSelectionLocked())
       item->setFlags(item->flags() & ~Qt::ItemIsSelectable & ~Qt::ItemIsDragEnabled);
     m_listWidget->addItem(item);
+    item->setHidden(!pm->isObjectOnVisibleLayer(obj.data()));
 
     auto *rowWidget = new QWidget(m_listWidget);
     rowWidget->setObjectName("ObjectListRowWidget");
@@ -266,6 +270,7 @@ void ObjectListPanel::refreshList() {
     if (allLocked)
       item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
     m_listWidget->addItem(item);
+    item->setHidden(std::none_of(members.cbegin(), members.cend(), [pm](int index) { return pm->isObjectOnVisibleLayer(pm->getObjectAt(index).data()); }));
 
     auto *rowWidget = new QWidget(m_listWidget);
     rowWidget->setObjectName("ObjectListGroupRowWidget");
@@ -357,7 +362,7 @@ void ObjectListPanel::refreshList() {
     if (item->data(KindRole).toInt() != static_cast<int>(RowKind::Object))
       continue;
     const int objectIndex = item->data(ObjectIndexRole).toInt();
-    if (!selectedSet.contains(objectIndex) || !(item->flags() & Qt::ItemIsSelectable))
+    if (item->isHidden() || !selectedSet.contains(objectIndex) || !(item->flags() & Qt::ItemIsSelectable))
       continue;
     item->setSelected(true);
     if (currentRow < 0)
@@ -382,7 +387,7 @@ void ObjectListPanel::selectRows(const QList<int> &indexes) {
         item->data(KindRole).toInt() != static_cast<int>(RowKind::Object))
       continue;
     const int objectIndex = item->data(ObjectIndexRole).toInt();
-    if (!selectedSet.contains(objectIndex) || !(item->flags() & Qt::ItemIsSelectable))
+    if (item->isHidden() || !selectedSet.contains(objectIndex) || !(item->flags() & Qt::ItemIsSelectable))
       continue;
     item->setSelected(true);
     if (currentRow < 0)
@@ -508,7 +513,7 @@ QList<int> ObjectListPanel::selectedObjectIndexes() const {
     if (item->data(KindRole).toInt() == static_cast<int>(RowKind::Object)) {
       const int index = item->data(ObjectIndexRole).toInt();
       const auto object = project->getObjectAt(index);
-      if (object && !object->isSelectionLocked() && !seen.contains(index)) {
+      if (object && project->isObjectVisibleInEditor(object.data()) && !object->isSelectionLocked() && !seen.contains(index)) {
         seen.insert(index);
         indexes.append(index);
       }
@@ -519,7 +524,7 @@ QList<int> ObjectListPanel::selectedObjectIndexes() const {
         project->groupMembers(item->data(GroupIdRole).toInt());
     for (int index : members) {
       const auto object = project->getObjectAt(index);
-      if (object && !object->isSelectionLocked() && !seen.contains(index)) {
+      if (object && project->isObjectVisibleInEditor(object.data()) && !object->isSelectionLocked() && !seen.contains(index)) {
         seen.insert(index);
         indexes.append(index);
       }

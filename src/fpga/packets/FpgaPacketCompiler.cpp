@@ -99,8 +99,8 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaHardwareScene &document, 
     if (document.memories.size() > 256)
         return fail(QStringLiteral("Идентификатор банка памяти не помещается в 8 бит."));
     for (const auto &memory : document.memories) {
-        if (memory.kind == FpgaMemoryKind::StaticMask && memory.data.size() > 65536)
-            return fail(QStringLiteral("Статическая память превышает 65536 адресуемых ячеек."));
+        if (memory.kind == FpgaMemoryKind::StaticMask && memory.data.size() > FpgaResourceLimits::staticPixels())
+            return fail(QStringLiteral("Статическая память превышает %1 адресуемых ячеек.").arg(FpgaResourceLimits::staticPixels()));
         for (const auto level : memory.data)
             if (level < QLatin1Char('0') || level > QLatin1Char('7'))
                 return fail(QStringLiteral("Растр должен содержать только уровни маски 0…7."));
@@ -145,6 +145,8 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaHardwareScene &document, 
             return fail(QStringLiteral("Перед упаковкой текст должен быть преобразован в статические объекты."));
         if (object.type == QStringLiteral("layer3d"))
             continue;
+        if (object.type == "staticgroup" && object.iparams.size() > FpgaResourceLimits::staticParameters())
+            return fail(QStringLiteral("Статическая группа содержит более %1 init.").arg(FpgaResourceLimits::staticParameters()));
         if (object.startParamIndex < 0 || object.startParamIndex + object.iparams.size() > 65536)
             return fail(QStringLiteral("Индекс параметра не помещается в 16 бит."));
 

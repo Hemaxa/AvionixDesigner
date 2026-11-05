@@ -71,6 +71,37 @@ def word(fields, values):
     return f'{result:038X}'
 
 
+def editor_settings(root):
+    """Метаданные сцены ссылаются на неизменённые эталонные init/data."""
+    editor = ET.SubElement(root, 'editor')
+    workspace = ET.SubElement(editor, 'workspace', {
+        'canvas-width': root.get('width'), 'canvas-height': root.get('height'),
+        'background': '#ff000000', 'show-grid': 'false', 'grid-step': '10',
+        'grid-color': '#3778b4c8', 'snap-to-canvas': 'true', 'snap-to-grid': 'false',
+        'snap-to-objects': 'false', 'canvas-guide-color': '#d2ff5c7a',
+        'grid-guide-color': '#d256d3ff', 'object-guide-color': '#dcffca58'})
+    ET.SubElement(workspace, 'project-name').text = root.get('name')
+    ET.SubElement(workspace, 'view', {'scale': '1', 'offset-x': '0', 'offset-y': '0',
+                                    'proportional-resize': 'false', 'rotation-snapping': 'false'})
+    layers = ET.SubElement(editor, 'layers', {'active-id': '1', 'show-all': 'false', 'next-id': '2'})
+    layer = ET.SubElement(layers, 'layer', {'id': '1', 'selection-color': '#ff00c8f0'})
+    ET.SubElement(layer, 'name').text = 'Layer 1'
+    scene = ET.SubElement(editor, 'scene', order='front-to-back')
+    ET.SubElement(editor, 'groups', {'next-id': '1'})
+    ET.SubElement(editor, 'resources')
+    hardware_objects = [obj for obj in root.find('objects') if obj.tag != 'font']
+    for index, (hardware_index, hardware) in enumerate(reversed(list(enumerate(hardware_objects))), 1):
+        tag = hardware.tag
+        obj = ET.SubElement(scene, 'object', {'id': f'object-{index}', 'type': 'rectangle' if tag == 'rectangle_a' else tag,
+                                            'export-tag': tag, 'layer-id': '1', 'hardware-index': str(hardware_index)})
+        ET.SubElement(obj, 'name')
+        flags = ET.SubElement(obj, 'flags', {'visible': 'true', 'selection-locked': 'false',
+                              'export-enabled': 'true', 'resize-locked': 'false', 'imported-hardware': 'false'})
+        ET.SubElement(flags, 'restriction-hint')
+        if tag == 'layer3d':
+            obj.set('left-anchored', 'false')
+
+
 def fixture(path, ref, rotation=(32768, 56756)):
     root = ET.Element('project', name='UART reference', width='1024', height='768', bgcolor='#0')
     parameters, objects = ET.SubElement(root, 'parameters'), ET.SubElement(root, 'objects')
@@ -103,6 +134,7 @@ def fixture(path, ref, rotation=(32768, 56756)):
             obj.set('nomber','2')
             ET.SubElement(obj,'init',index='2').text = word(fields[name],{**values,'enb':0,'x':450,'addr':1024})
             ET.SubElement(obj,'data').text = ', '.join(str((i*5+i//32)%8) for i in range(2048))
+    editor_settings(root)
     ET.indent(root)
     ET.ElementTree(root).write(path,encoding='utf-8',xml_declaration=True)
     return pose

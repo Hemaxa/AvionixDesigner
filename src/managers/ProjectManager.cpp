@@ -14,6 +14,8 @@
 #include <QtMath>
 
 #include "ProjectManager.h"
+#include "EditorProjectXml.h"
+#include <QSaveFile>
 #include "EditorProjectDocument.h"
 #include "FpgaSchemaRegistry.h"
 #include "ObjectsManager.h"
@@ -232,7 +234,7 @@ bool readXmlDocument(const QString &fileName, QDomDocument *doc, QString *errorM
     }
 
     text = normalizeXmlDeclarationEncoding(text);
-    const QDomDocument::ParseResult result = doc->setContent(text);
+    const QDomDocument::ParseResult result = doc->setContent(text, QDomDocument::ParseOption::PreserveSpacingOnlyNodes);
     if (!result) {
         if (errorMessage) {
             *errorMessage = QStringLiteral("Ошибка XML: %1 (строка %2, столбец %3)")
@@ -390,7 +392,7 @@ int maxUnsignedFieldValue(const ParamSchema &schema, const QString &fieldName, i
 int staticGroupAddressablePixels(const ParamSchema &schema)
 {
     const int maxAddr = maxUnsignedFieldValue(schema, QStringLiteral("addr"), kFallbackStaticGroupAddressablePixels - 1);
-    return qMax(1, maxAddr + 1);
+    return qMin(FpgaResourceLimits::staticPixels(), qMax(1, maxAddr + 1));
 }
 
 QSizeF fitSizeToStaticGroupLimits(const QSizeF &size, const ParamSchema &schema)
@@ -555,8 +557,10 @@ void copyBaseFlags(const BaseObject *source, BaseObject *target)
     target->setSelectionLocked(source->isSelectionLocked());
     target->setExportEnabled(source->isExportEnabled());
     target->setImportedHardwareObject(source->isImportedHardwareObject());
-    target->setResizeLocked(!source->canResize());
+    target->setResizeLocked(source->isResizeLocked());
+    target->setEditRestrictionHint(source->editRestrictionHint());
     target->setCustomName(source->customName());
+    target->setEditorLayerId(source->editorLayerId());
 }
 
 QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
@@ -657,13 +661,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->cosVal = rotation->cosVal;
         clone->color = rotation->color;
         clone->maskImage = rotation->maskImage;
-        if (!rotation->hardwareLayers().isEmpty()) {
-            ParamSchema schema = FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("rotationobject"));
-            QStringList initHexList;
-            for (const auto &params : rotation->serializeLayerParams())
-                initHexList.append(buildInitHex(schema, params));
-            clone->setHardwareLayersFromInitHex(initHexList, schema);
-        }
+        clone->restoreHardwareLayers(rotation->hardwareLayers());
         rawClone = clone;
     } else if (auto image = dynamic_cast<ImageObject*>(source.data())) {
         auto *clone = new ImageObject(image->isRotationObject() ? ImageObject::Kind::Rotating : ImageObject::Kind::Static);
@@ -676,7 +674,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->rotationDegrees = image->rotationDegrees;
         clone->sourceName = image->sourceName;
         clone->format = image->format;
-        clone->setSourcePayload(image->sourcePayload());
+        clone->copyRasterSource(*image);
         clone->setColorLayers(image->colorLayers());
         rawClone = clone;
     }
@@ -1007,31 +1005,6 @@ FpgaGlyph transparentSpaceGlyph(int fontSize)
     return glyph;
 }
 
-QStringList parseCharacterCodes(const QString &dataText)
-{
-    QStringList codes;
-    for (const QString &part : dataText.split(',', Qt::SkipEmptyParts))
-        codes.append(part.trimmed());
-    return codes;
-}
-
-QString textFromCharacterCodes(const QStringList &codes, int offset, int count)
-{
-    QString value;
-    if (offset < 0 || count <= 0 || offset >= codes.size())
-        return value;
-
-    const int end = qMin(codes.size(), offset + count);
-    value.reserve(end - offset);
-    for (int i = offset; i < end; ++i) {
-        bool ok = false;
-        const uint code = codes[i].toUInt(&ok);
-        if (ok)
-            value.append(QChar(static_cast<ushort>(code)));
-    }
-    return value;
-}
-
 QString objectTagForSerialization(int objIdx,
                                   const QList<QSharedPointer<BaseObject>> &objects,
                                   const QStringList &objectTags)
@@ -1179,8 +1152,8 @@ QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
     rotation.bottom = rotation.top + qMax(1, component.bounds.height());
     rotation.color = component.color;
     rotation.maskImage = component.mask;
-    rotation.sinVal = qRound(qSin(qDegreesToRadians(image->rotationDegrees)) * 65536.0);
-    rotation.cosVal = qRound(qCos(qDegreesToRadians(image->rotationDegrees)) * 65536.0);
+    rotation.sinVal = image->rotationCoefficients().x();
+    rotation.cosVal = image->rotationCoefficients().y();
 
     return createObjectElement(doc, QStringLiteral("rotationobject"), schema, QSharedPointer<BaseObject>(&rotation, [](BaseObject*){}));
 }
@@ -1316,12 +1289,15 @@ QDomElement createFontResourceElement(QDomDocument &doc,
                 continue;
 
             font.kerningPairs.insert(pair, delta);
-            QDomElement kerningEl = doc.createElement("kerning");
-            kerningEl.setAttribute("left", QString(left));
-            kerningEl.setAttribute("right", QString(right));
-            kerningEl.setAttribute("delta", delta);
-            fontEl.appendChild(kerningEl);
         }
+    }
+    // Один порядок пар для системного шрифта и восстановленного XML-атласа.
+    for (auto it = font.kerningPairs.cbegin(); it != font.kerningPairs.cend(); ++it) {
+        auto kerningEl = doc.createElement("kerning");
+        kerningEl.setAttribute("left", QString(it.key()[0]));
+        kerningEl.setAttribute("right", QString(it.key()[1]));
+        kerningEl.setAttribute("delta", it.value());
+        fontEl.appendChild(kerningEl);
     }
 
     QDomElement dataEl = doc.createElement("data");
@@ -1577,6 +1553,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
 
 ProjectManager::ProjectManager() : m_document(new EditorProjectDocument())
 {
+    resetEditorLayers();
     connect(this, &ProjectManager::projectLoaded, this, [this]() { ++m_sceneRevision; });
     connect(this, &ProjectManager::projectChanged, this, [this]() {
         if (!m_aircraftStateChange) ++m_sceneRevision;
@@ -1590,17 +1567,12 @@ ProjectManager* ProjectManager::instance()
     return &s_instance;
 }
 
-bool ProjectManager::loadFromFile(const QString &fileName)
-{
-    return loadXmlProject(fileName);
-}
-
 QString ProjectManager::lastErrorMessage() const
 {
     return m_lastErrorMessage;
 }
 
-bool ProjectManager::loadXmlProject(const QString &fileName)
+bool ProjectManager::loadFromFile(const QString &fileName)
 {
     emit logMessage(tr("Загрузка: %1").arg(fileName));
 
@@ -1612,128 +1584,45 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
         return false;
     }
 
-    auto *registry = FpgaSchemaRegistry::instance();
     const auto sourceDocument = FpgaCompiledDocument::fromDomDocument(doc, &m_lastErrorMessage);
     if (!sourceDocument.isValid()) {
         emit logMessage(tr("ОШИБКА: %1").arg(m_lastErrorMessage));
         return false;
     }
-    m_lastErrorMessage.clear();
-    m_filePath = fileName;
-    m_objects.clear();
-    m_objectTags.clear();
-    m_groups.clear();
-    m_nextGroupId = 1;
-    m_fonts.clear();
-    clearHistory();
-
-    // получаем корневой элемент
-    QDomElement root = doc.documentElement();
-    // читаем метаданные проекта
-    m_document->setProjectName(root.attribute("name", "Untitled"));
-    m_document->setCanvasSize(root.attribute("width", "640").toInt(), root.attribute("height", "480").toInt());
-    m_document->setBackgroundColor(Qt::black);
-    reloadGlobalSettings();
-
-    // парсим цвет фона
-    QString bgStr = root.attribute("bgcolor", "#0");
-    if (bgStr.startsWith("#")) {
-        bool ok;
-        uint colorVal = bgStr.mid(1).toUInt(&ok, 16);
-        if (ok) {
-            m_document->setBackgroundColor(QColor(colorVal & 0xFF, (colorVal >> 8) & 0xFF, (colorVal >> 16) & 0xFF));
-        }
+    const auto editor = doc.documentElement().firstChildElement("editor");
+    if (editor.isNull()) {
+        m_lastErrorMessage = tr("В XML отсутствует обязательный раздел <editor> с настройками проекта.");
+        return false;
     }
-
-    emit logMessage(tr("Проект: %1 (%2x%3)").arg(m_document->projectName()).arg(m_document->canvasWidth()).arg(m_document->canvasHeight()));
-
-    // парсим схемы параметров и сохраняем для использования при сохранении
-    QDomElement paramsEl = root.firstChildElement("parameters");
-    m_schemas = ObjectsManager::instance()->parseSchemas(paramsEl);
-    QDomElement objectsEl = root.firstChildElement("objects");
+    EditorProjectXml::State state;
+    if (!EditorProjectXml::read(editor, &state, &m_lastErrorMessage)) {
+        emit logMessage(tr("ОШИБКА данных редактора: %1").arg(m_lastErrorMessage));
+        return false;
+    }
+    if (state.document.canvasWidth() != sourceDocument.width || state.document.canvasHeight() != sourceDocument.height
+        || state.document.projectName() != sourceDocument.projectName || state.document.backgroundColor().rgb() != sourceDocument.backgroundColor.rgb()) {
+        m_lastErrorMessage = tr("Настройки <editor>/<workspace> не совпадают с заголовком проекта.");
+        return false;
+    }
+    *m_document = state.document;
+    m_objects = state.objects; m_objectTags = state.objectTags;
+    m_groups = state.groups; m_nextGroupId = state.nextGroupId;
+    m_editorLayers = state.layers; m_nextLayerId = state.nextLayerId;
+    m_activeLayerId = state.activeLayerId; m_showAllLayers = state.showAllLayers;
+    m_showGrid = state.showGrid; m_snapToCanvas = state.snapToCanvas; m_snapToGrid = state.snapToGrid; m_snapToObjects = state.snapToObjects;
+    m_gridStep = state.gridStep; m_gridColor = state.gridColor;
+    m_snapCanvasGuideColor = state.canvasGuideColor; m_snapGridGuideColor = state.gridGuideColor; m_snapObjectGuideColor = state.objectGuideColor;
+    m_editorViewState = state.view;
     m_fonts = sourceDocument.fonts;
-    for (const QString &type : m_schemas.keys()) {
-        emit logMessage(tr("Схема: %1 (%2 полей)").arg(type).arg(m_schemas[type].size()));
-    }
-
-    // парсим объекты
-    QDomNode objNode = objectsEl.firstChild();
-
-    while (!objNode.isNull()) {
-        QDomElement objEl = objNode.toElement();
-        QString tagName = objEl.tagName();
-
-        const QString schemaName = tagName;
-        if (tagName == QStringLiteral("text")) {
-            const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
-            const QStringList characterCodes = parseCharacterCodes(objEl.firstChildElement("data").text());
-            QDomElement initEl = objEl.firstChildElement("init");
-            while (!initEl.isNull()) {
-                const QString hex = initEl.text().trimmed();
-                const int fontIndex = BitParser::extract(hex, textSchema["font_index"].offset, textSchema["font_index"].size);
-                const int charOffset = BitParser::extract(hex, textSchema["char_offset"].offset, textSchema["char_offset"].size);
-                const int charCount = BitParser::extract(hex, textSchema["char_count"].offset, textSchema["char_count"].size);
-                auto *textObject = new TextObject();
-                const QString dataText = textFromCharacterCodes(characterCodes, charOffset, charCount);
-                textObject->text = dataText;
-                textObject->fontIndex = fontIndex;
-                if (!textObject->states.isEmpty()) {
-                    GroupState &state = textObject->states[0];
-                    state.x = BitParser::extract(hex, textSchema["x"].offset, textSchema["x"].size);
-                    state.y = BitParser::extract(hex, textSchema["y"].offset, textSchema["y"].size);
-                    state.color = BitParser::parseColor(BitParser::extract(hex, textSchema["color"].offset, textSchema["color"].size));
-                    state.enabled = BitParser::extract(hex, textSchema["enb"].offset, textSchema["enb"].size) != 0;
-                }
-                if (m_fonts.contains(fontIndex)) {
-                    textObject->setFontAtlas(m_fonts.value(fontIndex), true);
-                }
-                textObject->setResizeLocked(true);
-                textObject->setImportedHardwareObject(true);
-                m_objects.append(QSharedPointer<BaseObject>(textObject));
-                m_objectTags.append(QStringLiteral("text"));
-                initEl = initEl.nextSiblingElement("init");
-            }
-        }
-        else if (tagName == QStringLiteral("font")) {
-            // Ресурсы шрифтов разбираются до создания объектов и не входят в список объектов сцены.
-        }
-        else if (m_schemas.contains(schemaName)) {
-            QStringList initHexList;
-            QDomElement initReaderEl = objEl.firstChildElement("init");
-            while (!initReaderEl.isNull()) {
-                const QString hex = initReaderEl.text().trimmed();
-                if (!hex.isEmpty())
-                    initHexList.append(hex);
-                initReaderEl = initReaderEl.nextSiblingElement("init");
-            }
-            QString hexInit = initHexList.isEmpty() ? QString() : initHexList.first();
-
-            // создаем объект через фабрику
-            BaseObject *obj = ObjectsManager::instance()->createObject(tagName);
-
-            if (obj && !hexInit.isEmpty()) {
-                obj->parse(hexInit, m_schemas[schemaName]);
-                if (auto rotation = dynamic_cast<RotationObject*>(obj))
-                    rotation->setHardwareLayersFromInitHex(initHexList, m_schemas[schemaName]);
-                obj->parseExtraData(objEl);
-
-                m_objects.append(QSharedPointer<BaseObject>(obj));
-                m_objectTags.append(tagName);
-
-            }
-        }
-
-        objNode = objNode.nextSibling();
-    }
-
-    std::reverse(m_objects.begin(), m_objects.end());
-    std::reverse(m_objectTags.begin(), m_objectTags.end());
-
-    emit logMessage(tr("Загружено объектов: %1").arg(m_objects.size()));
-    applyRestrictedMode();
-
+    m_schemas = sourceDocument.schemas;
+    m_filePath = fileName;
+    clearHistory();
+    m_lastErrorMessage.clear();
     emit projectLoaded();
-
+    emit editorViewStateChanged();
+    emit editorLayersChanged();
+    emit editorLayerViewChanged();
+    emit logMessage(tr("Проект восстановлен: %1 объектов, %2 слоёв, %3 групп.").arg(m_objects.size()).arg(m_editorLayers.size()).arg(m_groups.size()));
     return true;
 }
 
@@ -1749,11 +1638,14 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_snapToCanvas = true;
     m_snapToGrid = false;
     m_snapToObjects = false;
+    m_editorViewState = {};
+    readGlobalWorkspaceSettings();
 
     m_objects.clear();
     m_objectTags.clear();
     m_groups.clear();
     m_nextGroupId = 1;
+    resetEditorLayers();
     clearHistory();
     m_fonts.clear();
 
@@ -1765,13 +1657,15 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 
     emit logMessage(tr("Создан новый проект: %1 (%2x%3)").arg(m_document->projectName()).arg(m_document->canvasWidth()).arg(m_document->canvasHeight()));
     emit projectLoaded();
+    emit editorViewStateChanged();
     emit projectChanged();
     return true;
 }
 
 ProjectManager::ProjectSnapshot ProjectManager::captureSnapshot() const
 {
-    return {cloneObjectList(m_objects), m_objectTags, m_groups, m_nextGroupId};
+    return {cloneObjectList(m_objects), m_objectTags, m_groups, m_nextGroupId,
+            m_editorLayers, m_nextLayerId, m_activeLayerId, m_showAllLayers};
 }
 
 void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
@@ -1780,6 +1674,13 @@ void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
     m_objectTags = snapshot.objectTags;
     m_groups = snapshot.groups;
     m_nextGroupId = snapshot.nextGroupId;
+    m_editorLayers = snapshot.layers;
+    m_nextLayerId = snapshot.nextLayerId;
+    m_activeLayerId = snapshot.activeLayerId;
+    m_showAllLayers = snapshot.showAllLayers;
+    emit editorLayerObjectsChanged();
+    emit editorLayersChanged();
+    emit editorLayerViewChanged();
 }
 
 void ProjectManager::recordHistory()
@@ -1802,6 +1703,7 @@ void ProjectManager::clearHistory()
 
 void ProjectManager::insertObjectAtFront(BaseObject *object, const QString &tagName)
 {
+    object->setEditorLayerId(m_activeLayerId);
     m_objects.prepend(QSharedPointer<BaseObject>(object));
     m_objectTags.prepend(tagName);
     for (ObjectGroup &group : m_groups) {
@@ -2028,11 +1930,6 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
     return index;
 }
 
-bool ProjectManager::removeObject(int index)
-{
-    return removeObjects(QList<int>{index});
-}
-
 bool ProjectManager::removeObjects(const QList<int> &indexes)
 {
     QList<int> normalized;
@@ -2189,12 +2086,15 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
         return fail(tr("Выберите минимум два статических изображения или статические группы."));
 
     auto merged = QSharedPointer<StaticGroupObject>::create();
+    merged->setEditorLayerId(m_objects[selected.first()]->editorLayerId());
     const bool exportEnabled = m_objects[selected.first()]->isExportEnabled();
     int nextAddress = 0;
     bool resizeLocked = false;
     // Внутри группы последний init расположен на переднем плане, как при экспорте.
     for (auto it = selected.crbegin(); it != selected.crend(); ++it) {
         const auto source = m_objects[*it];
+        if (source->editorLayerId() != merged->editorLayerId())
+            return fail(tr("Для объединения в staticgroup переместите объекты на один слой."));
         if (source->isSelectionLocked())
             return fail(tr("Заблокированные объекты нельзя объединять."));
         if (source->isExportEnabled() != exportEnabled)
@@ -2226,16 +2126,16 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
         }
         if (states.isEmpty() || masks.size() != states.size())
             return fail(tr("В статическом объекте отсутствуют растровые маски."));
-        if (merged->states.size() + states.size() > FpgaResourceLimits::staticParameters)
-            return fail(tr("Объединённой группе требуется %1 init; максимум — 8. Учитываются все цветовые слои изображений.")
-                .arg(merged->states.size() + states.size()));
+        if (merged->states.size() + states.size() > FpgaResourceLimits::staticParameters())
+            return fail(tr("Объединённой группе требуется %1 init; максимум — %2. Учитываются все цветовые слои изображений.")
+                .arg(merged->states.size() + states.size()).arg(FpgaResourceLimits::staticParameters()));
         for (int i = 0; i < states.size(); ++i) {
             auto state = states[i];
             const qint64 area = qint64(state.w) * state.h;
             if (state.w <= 0 || state.h <= 0 || state.w > 4095 || state.h > 4095 || masks[i].isNull())
                 return fail(tr("Некорректные габариты или маска статического объекта."));
-            if (qint64(nextAddress) + area > FpgaResourceLimits::staticPixels)
-                return fail(tr("Растрам объединённой группы требуется более 65536 ячеек. Уменьшите изображения или объедините меньше объектов."));
+            if (qint64(nextAddress) + area > FpgaResourceLimits::staticPixels())
+                return fail(tr("Растрам объединённой группы требуется более %1 ячеек. Уменьшите изображения или объедините меньше объектов.").arg(FpgaResourceLimits::staticPixels()));
             state.addr = nextAddress;
             nextAddress += int(area);
             merged->states.append(state);
@@ -2281,8 +2181,8 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
     }
     m_groups.erase(std::remove_if(m_groups.begin(),m_groups.end(),[](const ObjectGroup &group){ return group.members.size()<2; }),m_groups.end());
     emit projectChanged();
-    emit logMessage(tr("Объединено статических объектов: %1; init: %2/8, память: %3/65536.")
-        .arg(selected.size()).arg(merged->states.size()).arg(nextAddress));
+    emit logMessage(tr("Объединено статических объектов: %1; init: %2/%4, память: %3/%5.")
+        .arg(selected.size()).arg(merged->states.size()).arg(nextAddress).arg(FpgaResourceLimits::staticParameters()).arg(FpgaResourceLimits::staticPixels()));
     return mergedIndex;
 }
 
@@ -2363,14 +2263,15 @@ bool ProjectManager::addObjectToGroup(int groupId, int index, bool recordChange)
     if (index < 0 || index >= m_objects.size())
         return false;
 
-    for (ObjectGroup &group : m_groups) {
-        if (group.id != groupId)
+    for (int i = 0; i < m_groups.size(); ++i) {
+        if (m_groups.at(i).id != groupId)
             continue;
-        if (group.members.contains(index))
+        if (m_groups.at(i).members.contains(index))
             return true;
 
         if (recordChange)
             recordHistory();
+        ObjectGroup &group = m_groups[i];
         group.members.append(index);
         std::sort(group.members.begin(), group.members.end());
         emit projectChanged();
@@ -2413,13 +2314,13 @@ bool ProjectManager::renameGroup(int groupId, const QString &name)
     if (trimmed.isEmpty())
         return false;
 
-    for (ObjectGroup &group : m_groups) {
-        if (group.id != groupId)
+    for (int i = 0; i < m_groups.size(); ++i) {
+        if (m_groups.at(i).id != groupId)
             continue;
-        if (group.name == trimmed)
+        if (m_groups.at(i).name == trimmed)
             return true;
         recordHistory();
-        group.name = trimmed;
+        m_groups[i].name = trimmed;
         emit projectChanged();
         return true;
     }
@@ -2570,6 +2471,7 @@ QList<int> ProjectManager::pasteObjects()
         const auto clone = cloneObject(m_clipboardObjects[i]);
         if (!clone)
             continue;
+        clone->setEditorLayerId(m_activeLayerId);
         clone->moveBy(24.0, 24.0);
         moveObjectInsideCanvas(clone.data(), m_document->canvasWidth(), m_document->canvasHeight());
         m_objects.prepend(clone);
@@ -2713,47 +2615,269 @@ void ProjectManager::finishObjectEdit(const QString &message)
         emit logMessage(message);
 }
 
-bool ProjectManager::setObjectProperty(BaseObject *object, const QString &propertyName, const QString &value)
+bool ProjectManager::setObjectProperty(BaseObject *object, const QString &name, const QString &value)
 {
-    if (!object)
-        return false;
+    for (const auto &candidate : m_objects)
+        if (candidate.data() == object) return setObjectsProperty({candidate}, name, value);
+    return false;
+}
 
-    bool objectBelongsToProject = false;
-    for (const auto &projectObject : m_objects) {
-        if (projectObject.data() == object) {
-            objectBelongsToProject = true;
-            break;
-        }
+bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QString &name) const
+{
+    for (const auto &candidate : m_objects) {
+        if (candidate.data() != object) continue;
+        const auto probe = cloneObject(candidate);
+        if (!probe) return false;
+        for (const auto &property : candidate->getProperties())
+            if (property.first == name) return probe->setObjectProperty(name, property.second);
     }
-    if (!objectBelongsToProject)
-        return false;
+    return false;
+}
 
-    for (const auto &property : object->getProperties()) {
-        if (property.first == propertyName) {
-            if (property.second == value)
-                return true;
-            break;
+bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects,
+                                       const QString &name, const QString &value)
+{
+    m_lastErrorMessage.clear();
+    QList<QSharedPointer<BaseObject>> changed;
+    for (const auto &object : objects) {
+        if (!object || !m_objects.contains(object)) return false;
+        const auto properties = object->getProperties();
+        const auto it = std::find_if(properties.cbegin(), properties.cend(), [&name](const auto &p) { return p.first == name; });
+        if (it == properties.cend()) return false;
+        if (it->second == value || changed.contains(object)) continue;
+        const auto probe = cloneObject(object);
+        if (!probe || !probe->setObjectProperty(name, value)) {
+            m_lastErrorMessage = probe ? probe->lastValidationMessage() : QString();
+            if (m_lastErrorMessage.isEmpty()) m_lastErrorMessage = tr("Значение параметра «%1» недопустимо для одного из выбранных объектов.").arg(name);
+            return false;
         }
+        const QRectF bounds = probe->getBoundingRect();
+        if (!qIsFinite(bounds.x()) || !qIsFinite(bounds.y()) || !qIsFinite(bounds.width()) || !qIsFinite(bounds.height())
+            || bounds.width() < 0 || bounds.height() < 0) {
+            m_lastErrorMessage = tr("Координаты должны быть конечными числами, а размеры не могут быть отрицательными.");
+            return false;
+        }
+        changed.append(object);
     }
-
-    const ProjectSnapshot before = captureSnapshot();
-    if (!object->setObjectProperty(propertyName, value))
-        return false;
-    moveObjectInsideCanvas(object, m_document->canvasWidth(), m_document->canvasHeight());
-
-    m_undoStack.append(before);
-    m_redoStack.clear();
-    constexpr int maxHistoryDepth = 80;
-    while (m_undoStack.size() > maxHistoryDepth)
-        m_undoStack.removeFirst();
-
+    if (changed.isEmpty()) return !objects.isEmpty();
+    recordHistory();
+    for (const auto &object : changed) {
+        object->setObjectProperty(name, value);
+        moveObjectInsideCanvas(object.data(), m_document->canvasWidth(), m_document->canvasHeight());
+    }
     emit projectChanged();
     return true;
 }
 
-bool ProjectManager::saveToFile(const QString &targetFile)
+void ProjectManager::resetEditorLayers()
 {
-    return exportToFpgaXml(targetFile);
+    m_editorLayers = {{1, tr("Слой 1"), QColor(QStringLiteral("#00c8f0"))}};
+    m_nextLayerId = 2;
+    m_activeLayerId = 1;
+    m_showAllLayers = false;
+}
+
+bool ProjectManager::hasEditorLayer(int id) const
+{
+    return std::any_of(m_editorLayers.cbegin(), m_editorLayers.cend(), [id](const auto &layer) { return layer.id == id; });
+}
+
+QString ProjectManager::editorLayerName(int id) const
+{
+    for (const auto &layer : m_editorLayers) if (layer.id == id) return layer.name;
+    return {};
+}
+
+QColor ProjectManager::editorLayerColor(int id) const
+{
+    for (const auto &layer : m_editorLayers) if (layer.id == id) return layer.selectionColor;
+    return QColor(QStringLiteral("#00c8f0"));
+}
+
+int ProjectManager::layerObjectCount(int id) const
+{
+    return std::count_if(m_objects.cbegin(), m_objects.cend(), [id](const auto &o) { return o->editorLayerId() == id; });
+}
+
+bool ProjectManager::isObjectOnVisibleLayer(const BaseObject *object) const
+{
+    return object && (m_showAllLayers || object->editorLayerId() == m_activeLayerId);
+}
+
+bool ProjectManager::isObjectVisibleInEditor(const BaseObject *object) const
+{
+    return isObjectOnVisibleLayer(object) && object->isViewVisible();
+}
+
+void ProjectManager::setActiveLayer(int id)
+{
+    if (!hasEditorLayer(id) || id == m_activeLayerId) return;
+    m_activeLayerId = id;
+    emit editorLayerViewChanged();
+}
+
+void ProjectManager::setShowAllLayers(bool enabled)
+{
+    if (enabled == m_showAllLayers) return;
+    m_showAllLayers = enabled;
+    emit editorLayerViewChanged();
+}
+
+void ProjectManager::notifyEditorLayersChanged()
+{
+    emit editorLayersChanged();
+    emit editorLayerViewChanged();
+    emit projectChanged();
+}
+
+QString ProjectManager::uniqueLayerName(const QString &base) const
+{
+    QString name = base;
+    int suffix = 2;
+    auto exists = [this](const QString &candidate) {
+        return std::any_of(m_editorLayers.cbegin(), m_editorLayers.cend(), [&candidate](const auto &l) { return l.name.compare(candidate, Qt::CaseInsensitive) == 0; });
+    };
+    while (exists(name)) name = base + QStringLiteral(" (%1)").arg(suffix++);
+    return name;
+}
+
+int ProjectManager::addEditorLayer()
+{
+    recordHistory();
+    const int id = m_nextLayerId++;
+    static const QStringList colors = {"#00c8f0", "#ff5c7a", "#ffca58", "#8bdff2"};
+    m_editorLayers.append({id, uniqueLayerName(tr("Слой %1").arg(id)), QColor(colors[(id - 1) % colors.size()])});
+    m_activeLayerId = id;
+    notifyEditorLayersChanged();
+    return id;
+}
+
+bool ProjectManager::renameEditorLayer(int id, const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty() || !hasEditorLayer(id)) return false;
+    for (const auto &layer : m_editorLayers)
+        if (layer.id != id && layer.name.compare(trimmed, Qt::CaseInsensitive) == 0) return false;
+    for (int i = 0; i < m_editorLayers.size(); ++i) {
+        if (m_editorLayers.at(i).id != id) continue;
+        if (m_editorLayers.at(i).name == trimmed) return true;
+        recordHistory();
+        m_editorLayers[i].name = trimmed;
+        notifyEditorLayersChanged();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectManager::setEditorLayerColor(int id, const QColor &color)
+{
+    if (!color.isValid()) return false;
+    for (int i = 0; i < m_editorLayers.size(); ++i) {
+        if (m_editorLayers.at(i).id != id) continue;
+        if (m_editorLayers.at(i).selectionColor == color) return true;
+        recordHistory();
+        m_editorLayers[i].selectionColor = color;
+        notifyEditorLayersChanged();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectManager::setObjectsLayer(const QList<QSharedPointer<BaseObject>> &objects, int layerId)
+{
+    if (!hasEditorLayer(layerId) || objects.isEmpty()) return false;
+    for (const auto &object : objects) if (!object || !m_objects.contains(object)) return false;
+    if (std::all_of(objects.cbegin(), objects.cend(), [layerId](const auto &o) { return o->editorLayerId() == layerId; })) return true;
+    recordHistory();
+    for (const auto &object : objects) object->setEditorLayerId(layerId);
+    notifyEditorLayersChanged();
+    return true;
+}
+
+int ProjectManager::duplicateEditorLayer(int id)
+{
+    m_lastErrorMessage.clear();
+    if (!hasEditorLayer(id)) return -1;
+    QList<QSharedPointer<BaseObject>> copies;
+    QStringList tags;
+    QMap<int, int> copiedIndexes;
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (m_objects[i]->editorLayerId() != id) continue;
+        if (dynamic_cast<ThreeDViewObject *>(m_objects[i].data())) {
+            m_lastErrorMessage = tr("Нельзя дублировать слой с 3D-видом: в проекте допустим только один 3D-вид.");
+            return -1;
+        }
+        const auto copy = cloneObject(m_objects[i]);
+        if (!copy) return -1;
+        copiedIndexes.insert(i, copies.size());
+        copies.append(copy);
+        tags.append(m_objectTags.value(i));
+    }
+    recordHistory();
+    const int newId = m_nextLayerId++;
+    m_editorLayers.append({newId, uniqueLayerName(editorLayerName(id) + tr(" — копия")), editorLayerColor(id)});
+    auto groups = m_groups;
+    for (auto &group : m_groups) for (int &index : group.members) index += copies.size();
+    for (const auto &group : groups) {
+        ObjectGroup copy{m_nextGroupId, group.name, {}};
+        for (int index : group.members) if (copiedIndexes.contains(index)) copy.members.append(copiedIndexes.value(index));
+        if (copy.members.size() >= 2) { ++m_nextGroupId; m_groups.append(copy); }
+    }
+    for (const auto &copy : copies) copy->setEditorLayerId(newId);
+    m_objects = copies + m_objects;
+    m_objectTags = tags + m_objectTags;
+    m_activeLayerId = newId;
+    emit editorLayerObjectsChanged();
+    notifyEditorLayersChanged();
+    return newId;
+}
+
+bool ProjectManager::mergeEditorLayer(int sourceId, int targetId)
+{
+    return mergeEditorLayers({sourceId, targetId}, targetId);
+}
+
+bool ProjectManager::mergeEditorLayers(const QList<int> &layerIds, int targetId)
+{
+    const QSet<int> selected(layerIds.cbegin(), layerIds.cend());
+    if (selected.size() < 2 || !selected.contains(targetId)) return false;
+    for (int id : selected) if (!hasEditorLayer(id)) return false;
+    recordHistory();
+    for (const auto &object : m_objects)
+        if (selected.contains(object->editorLayerId())) object->setEditorLayerId(targetId);
+    m_editorLayers.erase(std::remove_if(m_editorLayers.begin(), m_editorLayers.end(), [&selected, targetId](const auto &layer) {
+        return layer.id != targetId && selected.contains(layer.id);
+    }), m_editorLayers.end());
+    m_activeLayerId = targetId;
+    notifyEditorLayersChanged();
+    return true;
+}
+
+bool ProjectManager::removeEditorLayer(int id)
+{
+    if (m_editorLayers.size() <= 1 || !hasEditorLayer(id)) return false;
+    recordHistory();
+    QMap<int, int> remaining;
+    for (int i = m_objects.size() - 1; i >= 0; --i) {
+        if (m_objects[i]->editorLayerId() == id) { m_objects.removeAt(i); m_objectTags.removeAt(i); }
+    }
+    // Сопоставление старых индексов по сохраненным объектам снимка.
+    const auto &before = m_undoStack.last().objects;
+    int next = 0;
+    for (int i = 0; i < before.size(); ++i) if (before[i]->editorLayerId() != id) remaining.insert(i, next++);
+    for (auto &group : m_groups) {
+        QList<int> members;
+        for (int index : group.members) if (remaining.contains(index)) members.append(remaining.value(index));
+        group.members = members;
+    }
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [](const auto &g) { return g.members.size() < 2; }), m_groups.end());
+    int removedPosition = 0;
+    for (int i = 0; i < m_editorLayers.size(); ++i) if (m_editorLayers[i].id == id) removedPosition = i;
+    m_editorLayers.removeAt(removedPosition);
+    if (m_activeLayerId == id) m_activeLayerId = m_editorLayers[qMin(removedPosition, int(m_editorLayers.size()) - 1)].id;
+    emit editorLayerObjectsChanged();
+    notifyEditorLayersChanged();
+    return true;
 }
 
 QDomDocument ProjectManager::buildCompiledFpgaXml() const
@@ -2770,8 +2894,9 @@ QDomDocument ProjectManager::buildCompiledFpgaXml() const
     );
 }
 
-bool ProjectManager::exportToFpgaXml(const QString &targetFile)
+bool ProjectManager::saveToFile(const QString &targetFile)
 {
+    m_lastErrorMessage.clear();
     for (const auto &object : m_objects) {
         if (!object->isExportEnabled()) continue;
         const auto report = FpgaResourceLimits::inspect(*object);
@@ -2786,25 +2911,39 @@ bool ProjectManager::exportToFpgaXml(const QString &targetFile)
         return false;
     }
 
-    const QDomDocument doc = buildCompiledFpgaXml();
+    QDomDocument doc = buildCompiledFpgaXml();
+    if (!FpgaCompiledDocument::fromDomDocument(doc, &m_lastErrorMessage).isValid()) return false;
+    EditorProjectXml::State state;
+    state.document = *m_document;
+    state.objects = m_objects; state.objectTags = m_objectTags;
+    state.layers = m_editorLayers; state.groups = m_groups;
+    state.nextLayerId = m_nextLayerId; state.nextGroupId = m_nextGroupId;
+    state.activeLayerId = m_activeLayerId; state.showAllLayers = m_showAllLayers;
+    state.showGrid = m_showGrid; state.snapToCanvas = m_snapToCanvas; state.snapToGrid = m_snapToGrid; state.snapToObjects = m_snapToObjects;
+    state.gridStep = m_gridStep; state.gridColor = m_gridColor;
+    state.canvasGuideColor = m_snapCanvasGuideColor; state.gridGuideColor = m_snapGridGuideColor; state.objectGuideColor = m_snapObjectGuideColor;
+    state.view = m_editorViewState;
+    if (!EditorProjectXml::write(doc, state, &m_lastErrorMessage)) return false;
 
-    // записываем XML обратно в файл
-    QFile outFile(outPath);
+    QSaveFile outFile(outPath);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         m_lastErrorMessage = tr("Не удалось открыть файл для записи: %1").arg(outFile.errorString());
         return false;
     }
 
-    QString xmlText = QStringLiteral("<?xml version='1.0' encoding='windows-1251'?>\n") + doc.toString(4);
-    QByteArray encodedXml = encodeXmlAsWindows1251(xmlText);
+    const QString xmlText = QStringLiteral("<?xml version='1.0' encoding='windows-1251'?>\n") + doc.toString(4);
+    const QByteArray encodedXml = encodeXmlAsWindows1251(xmlText);
     if (outFile.write(encodedXml) != encodedXml.size()) {
         m_lastErrorMessage = tr("Не удалось записать XML: %1").arg(outFile.errorString());
-        outFile.close();
+        outFile.cancelWriting();
         return false;
     }
-    outFile.close();
+    if (!outFile.commit()) {
+        m_lastErrorMessage = tr("Не удалось завершить сохранение XML: %1").arg(outFile.errorString());
+        return false;
+    }
 
-    emit logMessage(tr("Кадр для ПЛИС сохранён: %1").arg(outPath));
+    emit logMessage(tr("Проект сохранён: %1").arg(outPath));
     m_lastErrorMessage.clear();
     m_filePath = outPath;
     return true;
@@ -2863,17 +3002,6 @@ int ProjectManager::importImage(const QString &fileName, bool rotating)
     emit projectChanged();
     emit logMessage(tr("Изображение добавлено: %1").arg(fileName));
     return 0;
-}
-
-void ProjectManager::applyRestrictedMode()
-{
-    for (const auto &object : m_objects) {
-        object->setImportedHardwareObject(true);
-        if (dynamic_cast<StaticGroupObject*>(object.data()) || dynamic_cast<RotationObject*>(object.data())
-            || dynamic_cast<TextObject*>(object.data()) || dynamic_cast<ImageObject*>(object.data())) {
-            object->setResizeLocked(true);
-        }
-    }
 }
 
 QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const
@@ -2936,6 +3064,12 @@ QColor ProjectManager::snapObjectGuideColor() const { return m_snapObjectGuideCo
 
 void ProjectManager::reloadGlobalSettings()
 {
+    readGlobalWorkspaceSettings();
+    emit projectChanged();
+}
+
+void ProjectManager::readGlobalWorkspaceSettings()
+{
     auto settings = ApplicationSettings::create();
     m_gridStep = qBound(1, settings.value("gridStep", 10).toInt(), 1000);
 
@@ -2944,8 +3078,6 @@ void ProjectManager::reloadGlobalSettings()
     m_snapCanvasGuideColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
     m_snapGridGuideColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
     m_snapObjectGuideColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
-
-    emit projectChanged();
 }
 
 // сеттеры
@@ -2997,4 +3129,15 @@ void ProjectManager::setSnapToObjects(bool enabled)
         return;
     m_snapToObjects = enabled;
     emit projectChanged();
+}
+
+void ProjectManager::setEditorViewState(const EditorViewState &state)
+{
+    if (!qIsFinite(state.scale) || !qIsFinite(state.offset.x()) || !qIsFinite(state.offset.y())) return;
+    EditorViewState next = state;
+    next.scale = qBound(0.1, next.scale, 10.0);
+    if (m_editorViewState.scale == next.scale && m_editorViewState.offset == next.offset
+        && m_editorViewState.proportionalResize == next.proportionalResize && m_editorViewState.rotationSnapping == next.rotationSnapping) return;
+    m_editorViewState = next;
+    emit editorViewStateChanged();
 }

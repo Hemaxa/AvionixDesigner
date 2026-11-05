@@ -26,8 +26,6 @@ public slots:
     void startStreaming();
     void stopStreaming();
 
-    void toggleBinMode();
-    void toggleSimulatorMode();
     void toggleUartMode();
 
 private slots:

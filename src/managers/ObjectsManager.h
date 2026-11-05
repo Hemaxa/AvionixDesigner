@@ -4,8 +4,6 @@
 
 #include <QObject>
 #include <QMap>
-#include <QSharedPointer>
-#include <QDomElement>
 #include <functional>
 
 #include "BaseObject.h"
@@ -27,15 +25,6 @@ public:
 
     // создает объект по имени типа
     BaseObject* createObject(const QString &typeName);
-
-    // проверяет, зарегистрирован ли тип
-    bool hasType(const QString &typeName) const;
-
-    // парсит схемы параметров из секции <parameters>
-    QMap<QString, ParamSchema> parseSchemas(const QDomElement &parametersNode);
-
-    // возвращает список зарегистрированных типов
-    QStringList registeredTypes() const;
 
 private:
     ObjectsManager() = default;

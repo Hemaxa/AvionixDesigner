@@ -14,7 +14,7 @@ class SelectionToolStrip : public BasePanel
     Q_OBJECT
 
 public:
-    // идентификаторы команд выравнивания и изменения порядка слоёв
+    // ActionId - команды выравнивания объектов и изменения порядка их отображения.
     enum ActionId
     {
         AlignTop = 0,

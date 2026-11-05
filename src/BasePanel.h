@@ -22,13 +22,4 @@ public:
     {
         setObjectName(name);
     }
-
-    // геттер для имени панели
-    QString getPanelName() const
-    {
-        return objectName();
-    }
-
-signals:
-    void panelActivated();  //сигнал активации панели
 };
