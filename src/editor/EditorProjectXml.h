@@ -1,3 +1,5 @@
+// EditorProjectXml - обмен метаданными сцены между XML проекта и редактором.
+
 #pragma once
 
 #include "EditorProjectDocument.h"
@@ -5,7 +7,8 @@
 #include "ProjectManager.h"
 
 namespace EditorProjectXml {
-// Полный редактируемый документ. Порядок objects — от переднего плана к заднему.
+// State - восстановленные объекты, слои, группы и параметры рабочего пространства.
+// Порядок objects — от переднего плана к заднему.
 struct State
 {
     EditorProjectDocument document;

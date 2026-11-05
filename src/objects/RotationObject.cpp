@@ -3,7 +3,6 @@
 #include "RotationObject.h"
 #include "BitParser.h"
 #include "ProportionalResize.h"
-#include "XmlReader.h"
 #include <QtMath>
 
 RotationObject::RotationObject(QObject *parent) : BaseObject(parent), color(Qt::white) {}
@@ -70,21 +69,6 @@ void RotationObject::parse(const QString &hexInit, const ParamSchema &schema)
     }
 
     m_layers = {currentLayer()};
-}
-
-void RotationObject::parseExtraData(const QDomElement &element)
-{
-    QDomElement dataEl = element.firstChildElement("data");
-    if (dataEl.isNull()) return;
-
-    // чтение размеров маски
-    int w = XmlReader::readInt(dataEl, "width", 0);
-    int h = XmlReader::readInt(dataEl, "height", 0);
-    QString text = dataEl.text().trimmed();
-
-    if (w <= 0 || h <= 0) return;
-
-    setMaskFromDataText(text, w, h);
 }
 
 void RotationObject::draw(QPainter &painter)
@@ -415,32 +399,4 @@ void RotationObject::syncFirstLayerFromPublicFields()
         m_layers.append(currentLayer());
     else
         m_layers[0] = currentLayer();
-}
-
-void RotationObject::setMaskFromDataText(const QString &text, int width, int height)
-{
-    maskImage = QImage(width, height, QImage::Format_ARGB32);
-    maskImage.fill(Qt::transparent);
-
-    QVector<int> values;
-    values.reserve(width * height);
-    for (const QChar ch : text) {
-        if (!ch.isDigit())
-            continue;
-        values.append(qBound(0, ch.digitValue(), 7));
-    }
-
-    int idx = 0;
-    for (int py = 0; py < height; ++py) {
-        for (int px = 0; px < width; ++px) {
-            const int val = idx < values.size() ? values[idx] : 0;
-            ++idx;
-            if (val <= 0)
-                continue;
-
-            QColor pixelColor = Qt::white;
-            pixelColor.setAlpha((val * 255) / 7);
-            maskImage.setPixelColor(px, py, pixelColor);
-        }
-    }
 }

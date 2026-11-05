@@ -35,5 +35,6 @@ struct TextMask
     QString data; // Построчные уровни ПЛИС: 0 прозрачен, m>0 имеет alpha=(m+1)/8.
 };
 
+// Смешивает глифы, обрезает внешние нулевые поля и проверяет площадь до выделения растра.
 bool composeTextMask(const QString &text, const FpgaFont &font, TextMask *mask,
                      QString *errorMessage = nullptr, qint64 maxPixels = 64 * 1024 * 1024);

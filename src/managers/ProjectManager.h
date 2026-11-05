@@ -36,7 +36,7 @@ public:
     // возвращает единственный экземпляр менеджера проекта
     static ProjectManager* instance();
 
-    // загружает проект из XML-файла редактора/ПЛИС
+    // загружает единый XML с аппаратными данными и метаданными редактора
     bool loadFromFile(const QString &fileName);
     // возвращает последнюю ошибку загрузки/сохранения для показа в интерфейсе
     QString lastErrorMessage() const;
@@ -58,8 +58,6 @@ public:
     int addObject(const QString &typeName, double x, double y);
     // добавляет существующий объект в редакторскую группу
     bool addObjectToGroup(int groupId, int index, bool recordChange = true);
-    // удаляет один объект по индексу
-    bool removeObject(int index);
     // удаляет набор объектов по индексам
     bool removeObjects(const QList<int> &indexes);
     // переставляет объекты в порядке старых индексов, переданных в order
@@ -120,6 +118,7 @@ public:
     bool setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects, const QString &name, const QString &value);
     bool isObjectPropertyEditable(const BaseObject *object, const QString &name) const;
 
+    // EditorLayer - имя, цвет выделения и идентификатор редакторского слоя.
     struct EditorLayer {
         int id = 1;
         QString name;
@@ -151,7 +150,8 @@ public:
     QSharedPointer<BaseObject> getObjectAt(int index) const;
     // возвращает количество объектов проекта
     int getObjectCount() const;
-    // Редакторская группа сохраняется в <editor>, отдельно от аппаратных объектов.
+    // ObjectGroup - именованный набор объектов для выделения и совместного редактирования.
+    // Сохраняется в <editor>, отдельно от аппаратных объектов.
     struct ObjectGroup
     {
         int id = -1;
@@ -239,7 +239,6 @@ private:
 
     ProjectManager();
 
-    bool loadXmlProject(const QString &fileName);
     void recordHistory();
     ProjectSnapshot captureSnapshot() const;
     void restoreSnapshot(const ProjectSnapshot &snapshot);

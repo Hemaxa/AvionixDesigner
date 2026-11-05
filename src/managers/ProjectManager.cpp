@@ -1567,17 +1567,12 @@ ProjectManager* ProjectManager::instance()
     return &s_instance;
 }
 
-bool ProjectManager::loadFromFile(const QString &fileName)
-{
-    return loadXmlProject(fileName);
-}
-
 QString ProjectManager::lastErrorMessage() const
 {
     return m_lastErrorMessage;
 }
 
-bool ProjectManager::loadXmlProject(const QString &fileName)
+bool ProjectManager::loadFromFile(const QString &fileName)
 {
     emit logMessage(tr("Загрузка: %1").arg(fileName));
 
@@ -1933,11 +1928,6 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
 
     emit projectChanged();
     return index;
-}
-
-bool ProjectManager::removeObject(int index)
-{
-    return removeObjects(QList<int>{index});
 }
 
 bool ProjectManager::removeObjects(const QList<int> &indexes)

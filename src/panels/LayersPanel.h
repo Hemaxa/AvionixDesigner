@@ -1,3 +1,5 @@
+// LayersPanel - панель выбора и управления редакторскими слоями проекта.
+
 #pragma once
 
 #include "BasePanel.h"
@@ -8,7 +10,8 @@ class QVBoxLayout;
 class QToolButton;
 class QTimer;
 
-// Только эта панель управляет слоями; остальные поля позволяют лишь выбрать слой.
+// LayersPanel - создание, выбор, переименование, объединение и удаление слоёв.
+// Остальные поля интерфейса позволяют лишь выбрать рабочий слой.
 class LayersPanel : public BasePanel
 {
     Q_OBJECT

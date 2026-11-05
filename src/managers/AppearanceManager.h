@@ -19,14 +19,9 @@ public:
     // применяет тему Avionix Designer
     void applyAvionixTheme();
 
-    // возвращает путь к текущей теме
-    QString getCurrentStylePath() const;
-
 signals:
     void styleChanged();  //сигнал смены стиля
 
 private:
     AppearanceManager();
-
-    QString m_currentStylePath; //путь к текущему файлу стилей
 };

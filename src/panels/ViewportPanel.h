@@ -16,14 +16,10 @@ class ViewportPanel : public BasePanel
 public:
     explicit ViewportPanel(QWidget *parent = nullptr);
 
-    // устанавливает масштаб отображения
-    void setScale(double scale);
-
     // возвращает текущий масштаб
     double getScale() const;
 
-    // возвращает индекс выделенного объекта
-    int getSelectedIndex() const { return m_selectedIndex; }
+    // возвращает индексы выделенных объектов
     QList<int> getSelectedIndexes() const { return m_selectedIndexes; }
 
     // сбрасывает вид к начальному состоянию
@@ -68,7 +64,7 @@ private:
     int m_selectedIndex = -1; // Индекс выделенного объекта
     QList<int> m_selectedIndexes; // Индексы выделенных объектов
 
-    // Состояния манипуляторов
+    // DragMode - текущее действие мыши: выделение, перемещение, размер, поворот или панорамирование.
     enum DragMode { None, Move, Resize, Rotate, LineEndpoint, Pan, MarqueeSelect };
     DragMode m_dragMode = None;
     int m_resizeEdgeFlags = 0; // Битовая маска: 1=Left, 2=Right, 4=Top, 8=Bottom

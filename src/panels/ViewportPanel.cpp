@@ -139,14 +139,6 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, QOverload<>::of(&QWidget::update));
 }
 
-void ViewportPanel::setScale(double scale)
-{
-    // ограничиваем масштаб в разумных пределах
-    m_scale = qBound(0.1, scale, 10.0);
-    storeViewState();
-    update();
-}
-
 double ViewportPanel::getScale() const
 {
     return m_scale;

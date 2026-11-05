@@ -21,8 +21,6 @@ bool AppearanceManager::loadStyleSheet(const QString &filePath) {
   file.close();
 
   qApp->setStyleSheet(styleSheet);
-  m_currentStylePath = filePath;
-
   emit styleChanged();
   return true;
 }
@@ -30,8 +28,4 @@ bool AppearanceManager::loadStyleSheet(const QString &filePath) {
 void AppearanceManager::applyAvionixTheme() {
   // загружаем тему Avionix Designer из ресурсов
   loadStyleSheet(":/themes/themes/AvionixDesignerTheme.qss");
-}
-
-QString AppearanceManager::getCurrentStylePath() const {
-  return m_currentStylePath;
 }

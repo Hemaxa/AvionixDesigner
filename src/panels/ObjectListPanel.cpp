@@ -23,6 +23,7 @@
 #include <algorithm>
 
 namespace {
+// ObjectListRoles - служебные роли строк для различения объектов и редакторских групп.
 enum ObjectListRoles { KindRole = Qt::UserRole, ObjectIndexRole, GroupIdRole };
 
 // RowKind - различение строк объектов и редакторских групп в списке.

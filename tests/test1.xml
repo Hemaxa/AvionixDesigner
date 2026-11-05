@@ -2917,7 +2917,7 @@
             <project-name>Untitled</project-name>
             <view offset-x="0" offset-y="0" proportional-resize="false" rotation-snapping="false" scale="1"/>
         </workspace>
-        <layers active-id="2" next-id="3" show-all="false">
+        <layers active-id="1" next-id="3" show-all="false">
             <layer id="1" selection-color="#ff00c8f0">
                 <name>Основной</name>
             </layer>

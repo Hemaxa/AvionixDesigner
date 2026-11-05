@@ -191,6 +191,7 @@ void renderStaticGroup(QImage *frame,
     if (!frame || schema.isEmpty())
         return;
 
+    // Element - декодированный прямоугольник и адрес маски одного элемента STATICGROUP.
     struct Element { QRect rect; QColor color; int address; };
     QList<Element> elements;
     QRect bounds;

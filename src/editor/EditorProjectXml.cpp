@@ -1,3 +1,5 @@
+// EditorProjectXml - сохранение метаданных сцены и восстановление объектов из XML проекта.
+
 #include "EditorProjectXml.h"
 
 #include "RectangleObject.h"
@@ -27,6 +29,7 @@ namespace EditorProjectXml {
 namespace {
 constexpr int kMaxResourceBytes = 64 * 1024 * 1024;
 
+// Fields - чтение и запись полей XML с общей проверкой значений и накоплением ошибки.
 // Имена полей стабильны и не зависят от языка интерфейса. Числа сохраняются без
 // аппаратного округления; длинные строки — текстовыми узлами, чтобы не терять переводы строк.
 class Fields
@@ -177,6 +180,7 @@ void fontFields(Fields &a, FpgaFont &font)
     if (font.size <= 0 || font.maskData.contains(QRegularExpression("[^0-7]"))) a.fail("Некорректный шрифтовой ресурс редактора.");
 }
 
+// Resources - хранение, дедупликация и проверка изображений и атласов отключённых объектов.
 class Resources
 {
 public:

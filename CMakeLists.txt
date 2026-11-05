@@ -141,7 +141,6 @@ qt_add_executable(AvionixDesigner
 
     # Утилиты (header-only)
     src/utils/BitParser.h
-    src/utils/XmlReader.h
     src/utils/ProportionalResize.h
     src/utils/RectanglePainting.h
     src/utils/RasterGeometry.h

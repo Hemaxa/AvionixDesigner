@@ -1,3 +1,5 @@
+// LayersPanel - панель выбора и управления редакторскими слоями проекта.
+
 #include "LayersPanel.h"
 #include "ProjectManager.h"
 
