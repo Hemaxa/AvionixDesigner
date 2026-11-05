@@ -47,6 +47,8 @@ private:
     QListWidget *m_listWidget;
     QStackedWidget *m_stackedWidget;
     QCheckBox *m_autoLoadCheck;
+    QSpinBox *m_staticGroupPixelsSpin;
+    QSpinBox *m_staticGroupElementsSpin;
 
     QSpinBox *m_gridStepSpin;
     QPushButton *m_gridColorButton;

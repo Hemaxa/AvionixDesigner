@@ -392,7 +392,7 @@ int maxUnsignedFieldValue(const ParamSchema &schema, const QString &fieldName, i
 int staticGroupAddressablePixels(const ParamSchema &schema)
 {
     const int maxAddr = maxUnsignedFieldValue(schema, QStringLiteral("addr"), kFallbackStaticGroupAddressablePixels - 1);
-    return qMax(1, maxAddr + 1);
+    return qMin(FpgaResourceLimits::staticPixels(), qMax(1, maxAddr + 1));
 }
 
 QSizeF fitSizeToStaticGroupLimits(const QSizeF &size, const ParamSchema &schema)
@@ -674,7 +674,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->rotationDegrees = image->rotationDegrees;
         clone->sourceName = image->sourceName;
         clone->format = image->format;
-        clone->setSourcePayload(image->sourcePayload());
+        clone->copyRasterSource(*image);
         clone->setColorLayers(image->colorLayers());
         rawClone = clone;
     }
@@ -1152,8 +1152,8 @@ QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
     rotation.bottom = rotation.top + qMax(1, component.bounds.height());
     rotation.color = component.color;
     rotation.maskImage = component.mask;
-    rotation.sinVal = qRound(qSin(qDegreesToRadians(image->rotationDegrees)) * 65536.0);
-    rotation.cosVal = qRound(qCos(qDegreesToRadians(image->rotationDegrees)) * 65536.0);
+    rotation.sinVal = image->rotationCoefficients().x();
+    rotation.cosVal = image->rotationCoefficients().y();
 
     return createObjectElement(doc, QStringLiteral("rotationobject"), schema, QSharedPointer<BaseObject>(&rotation, [](BaseObject*){}));
 }
@@ -1289,12 +1289,15 @@ QDomElement createFontResourceElement(QDomDocument &doc,
                 continue;
 
             font.kerningPairs.insert(pair, delta);
-            QDomElement kerningEl = doc.createElement("kerning");
-            kerningEl.setAttribute("left", QString(left));
-            kerningEl.setAttribute("right", QString(right));
-            kerningEl.setAttribute("delta", delta);
-            fontEl.appendChild(kerningEl);
         }
+    }
+    // Один порядок пар для системного шрифта и восстановленного XML-атласа.
+    for (auto it = font.kerningPairs.cbegin(); it != font.kerningPairs.cend(); ++it) {
+        auto kerningEl = doc.createElement("kerning");
+        kerningEl.setAttribute("left", QString(it.key()[0]));
+        kerningEl.setAttribute("right", QString(it.key()[1]));
+        kerningEl.setAttribute("delta", it.value());
+        fontEl.appendChild(kerningEl);
     }
 
     QDomElement dataEl = doc.createElement("data");
@@ -2133,16 +2136,16 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
         }
         if (states.isEmpty() || masks.size() != states.size())
             return fail(tr("В статическом объекте отсутствуют растровые маски."));
-        if (merged->states.size() + states.size() > FpgaResourceLimits::staticParameters)
-            return fail(tr("Объединённой группе требуется %1 init; максимум — 8. Учитываются все цветовые слои изображений.")
-                .arg(merged->states.size() + states.size()));
+        if (merged->states.size() + states.size() > FpgaResourceLimits::staticParameters())
+            return fail(tr("Объединённой группе требуется %1 init; максимум — %2. Учитываются все цветовые слои изображений.")
+                .arg(merged->states.size() + states.size()).arg(FpgaResourceLimits::staticParameters()));
         for (int i = 0; i < states.size(); ++i) {
             auto state = states[i];
             const qint64 area = qint64(state.w) * state.h;
             if (state.w <= 0 || state.h <= 0 || state.w > 4095 || state.h > 4095 || masks[i].isNull())
                 return fail(tr("Некорректные габариты или маска статического объекта."));
-            if (qint64(nextAddress) + area > FpgaResourceLimits::staticPixels)
-                return fail(tr("Растрам объединённой группы требуется более 65536 ячеек. Уменьшите изображения или объедините меньше объектов."));
+            if (qint64(nextAddress) + area > FpgaResourceLimits::staticPixels())
+                return fail(tr("Растрам объединённой группы требуется более %1 ячеек. Уменьшите изображения или объедините меньше объектов.").arg(FpgaResourceLimits::staticPixels()));
             state.addr = nextAddress;
             nextAddress += int(area);
             merged->states.append(state);
@@ -2188,8 +2191,8 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
     }
     m_groups.erase(std::remove_if(m_groups.begin(),m_groups.end(),[](const ObjectGroup &group){ return group.members.size()<2; }),m_groups.end());
     emit projectChanged();
-    emit logMessage(tr("Объединено статических объектов: %1; init: %2/8, память: %3/65536.")
-        .arg(selected.size()).arg(merged->states.size()).arg(nextAddress));
+    emit logMessage(tr("Объединено статических объектов: %1; init: %2/%4, память: %3/%5.")
+        .arg(selected.size()).arg(merged->states.size()).arg(nextAddress).arg(FpgaResourceLimits::staticParameters()).arg(FpgaResourceLimits::staticPixels()));
     return mergedIndex;
 }
 
@@ -2919,6 +2922,7 @@ bool ProjectManager::saveToFile(const QString &targetFile)
     }
 
     QDomDocument doc = buildCompiledFpgaXml();
+    if (!FpgaCompiledDocument::fromDomDocument(doc, &m_lastErrorMessage).isValid()) return false;
     EditorProjectXml::State state;
     state.document = *m_document;
     state.objects = m_objects; state.objectTags = m_objectTags;

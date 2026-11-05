@@ -3,6 +3,8 @@
 #include "fpga/simulator/FpgaSimulator.h"
 
 #include "BitParser.h"
+#include "fpga/packets/FpgaPacketFramer.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 #include "RectanglePainting.h"
 
 #include <QPainter>
@@ -189,24 +191,28 @@ void renderStaticGroup(QImage *frame,
     if (!frame || schema.isEmpty())
         return;
 
+    struct Element { QRect rect; QColor color; int address; };
+    QList<Element> elements;
+    QRect bounds;
     for (int i = 0; i < object.iparams.size(); ++i) {
-        const QString paramHex = bytesToHex(parameters.value(object.startParamIndex + i));
-        if (paramHex.isEmpty() || extractField(paramHex, schema, QStringLiteral("enb")) == 0)
-            continue;
-
-        const QColor color = colorFromBgr(extractField(paramHex, schema, QStringLiteral("color")));
-        const int x0 = static_cast<int>(extractField(paramHex, schema, QStringLiteral("x")));
-        const int y0 = static_cast<int>(extractField(paramHex, schema, QStringLiteral("y")));
-        const int width = qMax(1, static_cast<int>(extractField(paramHex, schema, QStringLiteral("w"))));
-        const int height = qMax(1, static_cast<int>(extractField(paramHex, schema, QStringLiteral("h"))));
-        const int addr = static_cast<int>(extractField(paramHex, schema, QStringLiteral("addr")));
-
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                const int memIndex = addr + y * width + x;
-                if (memIndex < 0 || memIndex >= memory.size())
-                    continue;
-                blendPixel(frame, x0 + x, y0 + y, color, byteAt(memory, memIndex));
+        const QString hex = bytesToHex(parameters.value(object.startParamIndex + i));
+        if (hex.isEmpty() || !extractField(hex, schema, "enb")) continue;
+        const QRect rect(extractField(hex, schema, "x"), extractField(hex, schema, "y"),
+                         extractField(hex, schema, "w"), extractField(hex, schema, "h"));
+        elements.append({rect, colorFromBgr(extractField(hex, schema, "color")), int(extractField(hex, schema, "addr"))});
+        bounds = bounds.united(rect);
+    }
+    bounds = bounds.intersected(frame->rect());
+    for (int y = bounds.top(); y <= bounds.bottom(); ++y) {
+        for (int x = bounds.left(); x <= bounds.right(); ++x) {
+            // RTL выбирает последний совпавший прямоугольник до чтения маски.
+            // Его нулевой пиксель не открывает другие элементы этой же группы.
+            for (int i = elements.size() - 1; i >= 0; --i) {
+                const auto &e = elements[i];
+                if (!e.rect.contains(x, y)) continue;
+                const qint64 address = qint64(e.address) + (y - e.rect.y()) * qint64(e.rect.width()) + x - e.rect.x();
+                if (address >= 0 && address < memory.size()) blendPixel(frame, x, y, e.color, byteAt(memory, address));
+                break;
             }
         }
     }
@@ -348,32 +354,52 @@ void FpgaSimulator::decodePackets()
 
     for (const FpgaPacket &packet : m_bundle.packets) {
         const QByteArray &bytes = packet.bytes;
-        if (bytes.size() < 11 || bytes.mid(0, 4) != QByteArray::fromHex("5341494E")) {
-            m_warnings.append(QStringLiteral("Skipped malformed packet."));
+        if (bytes.size() < 11 || bytes.mid(0, 4) != QByteArray::fromHex("5341494E")
+            || readUint16(bytes, 4) != bytes.size() - 6) {
+            m_warnings.append(QStringLiteral("Пропущен пакет с неверным заголовком или длиной."));
+            continue;
+        }
+        const int checksumOffset = bytes.size() - 4;
+        const quint32 checksum = (quint32(readUint16(bytes, checksumOffset)) << 16) | readUint16(bytes, checksumOffset + 2);
+        if (checksum != FpgaPacketFramer::fletcher32(bytes.left(checksumOffset))) {
+            m_warnings.append(QStringLiteral("Пропущен пакет с неверной контрольной суммой."));
             continue;
         }
 
         const quint8 type = byteAt(bytes, 6);
         if (type == static_cast<quint8>(FpgaPacketType::Parameter)) {
-            if (bytes.size() < 11)
-                continue;
+            if (bytes.size() < 15) continue;
             const int objId = readUint16(bytes, 7);
             const int length = readUint16(bytes, 9);
+            if (length != 19 || bytes.size() != 11 + length + 4) {
+                m_warnings.append(QStringLiteral("Неверная длина параметров в пакете.")); continue;
+            }
             m_parameters.insert(objId, bytes.mid(11, length));
         } else if (type == static_cast<quint8>(FpgaPacketType::StaticMemory)
                    || type == static_cast<quint8>(FpgaPacketType::RotationMemory)) {
-            if (bytes.size() < 12)
-                continue;
+            if (bytes.size() < 16) continue;
             const int memId = byteAt(bytes, 7);
             const int address = readUint16(bytes, 8);
             const int length = readUint16(bytes, 10);
+            if (bytes.size() != 12 + length + 4) {
+                m_warnings.append(QStringLiteral("Неверная длина памяти в пакете.")); continue;
+            }
             const QByteArray payload = bytes.mid(12, length);
+            if (type == static_cast<quint8>(FpgaPacketType::StaticMemory)
+                && (address + length > FpgaResourceLimits::staticPixels()
+                    || std::any_of(payload.cbegin(), payload.cend(), [](char v) { return quint8(v) > 7; }))) {
+                m_warnings.append(QStringLiteral("Пакет выходит за границы статической памяти или содержит неверную маску.")); continue;
+            }
+            if (type == static_cast<quint8>(FpgaPacketType::RotationMemory)
+                && (address >= FpgaResourceLimits::rotationTiles || length != 31)) {
+                m_warnings.append(QStringLiteral("Некорректный пакет вращаемой памяти.")); continue;
+            }
             if (type == static_cast<quint8>(FpgaPacketType::RotationMemory)) {
                 m_rotationMemory[memId].insert(address, payload);
             } else {
                 QByteArray &memory = m_staticMemory[memId];
                 if (memory.size() < address + payload.size())
-                    memory.resize(address + payload.size());
+                    memory.append(QByteArray(address + payload.size() - memory.size(), char(0)));
                 std::copy(payload.constBegin(), payload.constEnd(), memory.begin() + address);
             }
         }

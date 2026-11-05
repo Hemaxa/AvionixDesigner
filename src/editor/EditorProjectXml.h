@@ -29,7 +29,8 @@ struct State
     EditorViewState view;
 };
 
-// Запись/чтение <editor version="1">. Чтение изменяет result только при полном успехе.
+// Запись/чтение <editor>. Аппаратные данные экспортируемых
+// объектов берутся из objects по hardware-index. result изменяется только при успехе.
 bool write(QDomDocument &document, const State &state, QString *error);
 bool read(const QDomElement &editor, State *result, QString *error);
 }

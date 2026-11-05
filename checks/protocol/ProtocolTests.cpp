@@ -10,6 +10,7 @@
 #include "TextObject.h"
 #include "text/TextLayout.h"
 #include "text/FontRasterizer.h"
+#include <QScopeGuard>
 #include "fpga/compiler/FpgaSceneCompiler.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include "fpga/simulator/FpgaSimulator.h"
@@ -257,12 +258,11 @@ private slots:
             for (auto it = p->getObjects().crbegin(); it != p->getObjects().crend(); ++it) if ((*it)->isViewVisible()) (*it)->draw(painter);
             return frame;
         };
-        const auto preview = render();
         const auto file = temp.filePath("project.xml"); QVERIFY2(p->saveToFile(file), qPrintable(p->lastErrorMessage()));
         QFile saved(file); QVERIFY(saved.open(QIODevice::ReadOnly)); const auto savedBytes = saved.readAll(); saved.close();
         QVERIFY(savedBytes.startsWith("<?xml version='1.0' encoding='windows-1251'?>"));
         QDomDocument document; QVERIFY(document.setContent(savedBytes));
-        const auto editor = document.documentElement().firstChildElement("editor"); QVERIFY(!editor.isNull()); QCOMPARE(editor.attribute("version"), QString("1"));
+        const auto editor = document.documentElement().firstChildElement("editor"); QVERIFY(!editor.isNull()); QVERIFY(!editor.hasAttribute("version"));
         QDomDocument savedHardware;
         savedHardware.appendChild(savedHardware.importNode(document.documentElement(), true));
         savedHardware.documentElement().removeChild(savedHardware.documentElement().firstChildElement("editor"));
@@ -283,13 +283,21 @@ private slots:
         QCOMPARE(p->groupName(group), QString("Приборы <&> 🚀"));
         for (int i = 0; i < original.size(); ++i) {
             const auto restored = p->getObjectAt(i); const auto before = original[i];
-            QCOMPARE(restored->getTypeName(), before->getTypeName()); QCOMPARE(restored->getProperties(), before->getProperties());
+            QCOMPARE(restored->getTypeName(), before->getTypeName());
+            if (!before->isExportEnabled()) {
+                auto expected = before->getProperties();
+                for (auto &property : expected) if (property.first == "Источник") property.second.clear();
+                QCOMPARE(restored->getProperties(), expected);
+            }
             QCOMPARE(restored->customName(), before->customName()); QCOMPARE(restored->editorLayerId(), before->editorLayerId());
             QCOMPARE(restored->isViewVisible(), before->isViewVisible()); QCOMPARE(restored->isSelectionLocked(), before->isSelectionLocked());
             QCOMPARE(restored->isExportEnabled(), before->isExportEnabled()); QCOMPARE(restored->isResizeLocked(), before->isResizeLocked());
             QCOMPARE(restored->isImportedHardwareObject(), before->isImportedHardwareObject()); QCOMPARE(restored->editRestrictionHint(), before->editRestrictionHint());
-            if (auto *v = dynamic_cast<ImageObject *>(restored.data())) QCOMPARE(v->sourcePayload(), dynamic_cast<ImageObject *>(before.data())->sourcePayload());
-            if (auto *v = dynamic_cast<RectangleObject *>(restored.data())) { QCOMPARE(v->x, 35.25); QCOMPARE(v->width, 126.12345678901234); QCOMPARE(v->strokeWidth, 3.625); QCOMPARE(v->alpha, 128); }
+            if (auto *v = dynamic_cast<ImageObject *>(restored.data())) {
+                QVERIFY(v->sourceName.isEmpty());
+                if (!before->isExportEnabled()) QCOMPARE(v->sourcePayload(), dynamic_cast<ImageObject *>(before.data())->sourcePayload());
+            }
+            if (auto *v = dynamic_cast<RectangleObject *>(restored.data())) { QCOMPARE(v->x, 35.0); QCOMPARE(v->width, 126.0); QCOMPARE(v->strokeWidth, 3.0); QCOMPARE(v->alpha, 128); }
         }
         QCOMPARE(p->getBackgroundColor(), QColor("#80abcdef")); QCOMPARE(p->gridStep(), 27); QCOMPARE(p->gridColor(), QColor("#53667788"));
         QCOMPARE(p->snapCanvasGuideColor(), QColor("#aaff5c7a")); QCOMPARE(p->snapGridGuideColor(), QColor("#bb56d3ff")); QCOMPARE(p->snapObjectGuideColor(), QColor("#ccffca58"));
@@ -298,10 +306,15 @@ private slots:
         QVERIFY(!window.findChild<QAction *>("ExportFpgaXmlAction"));
         QVERIFY(window.findChild<QAction *>("ProportionalResizeAction")->isChecked()); QVERIFY(window.findChild<QAction *>("SteppedRotationAction")->isChecked());
         QCOMPARE(p->threeDViewObject()->serializeInit(), init); QVERIFY(p->threeDViewObject()->isLeftAnchored());
-        QCOMPARE(render(), preview); QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), hardware);
+        // Редакторская геометрия теперь восстанавливается с точностью init.
+        const auto canonicalPreview = render();
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), hardware);
         QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)), bytes);
         QVERIFY2(p->saveToFile(file), qPrintable(p->lastErrorMessage()));
-        QVERIFY(saved.open(QIODevice::ReadOnly)); QCOMPARE(saved.readAll(), savedBytes); saved.close();
+        QVERIFY(saved.open(QIODevice::ReadOnly)); const auto canonicalBytes = saved.readAll(); saved.close();
+        QVERIFY2(p->loadFromFile(file), qPrintable(p->lastErrorMessage()));
+        QCOMPARE(render(), canonicalPreview);
+        QVERIFY(p->saveToFile(file)); QVERIFY(saved.open(QIODevice::ReadOnly)); QCOMPARE(saved.readAll(), canonicalBytes); saved.close();
         QVERIFY(p->renameGroup(group, "После открытия")); QVERIFY(p->undo()); QCOMPARE(p->groupName(group), QString("Приборы <&> 🚀"));
         for (const auto &key : keys) { if (previous.value(key).isValid()) settings.setValue(key, previous.value(key)); else settings.remove(key); }
         p->createNewProject("Done", 640, 480, Qt::black);
@@ -340,14 +353,13 @@ private slots:
         const auto objects = p->getObjects(); const auto path = p->getFilePath();
         using Mutator = std::function<void(QDomElement)>;
         const QList<Mutator> changes = {
-            [](auto e) { e.setAttribute("version", "99"); },
             [](auto e) { e.firstChildElement("layers").setAttribute("active-id", "99999"); },
             [](auto e) { e.firstChildElement("workspace").firstChildElement("view").setAttribute("scale", "nan"); },
             [](auto e) { e.firstChildElement("scene").firstChildElement("object").setAttribute("layer-id", "99999"); },
             [](auto e) { e.firstChildElement("scene").firstChildElement("object").setAttribute("type", "unknown"); },
             [](auto e) { auto first = e.firstChildElement("scene").firstChildElement("object"); first.nextSiblingElement("object").setAttribute("id", first.attribute("id")); },
             [](auto e) { e.firstChildElement("groups").firstChildElement("group").firstChildElement("member").setAttribute("ref", "missing"); },
-            [](auto e) { e.firstChildElement("resources").firstChildElement("binary").setAttribute("sha256", "bad"); },
+            [](auto e) { e.firstChildElement("scene").firstChildElement("object").setAttribute("hardware-index", "99999"); },
             [](auto e) { e.removeChild(e.firstChildElement("workspace")); },
             [](auto e) { e.parentNode().appendChild(e.cloneNode(true)); },
             [](auto e) { e.parentNode().removeChild(e); }
@@ -823,7 +835,7 @@ private slots:
         QVERIFY(p->undo()); QCOMPARE(p->threeDViewObject()->aircraftScreenY(),1023);
         QVERIFY(p->redo()); QCOMPARE(p->threeDViewObject()->serializeInit(),expected);
         QTemporaryDir temp;
-        QVERIFY(p->saveToFile(temp.filePath("scene.xml")));
+        QVERIFY2(p->saveToFile(temp.filePath("scene.xml")), qPrintable(p->lastErrorMessage()));
         QVERIFY(p->loadFromFile(temp.filePath("scene.xml")));
         QCOMPARE(p->threeDViewObject()->serializeInit(),expected);
         p->setAircraftState(-1,99999,-99999,360,99999);
@@ -872,7 +884,7 @@ private slots:
         QVERIFY2(error.isEmpty(), qPrintable(error));
         QVERIFY(bundle.document.objects.first().leftAnchored);
         QTemporaryDir temp;
-        QVERIFY(p->saveToFile(temp.filePath("scene.xml")));
+        QVERIFY2(p->saveToFile(temp.filePath("scene.xml")), qPrintable(p->lastErrorMessage()));
         QVERIFY2(p->loadFromFile(temp.filePath("scene.xml")), qPrintable(p->lastErrorMessage()));
         QCOMPARE(p->getObjectCount(), objectCount);
         QCOMPARE(p->objectGroups().size(), 1);
@@ -985,12 +997,14 @@ private slots:
         auto secondText = objects.firstChildElement("text").cloneNode(true).toElement(); objects.appendChild(secondText);
         const auto bundle = compileTextFixture(doc, &error);
         QVERIFY2(bundle.document.isValid(), qPrintable(error));
-        QCOMPARE(bundle.document.objects.size(), 9);
-        QCOMPARE(bundle.document.objects[4].type, QString("rectangle"));
-        QCOMPARE(bundle.document.memories.size(), 1);
-        QCOMPARE(bundle.document.memories[0].data, QString("70737076502707717"));
+        QCOMPARE(bundle.document.objects.size(), 3);
+        QCOMPARE(bundle.document.objects[1].type, QString("rectangle"));
+        QCOMPARE(bundle.document.memories.size(), 2);
+        const QString expectedMask = QString("70700070700000707") + "37000777000000370"
+            + "00000500000000000" + "00000270000000000";
+        QCOMPARE(bundle.document.memories[0].data, expectedMask);
+        QCOMPARE(bundle.document.memories[1].data, expectedMask);
         QVERIFY(!bundle.document.schemas.contains("text")); QVERIFY(!bundle.document.schemas.contains("font"));
-        const QList<int> addresses = {0,6,0,0};
         int memoryPackets = 0, parameterPackets = 0;
         QByteArray binary;
         for (const auto &packet : bundle.packets) {
@@ -998,25 +1012,28 @@ private slots:
             QCOMPARE(quint8(packet.bytes[6]), quint8(packet.type));
             QCOMPARE(packet.bytes.right(4).toHex(), QByteArray::number(FpgaPacketFramer::fletcher32(packet.bytes.left(packet.bytes.size()-4)),16).rightJustified(8,'0'));
             if (packet.type == FpgaPacketType::StaticMemory) {
-                ++memoryPackets; QCOMPARE(packet.memId,0); QCOMPARE(packet.address,0); QCOMPARE(packet.payloadSize,17);
-                QCOMPARE(packet.bytes.mid(12,17), QByteArray::fromHex("0700070307000706050002070007070107"));
+                ++memoryPackets; QCOMPARE(packet.address,0); QCOMPARE(packet.payloadSize,68);
+                QByteArray expected;
+                for (const auto level : expectedMask) expected.append(char(level.digitValue()));
+                QCOMPARE(packet.bytes.mid(12,68),expected);
             } else {
                 QCOMPARE(packet.type,FpgaPacketType::Parameter);
                 QCOMPARE(packet.objId, parameterPackets++);
                 QCOMPARE(packet.payloadSize,19);
-                QVERIFY(packet.objectType == "staticgroup" || packet.objectType == "rectangle");
             }
         }
-        QCOMPARE(memoryPackets,1); QCOMPARE(parameterPackets,9);
-        for (int i = 0; i < 4; ++i) {
+        QCOMPARE(memoryPackets,2); QCOMPARE(parameterPackets,3);
+        for (int i : {0, 2}) {
             const auto &object = bundle.document.objects[i];
-            QCOMPARE(object.memId,0);
+            QCOMPARE(object.iparams.size(),1);
             const auto hex = object.iparams.first();
-            QCOMPARE(BitParser::extract(hex,25,12), quint32(10+expected[i].x()));
-            QCOMPARE(BitParser::extract(hex,37,12), quint32(20+expected[i].y()));
-            QCOMPARE(BitParser::extract(hex,73,16), quint32(addresses[i]));
+            QCOMPARE(BitParser::extract(hex,25,12), quint32(10));
+            QCOMPARE(BitParser::extract(hex,37,12), quint32(20));
+            QCOMPARE(BitParser::extract(hex,49,12), quint32(17));
+            QCOMPARE(BitParser::extract(hex,61,12), quint32(4));
+            QCOMPARE(BitParser::extract(hex,73,16), quint32(0));
             QCOMPARE(BitParser::extract(hex,1,24), quint32(0x563412));
-            QCOMPARE(hex.left(15), QString(15,'0')); // Резерв старших битов обнулён.
+            QCOMPARE(hex.left(15), QString(15,'0'));
         }
         QTemporaryDir temp;
         QVERIFY(FpgaPacketDump::writeBinary(temp.filePath("text.bin"),bundle,&error));
@@ -1042,10 +1059,10 @@ private slots:
         auto otherText=secondText.cloneNode(true).toElement(); objects.appendChild(otherText);
         auto otherInit=otherText.firstChildElement("init"); auto h=otherInit.text(); BitParser::inject(h,49,8,1); otherInit.firstChild().setNodeValue(h);
         const auto twoFonts=compileTextFixture(doc,&error); QVERIFY2(twoFonts.document.isValid(),qPrintable(error));
-        QCOMPARE(twoFonts.document.memories.size(),2);
-        QCOMPARE(twoFonts.document.objects.last().memId,1); QCOMPARE(twoFonts.document.objects.first().memId,0);
+        QCOMPARE(twoFonts.document.memories.size(),3);
+        QCOMPARE(twoFonts.document.objects.last().memId,2); QCOMPARE(twoFonts.document.objects.first().memId,0);
         int uploads=0; for (const auto &packet:twoFonts.packets) if(packet.type==FpgaPacketType::StaticMemory) ++uploads;
-        QCOMPARE(uploads,2);
+        QCOMPARE(uploads,3);
     }
     void textClippingSpacesAndOffsets() {
         QString error;
@@ -1056,47 +1073,52 @@ private slots:
         const auto bundle = compileTextFixture(doc,&error);
         QVERIFY2(bundle.document.isValid(),qPrintable(error));
         QCOMPARE(bundle.document.objects.size(),2); // Вторые A полностью за экраном.
-        QCOMPARE(bundle.document.memories[0].data, QString("70737076502707717")+"7037");
+        QCOMPARE(bundle.document.memories[0].data, QString("7037"));
         for (const auto &object : bundle.document.objects) {
             const auto hex = object.iparams.first();
             QCOMPARE(BitParser::extract(hex,49,12),quint32(2)); QCOMPARE(BitParser::extract(hex,61,12),quint32(2));
-            QCOMPARE(BitParser::extract(hex,73,16),quint32(17));
+            QCOMPARE(BitParser::extract(hex,73,16),quint32(0));
         }
         FpgaSimulator simulator; simulator.loadBundle(bundle); const auto image = simulator.renderFrame();
         QCOMPARE(image.pixelColor(10,9),QColor(0x12,0x34,0x56)); // Вторая строка обрезанного растра.
 
         auto empty = compileTextFixture(textFixture("   "),&error);
         QVERIFY2(empty.document.isValid(),qPrintable(error)); QVERIFY(empty.document.objects.isEmpty());
-        QCOMPARE(empty.packets.size(),1); QCOMPARE(empty.packets.first().type,FpgaPacketType::StaticMemory);
+        QVERIFY(empty.packets.isEmpty()); QVERIFY(empty.document.memories.isEmpty());
         doc = textFixture(QStringLiteral("AЯV"));
         auto init = doc.documentElement().firstChildElement("objects").firstChildElement("text").firstChildElement("init");
         auto hex = init.text(); BitParser::inject(hex,57,16,1); BitParser::inject(hex,73,12,1); BitParser::inject(hex,0,1,0);
         init.firstChild().setNodeValue(hex);
         const auto disabled = compileTextFixture(doc,&error); QVERIFY2(disabled.document.isValid(),qPrintable(error));
         QCOMPARE(disabled.document.objects.size(),1);
-        QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),73,16),quint32(13));
+        QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),73,16),quint32(0));
         QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),0,1),quint32(0));
     }
     void textAddressLimitsAndInvalidXml() {
         QString error;
         auto source = FpgaCompiledDocument::fromDomDocument(textFixture("A"),&error);
-        source.fonts[0].maskData = QString(65530,'0') + "707370";
-        source.fonts[0].glyphs['A'].offset = 65530;
+        // Большой XML-атлас больше не загружается в ПЛИС целиком.
+        source.fonts[0].maskData = QString(70000,'0') + "707370";
+        source.fonts[0].glyphs['A'].offset = 70000;
         auto scene = FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
-        QCOMPARE(BitParser::extract(scene.objects.first().iparams.first(),73,16),quint32(65530));
-        const auto bundle = FpgaPacketCompiler().compile(scene,&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
-        QCOMPARE(bundle.packets.last().address,64512); QCOMPARE(bundle.packets.last().payloadSize,1024);
-        source.height=21; // Усечение последней строки не требует копии в уже полном банке.
+        QCOMPARE(scene.memories.first().data,QString("707370"));
+        QCOMPARE(BitParser::extract(scene.objects.first().iparams.first(),73,16),quint32(0));
+        source.width=512; source.height=512;
+        auto &glyph=source.fonts[0].glyphs['A'];
+        glyph.width=256; glyph.height=256; glyph.advance=256; glyph.maskRows=QString(65536,'7');
         scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
         QCOMPARE(scene.memories.first().data.size(),65536);
-        QCOMPARE(BitParser::extract(scene.objects.first().iparams.first(),61,12),quint32(1));
-        source.fonts[0].maskData.append('0');
+        const auto full=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(full.document.isValid(),qPrintable(error));
+        QCOMPARE(full.packets.last().address,64512); QCOMPARE(full.packets.last().payloadSize,1024);
+        FpgaSimulator simulator; simulator.loadBundle(full); QCOMPARE(simulator.renderFrame().pixelColor(265,275),QColor(0x12,0x34,0x56));
+        glyph.height=257; glyph.maskRows=QString(256*257,'7');
         QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("65536"));
         source = FpgaCompiledDocument::fromDomDocument(textFixture("AAA"),&error);
         source.width = 12000; source.fonts[0].glyphs['A'].advance = 4095;
         QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("12-бит"));
         source = FpgaCompiledDocument::fromDomDocument(textFixture(),&error);
-        for (int i = 1; i <= 256; ++i) source.fonts.insert(i,source.fonts[0]);
+        const auto originalText=source.objects.first();
+        for (int i = 0; i < 256; ++i) source.objects.append(originalText);
         QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("256"));
         source.fonts.clear(); source.objects.clear();
         FpgaCompiledObject many; many.type="rectangle"; many.iparams.fill(QString(38,'0'),65537); source.objects.append(many);
@@ -1160,6 +1182,116 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(capture.data().size()>=expected.size() || !failed.isEmpty(),3000);
         sender.stopStreaming(); QVERIFY(failed.isEmpty()); QCOMPARE(capture.data(),expected);
 #endif
+    }
+    void composedTextOverlapAndTrim() {
+        QString error;
+        auto source=FpgaCompiledDocument::fromDomDocument(textFixture("AA"),&error);
+        auto &font=source.fonts[0]; font.glyphs['A'].advance=1;
+        auto scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
+        QCOMPARE(scene.objects.size(),1); QCOMPARE(scene.objects.first().iparams.size(),1);
+        QCOMPARE(scene.memories.first().data,QString("77773770")); // Пересечение без отрицательного кернинга.
+        font.kerningPairs.insert("AA",-1);
+        scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
+        QCOMPARE(scene.memories.first().data,QString("707570")); // 1/2 + 1/2*(1-1/2) = 3/4.
+        auto &glyph=font.glyphs['A']; glyph.width=5; glyph.height=4; glyph.advance=5;
+        glyph.maskRows="00000\n00700\n00000\n00000";
+        TextMask mask; QVERIFY(composeTextMask("A",font,&mask,&error));
+        QCOMPARE(mask.offset,QPoint(2,1)); QCOMPARE(mask.size,QSize(1,1)); QCOMPARE(mask.data,QString("7"));
+    }
+    void simulatorPacketValidationAndGroupPriority() {
+        QString error;
+        auto bundle=compileTextFixture(textFixture("A"),&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        FpgaSimulator simulator; simulator.loadBundle(bundle); const auto original=simulator.renderFrame();
+        for (auto &packet:bundle.packets) if (packet.type==FpgaPacketType::StaticMemory) packet.bytes[12]=char(0);
+        simulator.loadBundle(bundle); QVERIFY(!simulator.warnings().isEmpty()); QVERIFY(simulator.renderFrame()!=original);
+        bundle=compileTextFixture(textFixture("A"),&error);
+        for (auto &packet:bundle.packets) if(packet.type==FpgaPacketType::Parameter) {
+            auto payload=packet.bytes.mid(7,packet.bytes.size()-11); payload[2]=0; payload[3]=18;
+            packet.bytes=FpgaPacketFramer::frame(quint8(packet.type),payload);
+        }
+        simulator.loadBundle(bundle); QVERIFY(!simulator.warnings().isEmpty()); QVERIFY(simulator.renderFrame()!=original);
+        FpgaHardwareScene scene; scene.width=4; scene.height=4; scene.backgroundColor=QColor(20,30,40);
+        scene.schemas.insert("staticgroup",FpgaSchemaRegistry::instance()->buildSchema("staticgroup"));
+        FpgaHardwareObject group; group.type="staticgroup"; group.memId=0;
+        group.iparams={testInit("staticgroup",{{"enb",1},{"color",0xffffff},{"w",1},{"h",1}}),
+                      testInit("staticgroup",{{"enb",1},{"color",0xffffff},{"w",1},{"h",1},{"addr",1}})};
+        scene.objects={group}; scene.memories={{FpgaMemoryKind::StaticMask,"70"}};
+        bundle=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        simulator.loadBundle(bundle); QCOMPARE(simulator.renderFrame().pixelColor(0,0),scene.backgroundColor);
+        scene.objects[0].iparams.removeLast(); group.startParamIndex=1; group.iparams.removeFirst(); scene.objects.append(group);
+        simulator.loadBundle(FpgaPacketCompiler().compile(scene,&error));
+        QCOMPARE(simulator.renderFrame().pixelColor(0,0),QColor(Qt::white)); // Между модулями ноль прозрачен.
+    }
+    void configurableStaticGroupLimits() {
+        QTemporaryDir temp;
+        const auto oldPath=qgetenv("AVIONIX_SETTINGS_FILE");
+        auto restore=qScopeGuard([&]{qputenv("AVIONIX_SETTINGS_FILE",oldPath);});
+        qputenv("AVIONIX_SETTINGS_FILE",temp.filePath("limits.ini").toUtf8());
+        auto settings=ApplicationSettings::create();
+        QCOMPARE(ApplicationSettings::staticGroupPixels(),65536); QCOMPARE(ApplicationSettings::staticGroupElements(),8);
+        settings.setValue("fpga/staticGroupPixels",6); settings.setValue("fpga/staticGroupElements",1); settings.sync();
+        QString error;
+        auto bundle=compileTextFixture(textFixture("A"),&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        QVERIFY(!compileTextFixture(textFixture("AA"),&error).document.isValid()); QVERIFY(error.contains("6"));
+        auto scene=bundle.document; scene.objects[0].iparams.append(scene.objects[0].iparams.first());
+        QVERIFY(!FpgaPacketCompiler().compile(scene,&error).document.isValid());
+        SettingsWindow window;
+        auto *pixels=window.findChild<QSpinBox *>("StaticGroupPixelsSpin"); auto *elements=window.findChild<QSpinBox *>("StaticGroupElementsSpin");
+        QVERIFY(pixels && elements); window.show(); QTest::qWait(1);
+        QCOMPARE(pixels->value(),6); QCOMPARE(elements->value(),1);
+        pixels->setValue(65536); elements->setValue(8);
+        QVERIFY(QMetaObject::invokeMethod(&window,"saveSettings",Qt::DirectConnection));
+        QCOMPARE(ApplicationSettings::staticGroupPixels(),65536); QCOMPARE(ApplicationSettings::staticGroupElements(),8);
+    }
+    void editorHardwareDataAndExportToggle() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp; QString error;
+        p->createNewProject("Toggle",320,160,Qt::black);
+        p->addObject("rectangle"); p->addObject("rotationobject"); p->addObject("text");
+        QImage pixels(4,3,QImage::Format_ARGB32); pixels.fill(Qt::transparent);
+        pixels.setPixelColor(0,0,Qt::red); pixels.setPixelColor(2,2,Qt::green);
+        const auto png=temp.filePath("private-source-name.png"); QVERIFY(pixels.save(png)); QVERIFY(p->importImage(png)>=0);
+        QVERIFY(p->importImage(png,true)>=0);
+        auto *rotating=dynamic_cast<ImageObject *>(p->getObjectAt(0).data()); QVERIFY(rotating); rotating->setRotation(37.125);
+        const auto path=temp.filePath("project.xml");
+        auto read=[&] { QFile f(path); f.open(QIODevice::ReadOnly); QDomDocument d; d.setContent(f.readAll()); return d; };
+        auto check=[&](bool exported) {
+            const auto doc=read(); const auto editor=doc.documentElement().firstChildElement("editor");
+            QVERIFY(!doc.toString().contains("source-name")); QVERIFY(!doc.toString().contains("private-source-name"));
+            for(auto n=editor.firstChildElement("scene").firstChildElement("object");!n.isNull();n=n.nextSiblingElement("object")) {
+                QCOMPARE(n.firstChildElement("parameters").isNull(),exported);
+                QCOMPARE(n.hasAttribute("hardware-index"),exported);
+            }
+            if(exported) QVERIFY(editor.firstChildElement("resources").firstChildElement().isNull());
+            else QVERIFY(doc.documentElement().firstChildElement("objects").firstChildElement().isNull());
+        };
+        QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage())); check(true);
+        auto doc=read(); auto init=doc.documentElement().firstChildElement("objects").firstChildElement("rectangle").firstChildElement("init");
+        QVERIFY(!init.isNull()); auto hex=init.text(); BitParser::inject(hex,49,12,55); init.firstChild().setNodeValue(hex);
+        QFile changed(path); QVERIFY(changed.open(QIODevice::WriteOnly)); auto xml=doc.toString(); xml.replace("windows-1251","UTF-8"); changed.write(xml.toUtf8()); changed.close();
+        const auto expectedHardware=FpgaCompiledDocument::fromDomDocument(doc,&error);
+        QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+        for(const auto &object:p->getObjects()) if(auto *r=dynamic_cast<RectangleObject *>(object.data())) QCOMPARE(r->x,55.0);
+        const auto actualHardware=FpgaCompiledDocument::fromDomDocument(p->buildCompiledFpgaXml(),&error);
+        QCOMPARE(actualHardware.objects.size(),expectedHardware.objects.size());
+        for(int i=0;i<expectedHardware.objects.size();++i) {
+            QCOMPARE(actualHardware.objects[i].iparams,expectedHardware.objects[i].iparams);
+            QCOMPARE(actualHardware.objects[i].data,expectedHardware.objects[i].data);
+        }
+        const auto baseline=FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error));
+        for(int pass=0;pass<2;++pass) {
+            for(int i=0;i<p->getObjectCount();++i) QVERIFY(p->setObjectExportEnabled(i,false));
+            QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage())); check(false);
+            QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+            for(int i=0;i<p->getObjectCount();++i) QVERIFY(p->setObjectExportEnabled(i,true));
+            const auto restored=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(restored.document.isValid(),qPrintable(error));
+            QCOMPARE(FpgaUartTransport::sceneBytes(restored),baseline);
+            QVERIFY(p->saveToFile(path)); check(true); QVERIFY(p->loadFromFile(path));
+        }
+        for(const auto &object:p->getObjects()) if(auto *text=dynamic_cast<TextObject *>(object.data())) {
+            QVERIFY(!text->restrictedAtlasEditing); QVERIFY(text->setObjectProperty("Текст","TEST"));
+            QVERIFY(text->setObjectProperty("Размер","24")); QVERIFY(text->setObjectProperty("Шрифт","Georgia"));
+        }
+        QVERIFY2(FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid(),qPrintable(error));
     }
     void rectangleCornersAndTransparency() {
         RectangleObject rectangle;

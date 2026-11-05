@@ -3,12 +3,13 @@
 #pragma once
 
 #include <QStringList>
+#include "ApplicationSettings.h"
 
 class BaseObject;
 
 namespace FpgaResourceLimits {
-constexpr int staticParameters = 8;
-constexpr int staticPixels = 65536;
+inline int staticParameters() { return ApplicationSettings::staticGroupElements(); }
+inline int staticPixels() { return ApplicationSettings::staticGroupPixels(); }
 constexpr int rotationTiles = 2048;
 
 // Report - ошибки экспорта и предупреждения об уменьшении растров.
@@ -19,6 +20,6 @@ struct Report
     QStringList messages() const { return errors + warnings; }
 };
 
-// Проверяет статические/вращающиеся растры; лимиты алфавитов проверяет компилятор сцены.
+// Проверяет статические/вращающиеся растры; готовые маски текста проверяются также компилятором сцены.
 Report inspect(const BaseObject &object);
 }

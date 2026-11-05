@@ -10,6 +10,8 @@
 #include "TextObject.h"
 #include "ThreeDViewObject.h"
 #include "FpgaSchemaRegistry.h"
+#include "BitParser.h"
+#include "fpga/model/FpgaCompiledDocument.h"
 
 #include <QBuffer>
 #include <QCryptographicHash>
@@ -343,25 +345,60 @@ void objectFields(Fields &a, BaseObject &object, Resources &resources)
             v->setLeftAnchored(left);
         }
     } else if (auto *v = dynamic_cast<ImageObject *>(&object)) {
-        a.text("source-name", v->sourceName); a.text("format", v->format);
+        if (a.reading) v->sourceName.clear();
+        a.text("format", v->format);
         if (v->format != "svg" && v->format != "raster") a.fail("Неизвестный формат исходного изображения.");
-        auto source = a.child("source");
-        if (!a.reading) {
-            const QByteArray data = v->sourcePayload();
-            source.setAttribute("ref", data.isEmpty() ? QString() : resources.binary(data, v->format == "svg" ? "image/svg+xml" : "image/png"));
+        const bool storedLayers = a.reading ? !a.node.firstChildElement("raster-layers").isNull() : !v->restoredRasterComponents().isEmpty();
+        if (storedLayers) {
+            Fields layers(a.child("raster-layers"), a.reading, a.error);
+            auto components = v->restoredRasterComponents();
+            QSize size = v->restoredRasterSize();
+            int width = size.width(), height = size.height();
+            layers.value("width", width); layers.value("height", height);
+            if (v->isRotationObject()) {
+                auto coefficients = v->rotationCoefficients();
+                int sine = coefficients.x(), cosine = coefficients.y();
+                layers.value("sin", sine); layers.value("cos", cosine);
+                if (a.reading) v->restoreRotationCoefficients(sine, cosine);
+            }
+            if (width <= 0 || height <= 0 || qint64(width) * height > 64 * 1024 * 1024) { a.fail("Некорректные габариты растровых слоёв."); return; }
+            if (a.reading) components.clear();
+            auto n = a.reading ? layers.node.firstChildElement("layer") : QDomElement();
+            for (int i = 0; a.reading ? !n.isNull() : i < components.size(); ++i) {
+                if (!a.reading) n = append(layers.node, "layer");
+                ImageMaskComponent c = a.reading ? ImageMaskComponent{} : components[i];
+                Fields f(n, a.reading, a.error);
+                int x = c.bounds.x(), y = c.bounds.y();
+                f.value("x", x); f.value("y", y); f.value("color", c.color);
+                resources.image(f.child("mask"), c.mask);
+                c.bounds = QRect(QPoint(x, y), c.mask.size()); c.layerIndex = i;
+                if (c.mask.isNull() || !QRect(0, 0, width, height).contains(c.bounds)) { a.fail("Растровый слой выходит за границы изображения."); return; }
+                if (a.reading) { components.append(c); n = n.nextSiblingElement("layer"); }
+            }
+            if (a.reading) {
+                const auto coefficients = v->rotationCoefficients();
+                v->restoreRasterComponents(components, QSize(width, height));
+                if (v->isRotationObject()) v->restoreRotationCoefficients(coefficients.x(), coefficients.y());
+            }
         } else {
-            const QString id = source.attribute("ref");
-            if (!id.isEmpty()) {
-                if (!resources.binaries.contains(id) || resources.mediaTypes.value(id) != (v->format == "svg" ? "image/svg+xml" : "image/png")) a.fail("Отсутствует исходное изображение.");
-                else {
-                    const QByteArray data = resources.binaries.value(id);
-                    if (v->format == "svg") {
-                        QSvgRenderer renderer(data);
-                        if (!renderer.isValid()) a.fail("Повреждён исходный SVG.");
-                    } else {
-                        QImage image; resources.image(source, image);
+            auto source = a.child("source");
+            if (!a.reading) {
+                const QByteArray data = v->sourcePayload();
+                source.setAttribute("ref", data.isEmpty() ? QString() : resources.binary(data, v->format == "svg" ? "image/svg+xml" : "image/png"));
+            } else {
+                const QString id = source.attribute("ref");
+                if (!id.isEmpty()) {
+                    if (!resources.binaries.contains(id) || resources.mediaTypes.value(id) != (v->format == "svg" ? "image/svg+xml" : "image/png")) a.fail("Отсутствует исходное изображение.");
+                    else {
+                        const QByteArray data = resources.binaries.value(id);
+                        if (v->format == "svg") {
+                            QSvgRenderer renderer(data);
+                            if (!renderer.isValid()) a.fail("Повреждён исходный SVG.");
+                        } else {
+                            QImage image; resources.image(source, image);
+                        }
+                        if (a.error.isEmpty()) v->setSourcePayload(data);
                     }
-                    if (a.error.isEmpty()) v->setSourcePayload(data);
                 }
             }
         }
@@ -417,10 +454,120 @@ void objectFields(Fields &a, BaseObject &object, Resources &resources)
     }
 }
 
+QImage maskImage(const QString &data, int offset, const QSize &size, const QColor &color)
+{
+    QImage image(size, QImage::Format_ARGB32);
+    image.fill(Qt::transparent);
+    for (int y = 0; y < size.height(); ++y)
+        for (int x = 0; x < size.width(); ++x) {
+            QColor pixel = color;
+            // Обратное преобразование сериализатора растров; уровни сохраняются точно.
+            pixel.setAlpha(data[offset + y * size.width() + x].digitValue() * 255 / 7);
+            image.setPixelColor(x, y, pixel);
+        }
+    return image;
+}
+
+bool restoreHardware(BaseObject &object, const QDomElement &element,
+                     const FpgaCompiledDocument &document, bool restrictedText, QString &error)
+{
+    const QString tag = element.tagName();
+    const auto schema = document.schemas.value(tag);
+    const QString init = element.firstChildElement("init").text().trimmed();
+    auto field = [&](const char *name) { const auto f = schema.value(name); return int(BitParser::extract(init, f.offset, f.size)); };
+    QString data = element.firstChildElement("data").text();
+    data.remove(QRegularExpression("[,\\s]"));
+    if (auto *text = dynamic_cast<TextObject *>(&object)) {
+        const auto codes = element.firstChildElement("data").text().split(QRegularExpression("[,\\s]+"), Qt::SkipEmptyParts);
+        QString characters;
+        for (const auto &code : codes) characters.append(QChar(code.toUShort()));
+        const auto font = document.fonts.constFind(field("font_index"));
+        if (font == document.fonts.cend()) { error = "Отсутствует шрифт текста."; return false; }
+        text->text = characters.mid(field("char_offset"), field("char_count"));
+        text->states = {{field("x"), field("y"), 0, 0, 0, BitParser::parseColor(field("color")), bool(field("enb"))}};
+        text->setFontAtlas(font.value(), restrictedText);
+        return true;
+    }
+    if (tag == "staticgroup") {
+        StaticGroupObject group;
+        group.parse(init, schema);
+        // Проверяем все адреса до выделения изображений в parseExtraData().
+        for (auto n = element.firstChildElement("init"); !n.isNull(); n = n.nextSiblingElement("init")) {
+            auto get = [&](const char *key) { const auto f = schema.value(key); return qint64(BitParser::extract(n.text(), f.offset, f.size)); };
+            if (get("w") <= 0 || get("h") <= 0 || get("addr") + get("w") * get("h") > data.size()) {
+                error = "Маска STATICGROUP выходит за границы data."; return false;
+            }
+        }
+        if (data.contains(QRegularExpression("[^0-7]"))) { error = "Повреждены уровни маски STATICGROUP."; return false; }
+        group.parseExtraData(element);
+        if (auto *image = dynamic_cast<ImageObject *>(&object)) {
+            QRect bounds;
+            for (const auto &s : group.states) bounds = bounds.united(QRect(s.x, s.y, s.w, s.h));
+            QList<ImageMaskComponent> components;
+            for (int i = 0; i < group.states.size(); ++i) {
+                const auto &s = group.states[i];
+                components.append({i, QRect(QPoint(s.x, s.y) - bounds.topLeft(), QSize(s.w, s.h)), s.color, group.maskImages[i]});
+            }
+            image->restoreRasterComponents(components, bounds.size());
+            image->x = bounds.x(); image->y = bounds.y();
+        } else {
+            auto &target = static_cast<StaticGroupObject &>(object);
+            target.states = group.states; target.maskImages = group.maskImages; target.groupNumber = group.groupNumber;
+        }
+        return true;
+    }
+    if (tag == "rotationobject") {
+        RotationObject rotation;
+        rotation.parse(init, schema);
+        QStringList params;
+        for (auto n = element.firstChildElement("init"); !n.isNull(); n = n.nextSiblingElement("init")) params.append(n.text().trimmed());
+        rotation.setHardwareLayersFromInitHex(params, schema);
+        const auto payload = element.firstChildElement("data");
+        const QSize size(payload.attribute("width").toInt(), payload.attribute("height").toInt());
+        if (size.width() <= 0 || size.height() <= 0 || qint64(size.width()) * size.height() != data.size()
+            || data.contains(QRegularExpression("[^0-7]"))) { error = "Повреждена вращаемая маска."; return false; }
+        rotation.maskImage = maskImage(data, 0, size, rotation.color);
+        if (auto *image = dynamic_cast<ImageObject *>(&object)) {
+            // У обрезанного растра центр вращения может находиться вне маски.
+            // Восстанавливаем прозрачные поля так, чтобы сохранить аппаратный центр.
+            const int halfWidth = qMax(qAbs(int(rotation.left)), qAbs(int(rotation.right)));
+            const int halfHeight = qMax(qAbs(int(rotation.top)), qAbs(int(rotation.bottom)));
+            image->restoreRasterComponents({{0, QRect(QPoint(halfWidth + rotation.left, halfHeight + rotation.top), size), rotation.color, rotation.maskImage}},
+                QSize(qMax(1, halfWidth * 2), qMax(1, halfHeight * 2)));
+            image->x = rotation.xRot - halfWidth; image->y = rotation.yRot - halfHeight;
+            image->restoreRotationCoefficients(rotation.sinVal, rotation.cosVal);
+        } else {
+            auto &target = static_cast<RotationObject &>(object);
+            target.parse(init, schema); target.setHardwareLayersFromInitHex(params, schema); target.maskImage = rotation.maskImage;
+        }
+        return true;
+    }
+    object.parse(init, schema);
+    return true;
+}
+
 bool process(QDomElement editor, State &state, bool reading, QString &error)
 {
     Fields root(editor, reading, error);
-    if (reading && editor.attribute("version") != "1") { error = "Неподдерживаемая версия <editor>."; return false; }
+    QList<QDomElement> hardware;
+    const auto objectsNode = editor.parentNode().firstChildElement("objects");
+    for (auto n = objectsNode.firstChildElement(); !n.isNull(); n = n.nextSiblingElement())
+        if (n.tagName() != "font") hardware.append(n);
+    FpgaCompiledDocument compiled;
+    if (reading) {
+        compiled = FpgaCompiledDocument::fromDomDocument(editor.ownerDocument(), &error);
+        if (!error.isEmpty()) return false;
+    }
+    QMap<BaseObject *, int> hardwareIndex;
+    if (!reading) {
+        int next = 0;
+        for (const auto &ptr : state.objects)
+            if (dynamic_cast<ThreeDViewObject *>(ptr.data()) && ptr->isExportEnabled()) hardwareIndex.insert(ptr.data(), next++);
+        for (int i = state.objects.size() - 1; i >= 0; --i)
+            if (state.objects[i]->isExportEnabled() && !dynamic_cast<ThreeDViewObject *>(state.objects[i].data())) hardwareIndex.insert(state.objects[i].data(), next++);
+        if (next != hardware.size()) { error = "Не удалось сопоставить объекты редактора с аппаратным XML."; return false; }
+    }
+    QSet<int> referencedHardware;
     auto workspace = root.child("workspace"); Fields w(workspace, reading, error);
     QString projectName = state.document.projectName(); QColor background = state.document.backgroundColor();
     int width = state.document.canvasWidth(), height = state.document.canvasHeight();
@@ -466,7 +613,10 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
     for (int index = 0; reading ? !object.isNull() : index < writeCount; ++index) {
         if (!reading) {
             object = append(scene, "object"); object.setAttribute("id", QStringLiteral("object-%1").arg(index + 1));
-            object.setAttribute("type", objectType(state.objects[index].data())); object.setAttribute("export-tag", state.objectTags.value(index));
+            object.setAttribute("type", objectType(state.objects[index].data()));
+            QString exportTag = state.objectTags.value(index);
+            if (const auto *rectangle = dynamic_cast<RectangleObject *>(state.objects[index].data())) exportTag = rectangle->usesAlpha() ? "rectangle_a" : "rectangle";
+            object.setAttribute("export-tag", exportTag);
             if (auto *image = dynamic_cast<ImageObject *>(state.objects[index].data())) object.setAttribute("kind", image->isRotationObject() ? "rotating" : "static");
         }
         const QString id = object.attribute("id"), type = object.attribute("type"), tag = object.attribute("export-tag");
@@ -483,7 +633,37 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
         Fields flags(meta.child("flags"), reading, error);
         flags.value("visible", visible); flags.value("selection-locked", locked); flags.value("export-enabled", exported);
         flags.value("resize-locked", resizeLocked); flags.value("imported-hardware", imported); flags.text("restriction-hint", hint);
-        Fields parameters(meta.child("parameters"), reading, error); objectFields(parameters, *ptr, resources);
+        if (exported) {
+            int reference = reading ? -1 : hardwareIndex.value(ptr.data(), -1);
+            meta.value("hardware-index", reference);
+            const QString expected = type == "image" ? (object.attribute("kind") == "rotating" ? "rotationobject" : "staticgroup") : tag;
+            if (reference < 0 || reference >= hardware.size() || referencedHardware.contains(reference)
+                || hardware.value(reference).tagName() != expected) { root.fail("Некорректная ссылка на аппаратный объект."); return false; }
+            referencedHardware.insert(reference);
+            bool restricted = false;
+            QDomElement options;
+            if (auto *text = dynamic_cast<TextObject *>(ptr.data())) {
+                Fields editing(meta.child("text-options"), reading, error);
+                options = editing.node;
+                restricted = text->restrictedAtlasEditing;
+                editing.value("restricted-atlas-editing", restricted);
+            }
+            if (reading && !restoreHardware(*ptr, hardware[reference], compiled, restricted, error)) return false;
+            if (auto *text = dynamic_cast<TextObject *>(ptr.data())) {
+                Fields editing(options, reading, error);
+                editing.text("extra-characters", text->extraCharacters);
+                auto alphabets = editing.child("export-alphabets");
+                if (reading) {
+                    text->exportAlphabetGroups.clear();
+                    for (auto n = alphabets.firstChildElement("alphabet"); !n.isNull(); n = n.nextSiblingElement("alphabet")) text->exportAlphabetGroups.append(n.text());
+                } else for (const auto &name : text->exportAlphabetGroups) append(alphabets, "alphabet").appendChild(editor.ownerDocument().createTextNode(name));
+            }
+            if (auto *view = dynamic_cast<ThreeDViewObject *>(ptr.data())) {
+                bool left = view->isLeftAnchored(); meta.value("left-anchored", left); if (reading) view->setLeftAnchored(left);
+            }
+        } else {
+            Fields parameters(meta.child("parameters"), reading, error); objectFields(parameters, *ptr, resources);
+        }
         if (!layerIds.contains(layer)) root.fail("Объект ссылается на отсутствующий слой.");
         if (reading) {
             ptr->setEditorLayerId(layer); ptr->setCustomName(name); ptr->setViewVisible(visible); ptr->setSelectionLocked(locked);
@@ -493,6 +673,7 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
         }
         if (!error.isEmpty()) return false;
     }
+    if (referencedHardware.size() != hardware.size()) { root.fail("В аппаратной сцене есть объекты без метаданных редактора."); return false; }
     Fields groups(root.child("groups"), reading, error); groups.value("next-id", state.nextGroupId);
     if (reading) {
         state.groups.clear();
@@ -529,9 +710,14 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
 bool write(QDomDocument &document, const State &source, QString *error)
 {
     QString message; State state = source;
-    auto editor = document.createElement("editor"); editor.setAttribute("version", 1);
-    if (!process(editor, state, false, message)) { if (error) *error = message; return false; }
+    auto editor = document.createElement("editor");
+    // Ссылки разрешаются относительно неизменённых аппаратных разделов проекта.
     document.documentElement().appendChild(editor);
+    if (!process(editor, state, false, message)) {
+        document.documentElement().removeChild(editor);
+        if (error) *error = message;
+        return false;
+    }
     if (error) error->clear();
     return true;
 }

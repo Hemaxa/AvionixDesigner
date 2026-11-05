@@ -1,6 +1,7 @@
 // ImageObject - редактируемый источник изображения до экспорта в растровую маску ПЛИС.
 
 #include "ImageObject.h"
+#include "fpga/compiler/FpgaResourceLimits.h"
 #include "ProportionalResize.h"
 #include "RasterGeometry.h"
 
@@ -22,7 +23,6 @@ constexpr int kColorMergeDistanceSquared = 72 * 72;
 constexpr int kWeakColorMergeDistanceSquared = 160 * 160;
 constexpr int kWeakColorMergePercent = 75;
 constexpr int kStaticGroupMaxDimension = 4095;
-constexpr int kStaticGroupMaxPixels = 65536;
 
 // ColorStats - взвешенная статистика исходных цветов для построения палитры.
 struct ColorStats
@@ -445,8 +445,8 @@ double staticGroupSimplificationScale(const QList<ImageMaskComponent> &component
     }
 
     const qint64 pixels = staticGroupPixelCost(components);
-    if (pixels > kStaticGroupMaxPixels)
-        scale = qMin(scale, qSqrt(static_cast<double>(kStaticGroupMaxPixels) / pixels));
+    if (pixels > FpgaResourceLimits::staticPixels())
+        scale = qMin(scale, qSqrt(static_cast<double>(FpgaResourceLimits::staticPixels()) / pixels));
 
     return scale;
 }
@@ -482,6 +482,8 @@ ImageObject::ImageObject(Kind kind, QObject *parent) : BaseObject(parent), m_kin
 
 void ImageObject::setRasterImage(const QImage &image, const QString &name)
 {
+    m_restoredComponents.clear();
+    m_hasRestoredRotation = false;
     m_sourceImage = image.convertToFormat(QImage::Format_ARGB32);
     sourceName = name;
     format = QStringLiteral("raster");
@@ -498,6 +500,8 @@ void ImageObject::setRasterImage(const QImage &image, const QString &name)
 
 void ImageObject::setSvgData(const QByteArray &data, const QString &name, const QSize &defaultSize)
 {
+    m_restoredComponents.clear();
+    m_hasRestoredRotation = false;
     m_sourceBytes = data;
     m_sourceImage = QImage();
     sourceName = name;
@@ -592,7 +596,68 @@ QColor ImageObject::effectiveMaskColor() const
 
 QList<ImageMaskComponent> ImageObject::maskComponents() const
 {
+    if (!m_restoredComponents.isEmpty()) {
+        auto components = m_restoredComponents;
+        const double sx = width / m_restoredSize.width(), sy = height / m_restoredSize.height();
+        for (int i = 0; i < components.size(); ++i) {
+            auto &c = components[i];
+            const int outWidth = qMax(1, qRound(width)), outHeight = qMax(1, qRound(height));
+            const int left = qBound(0, qRound(c.bounds.x() * sx), outWidth - 1);
+            const int top = qBound(0, qRound(c.bounds.y() * sy), outHeight - 1);
+            const int right = qBound(left + 1, qRound((c.bounds.x() + c.bounds.width()) * sx), outWidth);
+            const int bottom = qBound(top + 1, qRound((c.bounds.y() + c.bounds.height()) * sy), outHeight);
+            c.bounds = QRect(left, top, right - left, bottom - top);
+            c.mask = c.mask.scaled(c.bounds.size(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            if (i < m_colorLayers.size() && !m_colorLayers[i].autoMaskColor) c.color = m_colorLayers[i].maskColor;
+            for (int y = 0; y < c.mask.height(); ++y)
+                for (int x = 0; x < c.mask.width(); ++x) {
+                    QColor pixel = c.color; pixel.setAlpha(c.mask.pixelColor(x, y).alpha());
+                    c.mask.setPixelColor(x, y, pixel);
+                }
+        }
+        return components;
+    }
     return extractComponents(renderedSourceImage(), m_colorLayers);
+}
+
+void ImageObject::restoreRasterComponents(const QList<ImageMaskComponent> &components, const QSize &size)
+{
+    QImage image(size, QImage::Format_ARGB32);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    for (const auto &c : components) painter.drawImage(c.bounds.topLeft(), c.mask);
+    painter.end();
+    setRasterImage(image, {});
+    m_restoredComponents = components;
+    m_restoredSize = size;
+    m_colorLayers.clear();
+    for (const auto &c : components) m_colorLayers.append({c.color, c.color, true});
+}
+
+void ImageObject::copyRasterSource(const ImageObject &source)
+{
+    m_sourceImage = source.m_sourceImage;
+    m_sourceBytes = source.m_sourceBytes;
+    m_restoredComponents = source.m_restoredComponents;
+    m_restoredSize = source.m_restoredSize;
+    m_restoredRotation = source.m_restoredRotation;
+    m_restoredAngle = source.m_restoredAngle;
+    m_hasRestoredRotation = source.m_hasRestoredRotation;
+}
+
+void ImageObject::restoreRotationCoefficients(int sine, int cosine)
+{
+    m_restoredRotation = QPoint(sine, cosine);
+    m_restoredAngle = qRadiansToDegrees(qAtan2(double(sine), double(cosine)));
+    rotationDegrees = m_restoredAngle;
+    m_hasRestoredRotation = true;
+}
+
+QPoint ImageObject::rotationCoefficients() const
+{
+    if (m_hasRestoredRotation && rotationDegrees == m_restoredAngle) return m_restoredRotation;
+    const double angle = qDegreesToRadians(rotationDegrees);
+    return QPoint(qRound(qSin(angle) * 65536.0), qRound(qCos(angle) * 65536.0));
 }
 
 QList<ImageColorLayer> ImageObject::colorLayers() const
@@ -643,13 +708,13 @@ QString ImageObject::xmlExportSummary() const
     const qint64 sourcePixels = staticGroupPixelCost(components);
     const qint64 exportPixels = scale >= 0.999
         ? sourcePixels
-        : qMin<qint64>(kStaticGroupMaxPixels, qMax<qint64>(1, qFloor(sourcePixels * scale * scale)));
+        : qMin<qint64>(FpgaResourceLimits::staticPixels(), qMax<qint64>(1, qFloor(sourcePixels * scale * scale)));
 
     return QStringLiteral("staticgroup, упрощение: %1 (1 объект, %2 init, память %3/%4)")
         .arg(scale < 0.999 ? QStringLiteral("да") : QStringLiteral("нет"))
         .arg(qMax(1, components.size()))
         .arg(exportPixels)
-        .arg(kStaticGroupMaxPixels);
+        .arg(FpgaResourceLimits::staticPixels());
 }
 
 QByteArray ImageObject::sourcePayload() const
@@ -659,6 +724,8 @@ QByteArray ImageObject::sourcePayload() const
 
 void ImageObject::setSourcePayload(const QByteArray &payload)
 {
+    m_restoredComponents.clear();
+    m_hasRestoredRotation = false;
     m_sourceBytes = payload;
     if (format == QStringLiteral("svg")) {
         QSvgRenderer renderer(m_sourceBytes);

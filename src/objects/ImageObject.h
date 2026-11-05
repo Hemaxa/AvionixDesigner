@@ -59,6 +59,13 @@ public:
     QString xmlExportSummary() const;
     QByteArray sourcePayload() const;
     void setSourcePayload(const QByteArray &payload);
+    // Растры, восстановленные из init/data, сохраняют границы цветовых масок.
+    void restoreRasterComponents(const QList<ImageMaskComponent> &components, const QSize &size);
+    void copyRasterSource(const ImageObject &source);
+    QList<ImageMaskComponent> restoredRasterComponents() const { return m_restoredComponents; }
+    QSize restoredRasterSize() const { return m_restoredSize; }
+    void restoreRotationCoefficients(int sine, int cosine);
+    QPoint rotationCoefficients() const;
 
     void parse(const QString &hexInit, const ParamSchema &schema) override;
     void draw(QPainter &painter) override;
@@ -80,4 +87,9 @@ private:
     QImage m_sourceImage;
     QByteArray m_sourceBytes;
     QList<ImageColorLayer> m_colorLayers;
+    QList<ImageMaskComponent> m_restoredComponents;
+    QSize m_restoredSize;
+    QPoint m_restoredRotation;
+    double m_restoredAngle = 0.0;
+    bool m_hasRestoredRotation = false;
 };
