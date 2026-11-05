@@ -132,6 +132,9 @@ ViewportPanel::ViewportPanel(QWidget *parent)
         update();
     });
 
+    connect(ProjectManager::instance(), &ProjectManager::editorViewStateChanged, this, &ViewportPanel::restoreViewState);
+    restoreViewState();
+
     // подключаемся к сигналу смены темы для перерисовки
     connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, QOverload<>::of(&QWidget::update));
 }
@@ -140,6 +143,7 @@ void ViewportPanel::setScale(double scale)
 {
     // ограничиваем масштаб в разумных пределах
     m_scale = qBound(0.1, scale, 10.0);
+    storeViewState();
     update();
 }
 
@@ -154,6 +158,7 @@ void ViewportPanel::resetView()
     m_scale = 1.0;
     m_offsetX = 0;
     m_offsetY = 0;
+    storeViewState();
     update();
 }
 
@@ -938,6 +943,7 @@ void ViewportPanel::wheelEvent(QWheelEvent *event)
         } else {
             m_scale = qMax(m_scale * (1.0 - zoomStep), 0.1);
         }
+        storeViewState();
         update();
         event->accept();
     } else {
@@ -1123,6 +1129,7 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         m_offsetX += delta.x();
         m_offsetY += delta.y();
         m_lastMousePos = event->pos();
+        storeViewState();
         update();
         return;
     }
@@ -1324,4 +1331,29 @@ void ViewportPanel::dropEvent(QDropEvent *event)
         }
     }
     event->ignore();
+}
+
+void ViewportPanel::storeViewState()
+{
+    ProjectManager::instance()->setEditorViewState({m_scale, QPointF(m_offsetX, m_offsetY), m_proportionalResize, m_rotationSnapping});
+}
+
+void ViewportPanel::restoreViewState()
+{
+    const auto &state = ProjectManager::instance()->editorViewState();
+    m_scale = state.scale; m_offsetX = state.offset.x(); m_offsetY = state.offset.y();
+    m_proportionalResize = state.proportionalResize; m_rotationSnapping = state.rotationSnapping;
+    update();
+}
+
+void ViewportPanel::setProportionalResize(bool enabled)
+{
+    m_proportionalResize = enabled;
+    storeViewState();
+}
+
+void ViewportPanel::setRotationSnapping(bool enabled)
+{
+    m_rotationSnapping = enabled;
+    storeViewState();
 }

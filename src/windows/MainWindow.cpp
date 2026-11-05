@@ -1,6 +1,7 @@
 // MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели.
 
 #include "MainWindow.h"
+#include <QSignalBlocker>
 #include "LayersPanel.h"
 
 #include "AircraftPositionPanel.h"
@@ -172,7 +173,6 @@ void MainWindow::onOpenFile() {
     m_objectList->selectRows({});
     m_objectProperties->clearProperties();
     m_viewport->setSelectedIndexes({});
-    m_viewport->resetView();
     setSelectionState(false);
     updateWindowTitle();
   }
@@ -484,6 +484,14 @@ void MainWindow::createMenus() {
   steppedRotation->setCheckable(true); steppedRotation->setShortcut(QKeySequence("Ctrl+Shift+R"));
   steppedRotation->setToolTip(tr("Shift при повороте — 15°, Ctrl — 90°."));
   connect(steppedRotation, &QAction::toggled, m_viewport, &ViewportPanel::setRotationSnapping);
+  auto syncTransformModes = [proportional, steppedRotation]() {
+    const auto &state = ProjectManager::instance()->editorViewState();
+    const QSignalBlocker proportionalBlocker(proportional), rotationBlocker(steppedRotation);
+    proportional->setChecked(state.proportionalResize);
+    steppedRotation->setChecked(state.rotationSnapping);
+  };
+  connect(ProjectManager::instance(), &ProjectManager::editorViewStateChanged, this, syncTransformModes);
+  syncTransformModes();
   editMenu->addAction(createAction(tr("Изменить прозрачность…"), QKeySequence("Ctrl+Alt+T"), this, SLOT(editTransparency())));
   editMenu->addSeparator();
 

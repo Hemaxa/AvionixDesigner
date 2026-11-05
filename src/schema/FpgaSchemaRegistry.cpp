@@ -187,8 +187,11 @@ bool FpgaSchemaRegistry::validateXml(const QDomDocument &document, QString *erro
     const auto objects = root.firstChildElement("objects");
     if (parameters.isNull() || objects.isNull())
         return fail(QStringLiteral("В XML необходимы разделы <parameters> и <objects>."));
+    const auto editor = root.firstChildElement("editor");
+    if (!editor.isNull() && !editor.nextSiblingElement("editor").isNull())
+        return fail(QStringLiteral("Повторный раздел <editor>."));
     for (auto child = root.firstChildElement(); !child.isNull(); child = child.nextSiblingElement()) {
-        if (child != parameters && child != objects)
+        if (child != parameters && child != objects && child != editor)
             return fail(QStringLiteral("Недопустимый раздел XML: <%1>.").arg(child.tagName()));
     }
 

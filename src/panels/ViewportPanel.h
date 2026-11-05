@@ -56,8 +56,8 @@ public slots:
     // Слот для внешней синхронизации выделения (например, из списка)
     void setSelectedIndex(int index);
     void setSelectedIndexes(const QList<int> &indexes);
-    void setProportionalResize(bool enabled) { m_proportionalResize = enabled; }
-    void setRotationSnapping(bool enabled) { m_rotationSnapping = enabled; }
+    void setProportionalResize(bool enabled);
+    void setRotationSnapping(bool enabled);
 
 private:
     QColor m_selectionColor = QColor("#00c8f0");
@@ -143,4 +143,6 @@ private:
     // Перемещает объект к позиции, рассчитанной от начала перетаскивания
     void moveObjectToDragDelta(int index, const QPointF &delta);
     void ensureDragHistoryRecorded();
+    void storeViewState();
+    void restoreViewState();
 };

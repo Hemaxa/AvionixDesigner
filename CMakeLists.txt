@@ -34,6 +34,9 @@ qt_add_executable(AvionixDesigner
     # Внутренняя модель редактора
     src/editor/EditorProjectDocument.h
     src/editor/EditorProjectDocument.cpp
+    src/editor/EditorViewState.h
+    src/editor/EditorProjectXml.h
+    src/editor/EditorProjectXml.cpp
 
     # Реестр FPGA-схем
     src/schema/FpgaSchemaRegistry.h

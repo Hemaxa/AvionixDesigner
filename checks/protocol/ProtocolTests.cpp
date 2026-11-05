@@ -15,6 +15,9 @@
 #include "fpga/simulator/FpgaSimulator.h"
 #include "fpga/transport/FpgaPacketDump.h"
 #include "RectangleObject.h"
+#include "DashedLineObject.h"
+#include "RibbonScaleObject.h"
+#include "AviaHorizonObject.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include <QColorDialog>
 #include <QMenuBar>
@@ -190,6 +193,172 @@ private slots:
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
     }
+    void editorProjectRoundTrip() {
+        auto *p = ProjectManager::instance();
+        QTemporaryDir temp;
+        auto settings = ApplicationSettings::create();
+        const QStringList keys{"gridStep", "gridColor", "snapCanvasGuideColor", "snapGridGuideColor", "snapObjectGuideColor"};
+        QMap<QString, QVariant> previous;
+        for (const auto &key : keys) previous.insert(key, settings.value(key));
+        settings.setValue("gridStep", 27); settings.setValue("gridColor", "#53667788");
+        settings.setValue("snapCanvasGuideColor", "#aaff5c7a"); settings.setValue("snapGridGuideColor", "#bb56d3ff"); settings.setValue("snapObjectGuideColor", "#ccffca58");
+        p->createNewProject("Кадр 汉字", 1024, 768, QColor("#80abcdef"));
+        for (const auto &type : {"rectangle_a", "dashline", "RibonScale", "aviahorizont", "staticgroup", "rotationobject", "layer3d", "text"}) QVERIFY(p->addObject(type) >= 0);
+        RectangleObject *rectangle = nullptr;
+        for (const auto &object : p->getObjects()) {
+            if (auto *v = dynamic_cast<RectangleObject *>(object.data())) {
+                rectangle = v; v->x = 35.25; v->y = 48.125; v->width = 126.12345678901234; v->height = 73.75;
+                v->fillColor = QColor("#80f35c7a"); v->strokeColor = QColor("#8066ccff"); v->strokeWidth = 3.625; v->alpha = 128; v->explicitAlpha = true;
+            } else if (auto *v = dynamic_cast<DashedLineObject *>(object.data())) { v->x0 = 25.125; v->y1 = 75.375; v->dashPhase = 3; }
+            else if (auto *v = dynamic_cast<RibbonScaleObject *>(object.data())) { v->yStart = 16.125; v->left = 35.875; }
+            else if (auto *v = dynamic_cast<AviaHorizonObject *>(object.data())) { v->lineWidth = 2.875; v->sinVal = 1234.25; v->cosVal = 65500.5; }
+            else if (auto *v = dynamic_cast<RotationObject *>(object.data())) { v->left = 40.125; v->top = 50.25; v->xRot = 100.375; v->sinVal = 0.125; }
+            else if (auto *v = dynamic_cast<TextObject *>(object.data())) {
+                QVERIFY(v->setObjectProperty("Текст", "AV\nЯ α")); v->exportAlphabetGroups = {"digits", "latin_upper", "cyrillic_upper"};
+                v->extraCharacters = "α°+-/";
+            }
+        }
+        QVERIFY(rectangle);
+        p->threeDViewObject()->setLeftAnchored(true);
+        QVERIFY(p->setAircraftState(123.25, 345.5, 1000.75, 31.15, 1009));
+        QString init = p->threeDViewObject()->serializeInit(); BitParser::inject(init, 84, 32, 0x89ABCDEF);
+        p->threeDViewObject()->parse(init, FpgaSchemaRegistry::instance()->buildSchema("layer3d"));
+        const int imagesLayer = p->addEditorLayer(); QVERIFY(p->renameEditorLayer(imagesLayer, "Изображения <&> 汉字"));
+        QVERIFY(p->setEditorLayerColor(imagesLayer, QColor("#8bdff2")));
+        QImage source(12, 9, QImage::Format_ARGB32); source.fill(Qt::red); source.setPixelColor(0, 0, Qt::green);
+        const auto raster = temp.filePath("source.png"); QVERIFY(source.save(raster));
+        QVERIFY(p->importImage(raster) >= 0);
+        auto *image = dynamic_cast<ImageObject *>(p->getObjectAt(0).data()); QVERIFY(image);
+        image->x = 100.125; image->width = 37.625;
+        auto colors = image->colorLayers(); QVERIFY(!colors.isEmpty()); colors[0].autoMaskColor = false; colors[0].maskColor = QColor("#00c8f0"); image->setColorLayers(colors);
+        QVERIFY(p->copyObjects({0})); QCOMPARE(p->pasteObjects().size(), 1);
+        const QByteArray svg("<svg xmlns='http://www.w3.org/2000/svg' width='12' height='9'><rect width='12' height='9' fill='#ffca58'/></svg>");
+        const auto vector = temp.filePath("source.svg"); QFile svgFile(vector); QVERIFY(svgFile.open(QIODevice::WriteOnly)); svgFile.write(svg); svgFile.close();
+        QVERIFY(p->importImage(vector, true) >= 0);
+        dynamic_cast<ImageObject *>(p->getObjectAt(0).data())->rotationDegrees = 37.125;
+        const int emptyLayer = p->addEditorLayer(); QVERIFY(p->renameEditorLayer(emptyLayer, "Пустой"));
+        const int group = p->groupObjects({0, 1, 3}); QVERIFY(group >= 0); QVERIFY(p->renameGroup(group, "Приборы <&> 🚀"));
+        for (int i = 0; i < p->getObjectCount(); ++i) {
+            auto object = p->getObjectAt(i);
+            object->setCustomName(QString("Объект %1 <&> 🚀 汉字").arg(i));
+            object->setViewVisible(i % 2 == 0); object->setSelectionLocked(i % 3 == 0);
+            object->setResizeLocked(i % 3 == 1); object->setImportedHardwareObject(i % 4 == 0);
+            object->setEditRestrictionHint(QString("Ограничение %1").arg(i));
+        }
+        QVERIFY(p->setObjectExportEnabled(0, false)); // Исходный SVG обязан остаться в проекте.
+        p->setActiveLayer(imagesLayer); p->setShowAllLayers(true);
+        p->setShowGrid(true); p->setSnapToCanvas(false); p->setSnapToGrid(true); p->setSnapToObjects(true);
+        p->setEditorViewState({2.375, QPointF(-47.5, 28.125), true, true});
+        const auto original = p->getObjects(); const auto hardware = p->buildCompiledFpgaXml().toByteArray();
+        QString error; const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(), qPrintable(error));
+        const auto bytes = FpgaUartTransport::sceneBytes(bundle);
+        auto render = [p]() {
+            QImage frame(1024, 768, QImage::Format_ARGB32); frame.fill(p->getBackgroundColor()); QPainter painter(&frame);
+            for (auto it = p->getObjects().crbegin(); it != p->getObjects().crend(); ++it) if ((*it)->isViewVisible()) (*it)->draw(painter);
+            return frame;
+        };
+        const auto preview = render();
+        const auto file = temp.filePath("project.xml"); QVERIFY2(p->saveToFile(file), qPrintable(p->lastErrorMessage()));
+        QFile saved(file); QVERIFY(saved.open(QIODevice::ReadOnly)); const auto savedBytes = saved.readAll(); saved.close();
+        QVERIFY(savedBytes.startsWith("<?xml version='1.0' encoding='windows-1251'?>"));
+        QDomDocument document; QVERIFY(document.setContent(savedBytes));
+        const auto editor = document.documentElement().firstChildElement("editor"); QVERIFY(!editor.isNull()); QCOMPARE(editor.attribute("version"), QString("1"));
+        QDomDocument savedHardware;
+        savedHardware.appendChild(savedHardware.importNode(document.documentElement(), true));
+        savedHardware.documentElement().removeChild(savedHardware.documentElement().firstChildElement("editor"));
+        QCOMPARE(savedHardware.toByteArray(), hardware); // Единственное дополнение к прежнему аппаратному XML — <editor>.
+        const auto resources = editor.firstChildElement("resources"); QSet<QString> hashes; int binaries = 0;
+        for (auto n = resources.firstChildElement("binary"); !n.isNull(); n = n.nextSiblingElement("binary")) { ++binaries; QVERIFY(!hashes.contains(n.attribute("sha256"))); hashes.insert(n.attribute("sha256")); }
+        QVERIFY(binaries > 0);
+        QFile::remove(raster); QFile::remove(vector);
+        settings.setValue("gridStep", 3); p->createNewProject("Другой", 320, 240, Qt::black);
+        MainWindow window; QTest::qWait(5);
+        SettingsWindow projectSettings; projectSettings.show(); QTest::qWait(5);
+        QCOMPARE(projectSettings.findChild<QSpinBox *>("GridStepSpin")->value(), 3); projectSettings.hide();
+        QVERIFY2(p->loadFromFile(file), qPrintable(p->lastErrorMessage()));
+        projectSettings.show(); QTest::qWait(5);
+        QCOMPARE(projectSettings.findChild<QSpinBox *>("GridStepSpin")->value(), 27); projectSettings.hide();
+        QCOMPARE(p->getObjects().size(), original.size()); QCOMPARE(p->editorLayers().size(), 3); QCOMPARE(p->layerObjectCount(emptyLayer), 0);
+        QCOMPARE(p->activeLayerId(), imagesLayer); QVERIFY(p->showAllLayers()); QCOMPARE(p->groupMembers(group), (QList<int>{0, 1, 3}));
+        QCOMPARE(p->groupName(group), QString("Приборы <&> 🚀"));
+        for (int i = 0; i < original.size(); ++i) {
+            const auto restored = p->getObjectAt(i); const auto before = original[i];
+            QCOMPARE(restored->getTypeName(), before->getTypeName()); QCOMPARE(restored->getProperties(), before->getProperties());
+            QCOMPARE(restored->customName(), before->customName()); QCOMPARE(restored->editorLayerId(), before->editorLayerId());
+            QCOMPARE(restored->isViewVisible(), before->isViewVisible()); QCOMPARE(restored->isSelectionLocked(), before->isSelectionLocked());
+            QCOMPARE(restored->isExportEnabled(), before->isExportEnabled()); QCOMPARE(restored->isResizeLocked(), before->isResizeLocked());
+            QCOMPARE(restored->isImportedHardwareObject(), before->isImportedHardwareObject()); QCOMPARE(restored->editRestrictionHint(), before->editRestrictionHint());
+            if (auto *v = dynamic_cast<ImageObject *>(restored.data())) QCOMPARE(v->sourcePayload(), dynamic_cast<ImageObject *>(before.data())->sourcePayload());
+            if (auto *v = dynamic_cast<RectangleObject *>(restored.data())) { QCOMPARE(v->x, 35.25); QCOMPARE(v->width, 126.12345678901234); QCOMPARE(v->strokeWidth, 3.625); QCOMPARE(v->alpha, 128); }
+        }
+        QCOMPARE(p->getBackgroundColor(), QColor("#80abcdef")); QCOMPARE(p->gridStep(), 27); QCOMPARE(p->gridColor(), QColor("#53667788"));
+        QCOMPARE(p->snapCanvasGuideColor(), QColor("#aaff5c7a")); QCOMPARE(p->snapGridGuideColor(), QColor("#bb56d3ff")); QCOMPARE(p->snapObjectGuideColor(), QColor("#ccffca58"));
+        QVERIFY(p->showGrid()); QVERIFY(!p->snapToCanvas()); QVERIFY(p->snapToGrid()); QVERIFY(p->snapToObjects());
+        QCOMPARE(p->editorViewState().offset, QPointF(-47.5, 28.125)); QCOMPARE(window.findChild<ViewportPanel *>()->getScale(), 2.375);
+        QVERIFY(!window.findChild<QAction *>("ExportFpgaXmlAction"));
+        QVERIFY(window.findChild<QAction *>("ProportionalResizeAction")->isChecked()); QVERIFY(window.findChild<QAction *>("SteppedRotationAction")->isChecked());
+        QCOMPARE(p->threeDViewObject()->serializeInit(), init); QVERIFY(p->threeDViewObject()->isLeftAnchored());
+        QCOMPARE(render(), preview); QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), hardware);
+        QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)), bytes);
+        QVERIFY2(p->saveToFile(file), qPrintable(p->lastErrorMessage()));
+        QVERIFY(saved.open(QIODevice::ReadOnly)); QCOMPARE(saved.readAll(), savedBytes); saved.close();
+        QVERIFY(p->renameGroup(group, "После открытия")); QVERIFY(p->undo()); QCOMPARE(p->groupName(group), QString("Приборы <&> 🚀"));
+        for (const auto &key : keys) { if (previous.value(key).isValid()) settings.setValue(key, previous.value(key)); else settings.remove(key); }
+        p->createNewProject("Done", 640, 480, Qt::black);
+    }
+    void editorProjectFontAtlasAndWhitespace() {
+        auto *p = ProjectManager::instance(); QTemporaryDir temp;
+        QString error;
+        const auto source = FpgaCompiledDocument::fromDomDocument(textFixture(), &error);
+        QVERIFY2(source.isValid(), qPrintable(error));
+        p->createNewProject("Font atlas", 80, 50, BitParser::parseColor(0x203040)); p->addObject("text");
+        auto *text = dynamic_cast<TextObject *>(p->getObjectAt(0).data()); QVERIFY(text);
+        text->text = "AVA A"; text->setFontAtlas(source.fonts.value(0), true); text->setResizeLocked(true);
+        const auto font = text->fontAtlas(); const auto props = text->getProperties();
+        const auto project = temp.filePath("native.xml"); QVERIFY2(p->saveToFile(project), qPrintable(p->lastErrorMessage()));
+        QFile native(project); QVERIFY(native.open(QIODevice::ReadOnly)); const auto originalNative = native.readAll(); native.close();
+        QVERIFY2(p->loadFromFile(project), qPrintable(p->lastErrorMessage()));
+        text = dynamic_cast<TextObject *>(p->getObjectAt(0).data()); QVERIFY(text && text->hasFontAtlas());
+        QCOMPARE(text->getProperties(), props); QCOMPARE(text->fontAtlas().maskData, font.maskData); QCOMPARE(text->fontAtlas().kerningPairs, font.kerningPairs);
+        QCOMPARE(text->fontAtlas().glyphOrder, font.glyphOrder); QVERIFY(text->restrictedAtlasEditing); QVERIFY(text->isResizeLocked());
+        QVERIFY(p->saveToFile(project)); QVERIFY(native.open(QIODevice::ReadOnly)); QCOMPARE(native.readAll(), originalNative); native.close();
+        p->createNewProject("Whitespace", 640, 480, Qt::black); p->addObject("text");
+        text = dynamic_cast<TextObject *>(p->getObjectAt(0).data());
+        const QString whitespace = "  \r\n\t "; QVERIFY(text->setObjectProperty("Текст", whitespace));
+        p->setObjectExportEnabled(0, false);
+        QVERIFY2(p->saveToFile(project), qPrintable(p->lastErrorMessage())); QVERIFY2(p->loadFromFile(project), qPrintable(p->lastErrorMessage()));
+        QCOMPARE(dynamic_cast<TextObject *>(p->getObjectAt(0).data())->text, whitespace);
+        QCOMPARE(p->getObjectCount(), 1); QVERIFY(!p->getObjectAt(0)->isExportEnabled());
+    }
+    void editorProjectRejectsCorruptMetadataAtomically() {
+        auto *p = ProjectManager::instance(); QTemporaryDir temp;
+        p->createNewProject("Keep", 640, 480, Qt::black); p->addObject("rectangle"); p->addObject("staticgroup");
+        p->groupObjects({0, 1}); p->addEditorLayer();
+        const auto file = temp.filePath("project.xml"); QVERIFY2(p->saveToFile(file), qPrintable(p->lastErrorMessage()));
+        QFile saved(file); QVERIFY(saved.open(QIODevice::ReadOnly)); QDomDocument source; QVERIFY(source.setContent(saved.readAll())); saved.close();
+        QVERIFY(p->renameObject(0, "Keep current"));
+        const auto objects = p->getObjects(); const auto path = p->getFilePath();
+        using Mutator = std::function<void(QDomElement)>;
+        const QList<Mutator> changes = {
+            [](auto e) { e.setAttribute("version", "99"); },
+            [](auto e) { e.firstChildElement("layers").setAttribute("active-id", "99999"); },
+            [](auto e) { e.firstChildElement("workspace").firstChildElement("view").setAttribute("scale", "nan"); },
+            [](auto e) { e.firstChildElement("scene").firstChildElement("object").setAttribute("layer-id", "99999"); },
+            [](auto e) { e.firstChildElement("scene").firstChildElement("object").setAttribute("type", "unknown"); },
+            [](auto e) { auto first = e.firstChildElement("scene").firstChildElement("object"); first.nextSiblingElement("object").setAttribute("id", first.attribute("id")); },
+            [](auto e) { e.firstChildElement("groups").firstChildElement("group").firstChildElement("member").setAttribute("ref", "missing"); },
+            [](auto e) { e.firstChildElement("resources").firstChildElement("binary").setAttribute("sha256", "bad"); },
+            [](auto e) { e.removeChild(e.firstChildElement("workspace")); },
+            [](auto e) { e.parentNode().appendChild(e.cloneNode(true)); },
+            [](auto e) { e.parentNode().removeChild(e); }
+        };
+        for (int i = 0; i < changes.size(); ++i) {
+            auto doc = source.cloneNode(true).toDocument(); changes[i](doc.documentElement().firstChildElement("editor"));
+            const auto bad = temp.filePath(QString("bad-%1.xml").arg(i)); QFile out(bad); QVERIFY(out.open(QIODevice::WriteOnly)); out.write(doc.toByteArray()); out.close();
+            QVERIFY2(!p->loadFromFile(bad), qPrintable(QString::number(i))); QVERIFY(!p->lastErrorMessage().isEmpty());
+            QCOMPARE(p->getObjects(), objects); QCOMPARE(p->getFilePath(), path); QCOMPARE(p->getObjectAt(0)->customName(), QString("Keep current")); QVERIFY(p->canUndo());
+        }
+    }
     void editorLayerLifecycle() {
         auto *p = ProjectManager::instance();
         p->createNewProject("Layers", 640, 480, Qt::black);
@@ -238,9 +407,11 @@ private slots:
         QVERIFY(p->redo()); QCOMPARE(p->getObjectCount(), 2);
         QTemporaryDir temp;
         const auto file = temp.filePath("layers.xml");
+        const auto layers = p->editorLayers(); const int activeLayer = p->activeLayerId();
+        QList<int> objectLayers; for (const auto &object : p->getObjects()) objectLayers.append(object->editorLayerId());
         QVERIFY(p->saveToFile(file)); QVERIFY(p->loadFromFile(file));
-        QCOMPARE(p->editorLayers().size(), 1); QCOMPARE(p->activeLayerId(), 1);
-        for (const auto &object : p->getObjects()) QCOMPARE(object->editorLayerId(), 1);
+        QCOMPARE(p->editorLayers().size(), layers.size()); QCOMPARE(p->activeLayerId(), activeLayer);
+        for (int i = 0; i < p->getObjectCount(); ++i) QCOMPARE(p->getObjectAt(i)->editorLayerId(), objectLayers[i]);
     }
     void mergeMultipleEditorLayers() {
         auto *p = ProjectManager::instance();
@@ -704,12 +875,13 @@ private slots:
         QVERIFY(p->saveToFile(temp.filePath("scene.xml")));
         QVERIFY2(p->loadFromFile(temp.filePath("scene.xml")), qPrintable(p->lastErrorMessage()));
         QCOMPARE(p->getObjectCount(), objectCount);
-        QVERIFY(p->objectGroups().isEmpty());
+        QCOMPARE(p->objectGroups().size(), 1);
+        QCOMPARE(p->groupMembers(group), (QList<int>{0, 1, 2}));
         for (const auto &object : p->getObjects()) {
-            QVERIFY(object->isViewVisible());
-            QVERIFY(!object->isSelectionLocked());
+            QVERIFY(!object->isViewVisible());
+            QVERIFY(object->isSelectionLocked());
         }
-        QVERIFY(!p->threeDViewObject()->isLeftAnchored());
+        QVERIFY(p->threeDViewObject()->isLeftAnchored());
         const auto reloaded = FpgaCompiledDocument::fromDomDocument(p->buildCompiledFpgaXml(), &error);
         QCOMPARE(reloaded.objects.size(), compiled.objects.size());
         for (int i = 0; i < compiled.objects.size(); ++i) {
@@ -788,8 +960,8 @@ private slots:
             QVERIFY(p->saveToFile(temp.filePath("images.xml")));
             QVERIFY2(p->loadFromFile(temp.filePath("images.xml")), qPrintable(p->lastErrorMessage()));
             QCOMPARE(p->getObjectCount(), 4);
-            QVERIFY(dynamic_cast<RotationObject *>(p->getObjectAt(0).data()));
-            QVERIFY(dynamic_cast<StaticGroupObject *>(p->getObjectAt(1).data()));
+            QVERIFY(dynamic_cast<ImageObject *>(p->getObjectAt(0).data())->isRotationObject());
+            QVERIFY(!dynamic_cast<ImageObject *>(p->getObjectAt(1).data())->isRotationObject());
         }
     }
     void textLayoutAndStaticPackets() {

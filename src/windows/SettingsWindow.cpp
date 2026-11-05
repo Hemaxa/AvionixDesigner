@@ -21,6 +21,7 @@
 #include <QColorDialog>
 #include <QPainter>
 #include <QPixmap>
+#include <QShowEvent>
 
 SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
 {
@@ -255,6 +256,12 @@ void SettingsWindow::updateColorButtonIcon(QPushButton *button, const QColor &co
     button->setIconSize(pixmap.size());
 }
 
+void SettingsWindow::showEvent(QShowEvent *event)
+{
+    loadSettings();
+    QDialog::showEvent(event);
+}
+
 void SettingsWindow::loadSettings()
 {
     auto settings = ApplicationSettings::create();
@@ -265,6 +272,14 @@ void SettingsWindow::loadSettings()
     m_currentSnapCanvasColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
     m_currentSnapGridColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
     m_currentSnapObjectColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
+    auto *project = ProjectManager::instance();
+    if (project->getCanvasWidth() > 0 && project->getCanvasHeight() > 0) {
+        m_gridStepSpin->setValue(project->gridStep());
+        m_currentGridColor = project->gridColor();
+        m_currentSnapCanvasColor = project->snapCanvasGuideColor();
+        m_currentSnapGridColor = project->snapGridGuideColor();
+        m_currentSnapObjectColor = project->snapObjectGuideColor();
+    }
     updateColorButtonIcon(m_gridColorButton, m_currentGridColor);
     updateColorButtonIcon(m_snapCanvasColorButton, m_currentSnapCanvasColor);
     updateColorButtonIcon(m_snapGridColorButton, m_currentSnapGridColor);

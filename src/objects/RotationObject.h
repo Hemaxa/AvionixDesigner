@@ -64,6 +64,7 @@ public:
     QList<QMap<QString, quint32>> serializeLayerParams() const;
     void setHardwareLayersFromInitHex(const QStringList &initHexList, const ParamSchema &schema);
     QVector<RotationObjectLayer> hardwareLayers() const;
+    void restoreHardwareLayers(const QVector<RotationObjectLayer> &layers) { m_layers = layers; }
 
     // метод, который возвращает угол вращения в градусах, вычисленный из sinVal/cosVal
     double getAngleDegrees() const;

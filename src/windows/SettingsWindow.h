@@ -24,6 +24,9 @@ signals:
     // сигнал сброса всех настроек
     void settingsReset();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private slots:
     // сохранить настройки и применить изменения
     void saveSettings();

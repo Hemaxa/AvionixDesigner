@@ -11,6 +11,7 @@
 
 #include "BaseObject.h"
 #include "TextObject.h"
+#include "EditorViewState.h"
 
 class EditorProjectDocument;
 class ThreeDViewObject;
@@ -43,8 +44,6 @@ public:
     bool createNewProject(const QString &projectName, int width, int height, const QColor &backgroundColor, const QString &filePath = QString());
     // сохраняет текущий проект в XML; если путь не задан, использует текущий путь проекта
     bool saveToFile(const QString &targetFile = QString());
-    // экспортирует текущий проект в строгий XML-формат для ПЛИС
-    bool exportToFpgaXml(const QString &targetFile);
     // собирает строгий XML-формат для ПЛИС в памяти без записи на диск
     QDomDocument buildCompiledFpgaXml() const;
     // Импортирует изображение выбранного аппаратного типа и выделяет цветовые маски.
@@ -152,8 +151,7 @@ public:
     QSharedPointer<BaseObject> getObjectAt(int index) const;
     // возвращает количество объектов проекта
     int getObjectCount() const;
-    // описание редакторской группы, не сериализуемой в аппаратный XML
-    // ObjectGroup - редакторская группа выделения, не сохраняемая в аппаратный XML.
+    // Редакторская группа сохраняется в <editor>, отдельно от аппаратных объектов.
     struct ObjectGroup
     {
         int id = -1;
@@ -213,6 +211,8 @@ public:
     void setSnapToGrid(bool enabled);
     // включает или выключает привязку к объектам
     void setSnapToObjects(bool enabled);
+    const EditorViewState &editorViewState() const { return m_editorViewState; }
+    void setEditorViewState(const EditorViewState &state);
 
 signals:
     void projectLoaded();
@@ -221,6 +221,7 @@ signals:
     void editorLayersChanged();
     void editorLayerObjectsChanged();
     void editorLayerViewChanged();
+    void editorViewStateChanged();
 
 private:
     // ProjectSnapshot - снимок объектов и редакторских групп для undo/redo.
@@ -239,7 +240,6 @@ private:
     ProjectManager();
 
     bool loadXmlProject(const QString &fileName);
-    void applyRestrictedMode();
     void recordHistory();
     ProjectSnapshot captureSnapshot() const;
     void restoreSnapshot(const ProjectSnapshot &snapshot);
@@ -249,6 +249,7 @@ private:
     void resetEditorLayers();
     void notifyEditorLayersChanged();
     QString uniqueLayerName(const QString &base) const;
+    void readGlobalWorkspaceSettings();
 
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
@@ -261,6 +262,7 @@ private:
     int m_nextLayerId = 2;
     int m_activeLayerId = 1;
     bool m_showAllLayers = false;
+    EditorViewState m_editorViewState;
     QMap<QString, ParamSchema> m_schemas;
     QMap<int, FpgaFont> m_fonts;
     QList<ProjectSnapshot> m_undoStack;

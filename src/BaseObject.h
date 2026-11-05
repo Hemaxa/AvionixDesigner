@@ -49,6 +49,7 @@ public:
     virtual bool isImportedHardwareObject() const { return m_importedHardwareObject; }
     virtual void setImportedHardwareObject(bool imported) { m_importedHardwareObject = imported; }
     virtual void setResizeLocked(bool locked) { m_resizeLocked = locked; }
+    bool isResizeLocked() const { return m_resizeLocked; }
     virtual bool isViewVisible() const { return m_viewVisible; }
     virtual void setViewVisible(bool visible) { m_viewVisible = visible; emit changed(); }
     bool isSelectionLocked() const { return m_selectionLocked; }
@@ -56,13 +57,14 @@ public:
     virtual bool isExportEnabled() const { return m_exportEnabled; }
     virtual void setExportEnabled(bool enabled) { m_exportEnabled = enabled; emit changed(); }
     virtual QString editRestrictionHint() const { return m_editRestrictionHint; }
+    void setEditRestrictionHint(const QString &hint) { m_editRestrictionHint = hint; }
     virtual QString lastValidationMessage() const { return m_lastValidationMessage; }
     virtual void clearValidationMessage() { m_lastValidationMessage.clear(); }
     // возвращает пользовательское имя объекта для списка объектов
     QString customName() const { return m_customName; }
     // задаёт пользовательское имя объекта; пустое имя возвращает отображение к имени по типу
     void setCustomName(const QString &name) { m_customName = name.trimmed(); }
-    // Метаданные редактора: не входят в аппаратные параметры и XML.
+    // Метаданные редактора: сохраняются в <editor>, отдельно от аппаратных параметров.
     int editorLayerId() const { return m_editorLayerId; }
     void setEditorLayerId(int id) { m_editorLayerId = id; }
 
@@ -83,7 +85,6 @@ signals:
     void changed();  //сигнал об изменении объекта
 
 protected:
-    void setEditRestrictionHint(const QString &hint) { m_editRestrictionHint = hint; }
     void setValidationMessage(const QString &message) const { m_lastValidationMessage = message; }
 
 private:
