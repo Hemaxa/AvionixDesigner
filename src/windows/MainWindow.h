@@ -7,6 +7,7 @@
 #include <QMainWindow>
 #include <QShowEvent>
 
+class LayersPanel;
 class QAction;
 class QDockWidget;
 class QTimer;
@@ -113,6 +114,8 @@ private:
     // обновляет доступность панели позиционирования самолета
     void updateAircraftPositionAvailability();
 
+    LayersPanel *m_layers = nullptr;
+    QDockWidget *m_layersDock = nullptr;
     EditorWorkspacePanel *m_workspacePanel = nullptr;
     ViewportPanel *m_viewport = nullptr;
     SelectionToolStrip *m_selectionToolStrip = nullptr;

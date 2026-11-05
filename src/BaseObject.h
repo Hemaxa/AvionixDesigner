@@ -62,6 +62,9 @@ public:
     QString customName() const { return m_customName; }
     // задаёт пользовательское имя объекта; пустое имя возвращает отображение к имени по типу
     void setCustomName(const QString &name) { m_customName = name.trimmed(); }
+    // Метаданные редактора: не входят в аппаратные параметры и XML.
+    int editorLayerId() const { return m_editorLayerId; }
+    void setEditorLayerId(int id) { m_editorLayerId = id; }
 
     // геометрия и взаимодействие
     virtual bool contains(const QPointF &point) const { return getBoundingRect().contains(point); }
@@ -84,6 +87,7 @@ protected:
     void setValidationMessage(const QString &message) const { m_lastValidationMessage = message; }
 
 private:
+    int m_editorLayerId = 1;
     bool m_selectionLocked = false;
     bool m_resizeLocked = false;
     bool m_importedHardwareObject = false;

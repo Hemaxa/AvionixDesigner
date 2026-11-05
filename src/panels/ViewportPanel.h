@@ -5,6 +5,7 @@
 #include "BasePanel.h"
 
 #include <QList>
+#include <QColor>
 #include <QMap>
 
 // ViewportPanel - панель рабочей области приложения.
@@ -59,6 +60,7 @@ public slots:
     void setRotationSnapping(bool enabled) { m_rotationSnapping = enabled; }
 
 private:
+    QColor m_selectionColor = QColor("#00c8f0");
     double m_scale; //текущий масштаб
     double m_offsetX; //смещение по X
     double m_offsetY; //смещение по Y

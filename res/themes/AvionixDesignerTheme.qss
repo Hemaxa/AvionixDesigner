@@ -336,6 +336,39 @@ QComboBox:focus {
     border-color: #00c8f0;
 }
 
+/* Единый список Qt вместо меню системного стиля: высота считается по пунктам,
+   длинные списки прокручиваются обычной вертикальной полосой. */
+QComboBox {
+    combobox-popup: 0;
+    qproperty-maxVisibleItems: 10;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #121922;
+    color: #edf7fb;
+    border: 1px solid #334656;
+    padding: 0;
+    outline: none;
+    selection-background-color: #00c8f0;
+    selection-color: #061116;
+}
+
+QComboBox QAbstractItemView::item {
+    min-height: 28px;
+    padding: 2px 10px;
+    border: none;
+}
+
+QComboBox QAbstractItemView::item:hover {
+    background-color: #17212b;
+    color: #edf7fb;
+}
+
+QComboBox QAbstractItemView::item:selected {
+    background-color: #00c8f0;
+    color: #061116;
+}
+
 QPushButton,
 QToolButton {
     background-color: #121922;
@@ -428,8 +461,13 @@ QToolButton#SettingsToolButton {
     background-color: #382126;
     border-color: #a14e54;
 }
-#TransparencyEditor { background-color: transparent; }
-#TransparencySpin { min-height: 18px; padding: 3px 6px; border-radius: 5px; }
+#TransparencyEditor, #PropertyFieldEditor { background-color: transparent; }
+#TransparencySpin, #ObjectLayerCombo, #WorkspaceLayerCombo, #PropertyValueCombo {
+    min-height: 18px;
+    max-height: 18px;
+    padding: 3px 6px;
+    border-radius: 5px;
+}
 #TransparencySpin QLineEdit { background: transparent; border: none; min-height: 0; padding: 0; }
 #TransparencySlider::groove:horizontal {
     height: 5px;
@@ -690,3 +728,20 @@ QScrollBar::sub-page:horizontal {
     height: 0;
     width: 0;
 }
+
+/* Слои редактора: та же палитра, что у списка объектов и полей свойств. */
+#LayersPanel, #LayersRows { background: transparent; border: none; }
+#LayerRow { background: #121922; border: 1px solid #22303c; border-radius: 6px; }
+#LayerRow[selected="true"] { background: #17212b; border-color: #00c8f0; }
+#LayerRow[active="true"] { background: #063847; border: 1px solid #00c8f0; }
+#LayerNameEdit { background: transparent; border: 1px solid transparent; padding: 3px; min-height: 24px; }
+#LayerNameEdit:focus { border: 1px solid #334656; }
+#LayerNumber { background: transparent; color: #9fb3c1; }
+#LayerColorButton, #DuplicateLayerButton, #MergeLayerButton, #DeleteLayerButton, #AddLayerButton {
+    min-width: 30px; max-width: 30px;
+    min-height: 30px; max-height: 30px;
+    padding: 0; border-radius: 5px;
+}
+#DeleteLayerButton:hover { color: #ff5c7a; border-color: #ff5c7a; }
+#ShowAllLayersButton { min-height: 30px; padding: 3px 8px; }
+#ShowAllLayersButton:checked { background: #063847; border-color: #00c8f0; color: #8bdff2; }

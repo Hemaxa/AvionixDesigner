@@ -4,6 +4,7 @@
 
 #include "BasePanel.h"
 #include <QSharedPointer>
+#include <QSet>
 
 class QTableWidget;
 class QLabel;
@@ -22,6 +23,7 @@ public:
 public slots:
     // показывает свойства объекта по индексу
     void showObjectProperties(int index);
+    void showSelectedObjects(const QList<int> &indexes);
 
     // показывает свойства переданного объекта
     void showProperties(QSharedPointer<BaseObject> obj);
@@ -48,6 +50,9 @@ private:
     void refreshTableValues();
     void refreshHardwareWarnings();
     QWidget *createTransparencyEditor(double value);
+    QList<QPair<QString, QString>> commonProperties() const;
+    bool applyProperty(const QString &name, const QString &value);
+    void updateValueItem(int row, const QString &name, const QString &value);
     void applyTransparency(double value, bool interactive);
     void resizePropertyRows();
     bool isColorProperty(const QString &name) const;
@@ -60,7 +65,10 @@ private:
     QScrollArea *m_scrollArea; //область прокрутки
     QStackedWidget *m_contentStack; //переключатель состояний панели
     QSharedPointer<BaseObject> m_currentObject; //текущий объект
+    QSet<QString> m_readOnlyProperties;
+    mutable QSet<QString> m_mixedProperties;
     bool m_updating = false; //флаг программного обновления
     bool m_transparencyDragging = false;
-    QMetaObject::Connection m_objectConnection;
+    QList<QSharedPointer<BaseObject>> m_currentObjects;
+    QList<QMetaObject::Connection> m_objectConnections;
 };

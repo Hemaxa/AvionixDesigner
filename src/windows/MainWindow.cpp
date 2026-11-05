@@ -1,6 +1,7 @@
 // MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели.
 
 #include "MainWindow.h"
+#include "LayersPanel.h"
 
 #include "AircraftPositionPanel.h"
 #include "AppearanceManager.h"
@@ -45,6 +46,8 @@ constexpr int kDefaultFpgaSimulatorDockWidth = 620;
 constexpr int kDefaultFpgaSimulatorDockHeight = 420;
 constexpr int kDefaultAircraftPositionDockWidth = 1030;
 constexpr int kDefaultAircraftPositionDockHeight = 460;
+constexpr int kDefaultLayersDockWidth = 320;
+constexpr int kDefaultLayersDockHeight = 350;
 
 QString fontExportKey(const QString &family, int pixelSize) {
   return family + QLatin1Char('\n') + QString::number(pixelSize);
@@ -258,6 +261,16 @@ void MainWindow::createWidgets() {
 
   m_viewport = m_workspacePanel->viewport();
   m_selectionToolStrip = m_workspacePanel->selectionToolStrip();
+  m_layers = new LayersPanel(this);
+  m_layersDock = new QDockWidget(tr("Слои"), this);
+  m_layersDock->setObjectName("LayersDock");
+  m_layersDock->setWidget(m_layers);
+  m_layersDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+  m_layersDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+  addDockWidget(Qt::RightDockWidgetArea, m_layersDock);
+  m_layersDock->setFloating(true);
+  m_layersDock->resize(kDefaultLayersDockWidth, kDefaultLayersDockHeight);
+  m_layersDock->hide();
   m_objectList = new ObjectListPanel(this);
   m_objectProperties = new ObjectPropertiesPanel(this);
   m_objectLibrary = new ObjectLibraryPanel(this);
@@ -408,6 +421,14 @@ void MainWindow::applyDefaultFloatingDockSizes() {
   simulatorPosition =
       clampedDockPosition(availableGeometry, simulatorSize, simulatorPosition);
 
+  if (m_layersDock) {
+    const QSize layersSize(kDefaultLayersDockWidth, kDefaultLayersDockHeight);
+    m_layersDock->setFloating(true);
+    m_layersDock->resize(layersSize);
+    m_layersDock->move(clampedDockPosition(availableGeometry, layersSize, anchor));
+    m_layersDock->hide();
+  }
+
   if (m_fpgaSimulatorDock) {
     m_fpgaSimulatorDock->setFloating(true);
     m_fpgaSimulatorDock->resize(simulatorSize);
@@ -553,6 +574,7 @@ void MainWindow::createMenus() {
   objectsMenu->addAction(createAction(tr("Проверить память ПЛИС…"), QKeySequence("Ctrl+Alt+M"), this, SLOT(checkHardwareResources())));
 
   QMenu *viewMenu = menuBar()->addMenu("Вид");
+  viewMenu->addAction(m_layersDock->toggleViewAction());
   viewMenu->addAction(m_objectListDock->toggleViewAction());
   viewMenu->addAction(m_objectPropertiesDock->toggleViewAction());
   viewMenu->addAction(m_objectLibraryDock->toggleViewAction());
@@ -663,10 +685,7 @@ void MainWindow::connectSignals() {
           m_viewport, QOverload<>::of(&QWidget::update));
   connect(m_viewport, &ViewportPanel::objectChanged, this, [this]() {
     const QList<int> indexes = m_viewport->getSelectedIndexes();
-    if (indexes.size() == 1)
-      m_objectProperties->showObjectProperties(indexes.first());
-    else
-      m_objectProperties->clearProperties();
+    m_objectProperties->showSelectedObjects(indexes);
   });
 
   connect(m_objectLibrary, &ObjectLibraryPanel::objectRequested, this,
@@ -756,6 +775,12 @@ void MainWindow::restoreLayoutSettings() {
       settings.remove("windowGeometry");
       settings.remove("windowState");
     }
+  }
+  // Один раз обновляем ширину старого плавающего окна, затем сохраняем ручную настройку.
+  if (settings.value("layersPanelLayoutVersion", 0).toInt() < 1) {
+    if (m_layersDock->isFloating())
+      m_layersDock->resize(kDefaultLayersDockWidth, m_layersDock->height());
+    settings.setValue("layersPanelLayoutVersion", 1);
   }
 }
 
@@ -1220,15 +1245,12 @@ void MainWindow::alignSelectedObject(int actionId) {
       object->moveBy(move.delta.x(), move.delta.y());
   }
   project->finishObjectEdit(tr("Выполнено выравнивание объектов"));
-  m_objectProperties->clearProperties();
+  m_objectProperties->showSelectedObjects(m_viewport->getSelectedIndexes());
   m_viewport->update();
 }
 
 void MainWindow::handleSelectionChanged(const QList<int> &indexes) {
-  if (indexes.size() == 1)
-    m_objectProperties->showObjectProperties(indexes.first());
-  else
-    m_objectProperties->clearProperties();
+  m_objectProperties->showSelectedObjects(indexes);
 
   setSelectionState(!indexes.isEmpty());
 }

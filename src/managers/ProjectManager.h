@@ -117,6 +117,34 @@ public:
     void finishObjectEdit(const QString &message = QString());
     // меняет свойство объекта через единую точку, чтобы сохранить историю действий
     bool setObjectProperty(BaseObject *object, const QString &propertyName, const QString &value);
+    // Проверяем весь набор до изменения, затем записываем одну операцию истории.
+    bool setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects, const QString &name, const QString &value);
+    bool isObjectPropertyEditable(const BaseObject *object, const QString &name) const;
+
+    struct EditorLayer {
+        int id = 1;
+        QString name;
+        QColor selectionColor;
+    };
+    const QList<EditorLayer> &editorLayers() const { return m_editorLayers; }
+    int activeLayerId() const { return m_activeLayerId; }
+    bool showAllLayers() const { return m_showAllLayers; }
+    bool hasEditorLayer(int id) const;
+    QString editorLayerName(int id) const;
+    QColor editorLayerColor(int id) const;
+    int layerObjectCount(int id) const;
+    bool isObjectOnVisibleLayer(const BaseObject *object) const;
+    bool isObjectVisibleInEditor(const BaseObject *object) const;
+    int addEditorLayer();
+    bool renameEditorLayer(int id, const QString &name);
+    bool setEditorLayerColor(int id, const QColor &color);
+    int duplicateEditorLayer(int id);
+    bool mergeEditorLayer(int sourceId, int targetId);
+    bool mergeEditorLayers(const QList<int> &layerIds, int targetId);
+    bool removeEditorLayer(int id);
+    bool setObjectsLayer(const QList<QSharedPointer<BaseObject>> &objects, int layerId);
+    void setActiveLayer(int id);
+    void setShowAllLayers(bool enabled);
 
     // возвращает плоский список объектов в порядке слоёв
     const QList<QSharedPointer<BaseObject>>& getObjects() const;
@@ -190,6 +218,9 @@ signals:
     void projectLoaded();
     void projectChanged();
     void logMessage(const QString &message);
+    void editorLayersChanged();
+    void editorLayerObjectsChanged();
+    void editorLayerViewChanged();
 
 private:
     // ProjectSnapshot - снимок объектов и редакторских групп для undo/redo.
@@ -199,6 +230,10 @@ private:
         QStringList objectTags;
         QList<ObjectGroup> groups;
         int nextGroupId = 1;
+        QList<EditorLayer> layers;
+        int nextLayerId = 2;
+        int activeLayerId = 1;
+        bool showAllLayers = false;
     };
 
     ProjectManager();
@@ -211,6 +246,9 @@ private:
     void clearHistory();
     void insertObjectAtFront(BaseObject *object, const QString &tagName);
     void syncNextGroupId();
+    void resetEditorLayers();
+    void notifyEditorLayersChanged();
+    QString uniqueLayerName(const QString &base) const;
 
     EditorProjectDocument *m_document = nullptr;
     QString m_filePath;
@@ -219,6 +257,10 @@ private:
     QStringList m_objectTags;
     QList<ObjectGroup> m_groups;
     int m_nextGroupId = 1;
+    QList<EditorLayer> m_editorLayers;
+    int m_nextLayerId = 2;
+    int m_activeLayerId = 1;
+    bool m_showAllLayers = false;
     QMap<QString, ParamSchema> m_schemas;
     QMap<int, FpgaFont> m_fonts;
     QList<ProjectSnapshot> m_undoStack;

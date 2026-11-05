@@ -557,6 +557,7 @@ void copyBaseFlags(const BaseObject *source, BaseObject *target)
     target->setImportedHardwareObject(source->isImportedHardwareObject());
     target->setResizeLocked(!source->canResize());
     target->setCustomName(source->customName());
+    target->setEditorLayerId(source->editorLayerId());
 }
 
 QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
@@ -1577,6 +1578,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
 
 ProjectManager::ProjectManager() : m_document(new EditorProjectDocument())
 {
+    resetEditorLayers();
     connect(this, &ProjectManager::projectLoaded, this, [this]() { ++m_sceneRevision; });
     connect(this, &ProjectManager::projectChanged, this, [this]() {
         if (!m_aircraftStateChange) ++m_sceneRevision;
@@ -1624,6 +1626,7 @@ bool ProjectManager::loadXmlProject(const QString &fileName)
     m_objectTags.clear();
     m_groups.clear();
     m_nextGroupId = 1;
+    resetEditorLayers();
     m_fonts.clear();
     clearHistory();
 
@@ -1754,6 +1757,7 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_objectTags.clear();
     m_groups.clear();
     m_nextGroupId = 1;
+    resetEditorLayers();
     clearHistory();
     m_fonts.clear();
 
@@ -1771,7 +1775,8 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 
 ProjectManager::ProjectSnapshot ProjectManager::captureSnapshot() const
 {
-    return {cloneObjectList(m_objects), m_objectTags, m_groups, m_nextGroupId};
+    return {cloneObjectList(m_objects), m_objectTags, m_groups, m_nextGroupId,
+            m_editorLayers, m_nextLayerId, m_activeLayerId, m_showAllLayers};
 }
 
 void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
@@ -1780,6 +1785,13 @@ void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
     m_objectTags = snapshot.objectTags;
     m_groups = snapshot.groups;
     m_nextGroupId = snapshot.nextGroupId;
+    m_editorLayers = snapshot.layers;
+    m_nextLayerId = snapshot.nextLayerId;
+    m_activeLayerId = snapshot.activeLayerId;
+    m_showAllLayers = snapshot.showAllLayers;
+    emit editorLayerObjectsChanged();
+    emit editorLayersChanged();
+    emit editorLayerViewChanged();
 }
 
 void ProjectManager::recordHistory()
@@ -1802,6 +1814,7 @@ void ProjectManager::clearHistory()
 
 void ProjectManager::insertObjectAtFront(BaseObject *object, const QString &tagName)
 {
+    object->setEditorLayerId(m_activeLayerId);
     m_objects.prepend(QSharedPointer<BaseObject>(object));
     m_objectTags.prepend(tagName);
     for (ObjectGroup &group : m_groups) {
@@ -2189,12 +2202,15 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
         return fail(tr("Выберите минимум два статических изображения или статические группы."));
 
     auto merged = QSharedPointer<StaticGroupObject>::create();
+    merged->setEditorLayerId(m_objects[selected.first()]->editorLayerId());
     const bool exportEnabled = m_objects[selected.first()]->isExportEnabled();
     int nextAddress = 0;
     bool resizeLocked = false;
     // Внутри группы последний init расположен на переднем плане, как при экспорте.
     for (auto it = selected.crbegin(); it != selected.crend(); ++it) {
         const auto source = m_objects[*it];
+        if (source->editorLayerId() != merged->editorLayerId())
+            return fail(tr("Для объединения в staticgroup переместите объекты на один слой."));
         if (source->isSelectionLocked())
             return fail(tr("Заблокированные объекты нельзя объединять."));
         if (source->isExportEnabled() != exportEnabled)
@@ -2570,6 +2586,7 @@ QList<int> ProjectManager::pasteObjects()
         const auto clone = cloneObject(m_clipboardObjects[i]);
         if (!clone)
             continue;
+        clone->setEditorLayerId(m_activeLayerId);
         clone->moveBy(24.0, 24.0);
         moveObjectInsideCanvas(clone.data(), m_document->canvasWidth(), m_document->canvasHeight());
         m_objects.prepend(clone);
@@ -2713,41 +2730,268 @@ void ProjectManager::finishObjectEdit(const QString &message)
         emit logMessage(message);
 }
 
-bool ProjectManager::setObjectProperty(BaseObject *object, const QString &propertyName, const QString &value)
+bool ProjectManager::setObjectProperty(BaseObject *object, const QString &name, const QString &value)
 {
-    if (!object)
-        return false;
+    for (const auto &candidate : m_objects)
+        if (candidate.data() == object) return setObjectsProperty({candidate}, name, value);
+    return false;
+}
 
-    bool objectBelongsToProject = false;
-    for (const auto &projectObject : m_objects) {
-        if (projectObject.data() == object) {
-            objectBelongsToProject = true;
-            break;
-        }
+bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QString &name) const
+{
+    for (const auto &candidate : m_objects) {
+        if (candidate.data() != object) continue;
+        const auto probe = cloneObject(candidate);
+        if (!probe) return false;
+        for (const auto &property : candidate->getProperties())
+            if (property.first == name) return probe->setObjectProperty(name, property.second);
     }
-    if (!objectBelongsToProject)
-        return false;
+    return false;
+}
 
-    for (const auto &property : object->getProperties()) {
-        if (property.first == propertyName) {
-            if (property.second == value)
-                return true;
-            break;
+bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects,
+                                       const QString &name, const QString &value)
+{
+    m_lastErrorMessage.clear();
+    QList<QSharedPointer<BaseObject>> changed;
+    for (const auto &object : objects) {
+        if (!object || !m_objects.contains(object)) return false;
+        const auto properties = object->getProperties();
+        const auto it = std::find_if(properties.cbegin(), properties.cend(), [&name](const auto &p) { return p.first == name; });
+        if (it == properties.cend()) return false;
+        if (it->second == value || changed.contains(object)) continue;
+        const auto probe = cloneObject(object);
+        if (!probe || !probe->setObjectProperty(name, value)) {
+            m_lastErrorMessage = probe ? probe->lastValidationMessage() : QString();
+            if (m_lastErrorMessage.isEmpty()) m_lastErrorMessage = tr("Значение параметра «%1» недопустимо для одного из выбранных объектов.").arg(name);
+            return false;
         }
+        const QRectF bounds = probe->getBoundingRect();
+        if (!qIsFinite(bounds.x()) || !qIsFinite(bounds.y()) || !qIsFinite(bounds.width()) || !qIsFinite(bounds.height())
+            || bounds.width() < 0 || bounds.height() < 0) {
+            m_lastErrorMessage = tr("Координаты должны быть конечными числами, а размеры не могут быть отрицательными.");
+            return false;
+        }
+        changed.append(object);
     }
-
-    const ProjectSnapshot before = captureSnapshot();
-    if (!object->setObjectProperty(propertyName, value))
-        return false;
-    moveObjectInsideCanvas(object, m_document->canvasWidth(), m_document->canvasHeight());
-
-    m_undoStack.append(before);
-    m_redoStack.clear();
-    constexpr int maxHistoryDepth = 80;
-    while (m_undoStack.size() > maxHistoryDepth)
-        m_undoStack.removeFirst();
-
+    if (changed.isEmpty()) return !objects.isEmpty();
+    recordHistory();
+    for (const auto &object : changed) {
+        object->setObjectProperty(name, value);
+        moveObjectInsideCanvas(object.data(), m_document->canvasWidth(), m_document->canvasHeight());
+    }
     emit projectChanged();
+    return true;
+}
+
+void ProjectManager::resetEditorLayers()
+{
+    m_editorLayers = {{1, tr("Слой 1"), QColor(QStringLiteral("#00c8f0"))}};
+    m_nextLayerId = 2;
+    m_activeLayerId = 1;
+    m_showAllLayers = false;
+}
+
+bool ProjectManager::hasEditorLayer(int id) const
+{
+    return std::any_of(m_editorLayers.cbegin(), m_editorLayers.cend(), [id](const auto &layer) { return layer.id == id; });
+}
+
+QString ProjectManager::editorLayerName(int id) const
+{
+    for (const auto &layer : m_editorLayers) if (layer.id == id) return layer.name;
+    return {};
+}
+
+QColor ProjectManager::editorLayerColor(int id) const
+{
+    for (const auto &layer : m_editorLayers) if (layer.id == id) return layer.selectionColor;
+    return QColor(QStringLiteral("#00c8f0"));
+}
+
+int ProjectManager::layerObjectCount(int id) const
+{
+    return std::count_if(m_objects.cbegin(), m_objects.cend(), [id](const auto &o) { return o->editorLayerId() == id; });
+}
+
+bool ProjectManager::isObjectOnVisibleLayer(const BaseObject *object) const
+{
+    return object && (m_showAllLayers || object->editorLayerId() == m_activeLayerId);
+}
+
+bool ProjectManager::isObjectVisibleInEditor(const BaseObject *object) const
+{
+    return isObjectOnVisibleLayer(object) && object->isViewVisible();
+}
+
+void ProjectManager::setActiveLayer(int id)
+{
+    if (!hasEditorLayer(id) || id == m_activeLayerId) return;
+    m_activeLayerId = id;
+    emit editorLayerViewChanged();
+}
+
+void ProjectManager::setShowAllLayers(bool enabled)
+{
+    if (enabled == m_showAllLayers) return;
+    m_showAllLayers = enabled;
+    emit editorLayerViewChanged();
+}
+
+void ProjectManager::notifyEditorLayersChanged()
+{
+    emit editorLayersChanged();
+    emit editorLayerViewChanged();
+    emit projectChanged();
+}
+
+QString ProjectManager::uniqueLayerName(const QString &base) const
+{
+    QString name = base;
+    int suffix = 2;
+    auto exists = [this](const QString &candidate) {
+        return std::any_of(m_editorLayers.cbegin(), m_editorLayers.cend(), [&candidate](const auto &l) { return l.name.compare(candidate, Qt::CaseInsensitive) == 0; });
+    };
+    while (exists(name)) name = base + QStringLiteral(" (%1)").arg(suffix++);
+    return name;
+}
+
+int ProjectManager::addEditorLayer()
+{
+    recordHistory();
+    const int id = m_nextLayerId++;
+    static const QStringList colors = {"#00c8f0", "#ff5c7a", "#ffca58", "#8bdff2"};
+    m_editorLayers.append({id, uniqueLayerName(tr("Слой %1").arg(id)), QColor(colors[(id - 1) % colors.size()])});
+    m_activeLayerId = id;
+    notifyEditorLayersChanged();
+    return id;
+}
+
+bool ProjectManager::renameEditorLayer(int id, const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty() || !hasEditorLayer(id)) return false;
+    for (const auto &layer : m_editorLayers)
+        if (layer.id != id && layer.name.compare(trimmed, Qt::CaseInsensitive) == 0) return false;
+    for (int i = 0; i < m_editorLayers.size(); ++i) {
+        if (m_editorLayers.at(i).id != id) continue;
+        if (m_editorLayers.at(i).name == trimmed) return true;
+        recordHistory();
+        m_editorLayers[i].name = trimmed;
+        notifyEditorLayersChanged();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectManager::setEditorLayerColor(int id, const QColor &color)
+{
+    if (!color.isValid()) return false;
+    for (int i = 0; i < m_editorLayers.size(); ++i) {
+        if (m_editorLayers.at(i).id != id) continue;
+        if (m_editorLayers.at(i).selectionColor == color) return true;
+        recordHistory();
+        m_editorLayers[i].selectionColor = color;
+        notifyEditorLayersChanged();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectManager::setObjectsLayer(const QList<QSharedPointer<BaseObject>> &objects, int layerId)
+{
+    if (!hasEditorLayer(layerId) || objects.isEmpty()) return false;
+    for (const auto &object : objects) if (!object || !m_objects.contains(object)) return false;
+    if (std::all_of(objects.cbegin(), objects.cend(), [layerId](const auto &o) { return o->editorLayerId() == layerId; })) return true;
+    recordHistory();
+    for (const auto &object : objects) object->setEditorLayerId(layerId);
+    notifyEditorLayersChanged();
+    return true;
+}
+
+int ProjectManager::duplicateEditorLayer(int id)
+{
+    m_lastErrorMessage.clear();
+    if (!hasEditorLayer(id)) return -1;
+    QList<QSharedPointer<BaseObject>> copies;
+    QStringList tags;
+    QMap<int, int> copiedIndexes;
+    for (int i = 0; i < m_objects.size(); ++i) {
+        if (m_objects[i]->editorLayerId() != id) continue;
+        if (dynamic_cast<ThreeDViewObject *>(m_objects[i].data())) {
+            m_lastErrorMessage = tr("Нельзя дублировать слой с 3D-видом: в проекте допустим только один 3D-вид.");
+            return -1;
+        }
+        const auto copy = cloneObject(m_objects[i]);
+        if (!copy) return -1;
+        copiedIndexes.insert(i, copies.size());
+        copies.append(copy);
+        tags.append(m_objectTags.value(i));
+    }
+    recordHistory();
+    const int newId = m_nextLayerId++;
+    m_editorLayers.append({newId, uniqueLayerName(editorLayerName(id) + tr(" — копия")), editorLayerColor(id)});
+    auto groups = m_groups;
+    for (auto &group : m_groups) for (int &index : group.members) index += copies.size();
+    for (const auto &group : groups) {
+        ObjectGroup copy{m_nextGroupId, group.name, {}};
+        for (int index : group.members) if (copiedIndexes.contains(index)) copy.members.append(copiedIndexes.value(index));
+        if (copy.members.size() >= 2) { ++m_nextGroupId; m_groups.append(copy); }
+    }
+    for (const auto &copy : copies) copy->setEditorLayerId(newId);
+    m_objects = copies + m_objects;
+    m_objectTags = tags + m_objectTags;
+    m_activeLayerId = newId;
+    emit editorLayerObjectsChanged();
+    notifyEditorLayersChanged();
+    return newId;
+}
+
+bool ProjectManager::mergeEditorLayer(int sourceId, int targetId)
+{
+    return mergeEditorLayers({sourceId, targetId}, targetId);
+}
+
+bool ProjectManager::mergeEditorLayers(const QList<int> &layerIds, int targetId)
+{
+    const QSet<int> selected(layerIds.cbegin(), layerIds.cend());
+    if (selected.size() < 2 || !selected.contains(targetId)) return false;
+    for (int id : selected) if (!hasEditorLayer(id)) return false;
+    recordHistory();
+    for (const auto &object : m_objects)
+        if (selected.contains(object->editorLayerId())) object->setEditorLayerId(targetId);
+    m_editorLayers.erase(std::remove_if(m_editorLayers.begin(), m_editorLayers.end(), [&selected, targetId](const auto &layer) {
+        return layer.id != targetId && selected.contains(layer.id);
+    }), m_editorLayers.end());
+    m_activeLayerId = targetId;
+    notifyEditorLayersChanged();
+    return true;
+}
+
+bool ProjectManager::removeEditorLayer(int id)
+{
+    if (m_editorLayers.size() <= 1 || !hasEditorLayer(id)) return false;
+    recordHistory();
+    QMap<int, int> remaining;
+    for (int i = m_objects.size() - 1; i >= 0; --i) {
+        if (m_objects[i]->editorLayerId() == id) { m_objects.removeAt(i); m_objectTags.removeAt(i); }
+    }
+    // Сопоставление старых индексов по сохраненным объектам снимка.
+    const auto &before = m_undoStack.last().objects;
+    int next = 0;
+    for (int i = 0; i < before.size(); ++i) if (before[i]->editorLayerId() != id) remaining.insert(i, next++);
+    for (auto &group : m_groups) {
+        QList<int> members;
+        for (int index : group.members) if (remaining.contains(index)) members.append(remaining.value(index));
+        group.members = members;
+    }
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [](const auto &g) { return g.members.size() < 2; }), m_groups.end());
+    int removedPosition = 0;
+    for (int i = 0; i < m_editorLayers.size(); ++i) if (m_editorLayers[i].id == id) removedPosition = i;
+    m_editorLayers.removeAt(removedPosition);
+    if (m_activeLayerId == id) m_activeLayerId = m_editorLayers[qMin(removedPosition, int(m_editorLayers.size()) - 1)].id;
+    emit editorLayerObjectsChanged();
+    notifyEditorLayersChanged();
     return true;
 }
 

@@ -48,6 +48,8 @@ qt_add_executable(AvionixDesigner
     src/managers/AppearanceManager.cpp
 
     # Панели
+    src/panels/LayersPanel.h
+    src/panels/LayersPanel.cpp
     src/panels/ViewportPanel.h
     src/panels/ViewportPanel.cpp
     src/panels/ObjectListPanel.h

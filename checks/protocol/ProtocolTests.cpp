@@ -1,5 +1,6 @@
 // ProtocolTests - сравнение формата ПЛИС, движения, клавиш, компоновки и UART-сеанса.
 #include "AircraftPositionPanel.h"
+#include "LayersPanel.h"
 #include "ApplicationLanguage.h"
 #include "EditorWorkspacePanel.h"
 #include "ViewportPanel.h"
@@ -69,6 +70,7 @@
 #include <QToolButton>
 #include <QtTest>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <chrono>
@@ -187,6 +189,429 @@ private slots:
         QVERIFY(installRussianTranslation(*qApp));
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
+    }
+    void editorLayerLifecycle() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Layers", 640, 480, Qt::black);
+        QCOMPARE(p->editorLayers().size(), 1);
+        QVERIFY(!p->removeEditorLayer(1));
+        p->addObject("rectangle");
+        auto bottom = p->getObjectAt(0);
+        const int layer = p->addEditorLayer();
+        QVERIFY(layer != 1); QCOMPARE(p->activeLayerId(), layer);
+        p->addObject("dashline");
+        auto top = p->getObjectAt(0);
+        QCOMPARE(top->editorLayerId(), layer); QCOMPARE(bottom->editorLayerId(), 1);
+        const auto xml = p->buildCompiledFpgaXml().toByteArray();
+        QVERIFY(p->renameEditorLayer(layer, "Индикация"));
+        QVERIFY(!p->renameEditorLayer(1, "  Индикация  "));
+        QVERIFY(!p->renameEditorLayer(1, "   "));
+        QVERIFY(p->setEditorLayerColor(layer, QColor("#8bdff2")));
+        QVERIFY(p->undo()); QCOMPARE(p->editorLayerColor(layer), QColor("#ff5c7a"));
+        QVERIFY(p->undo()); QCOMPARE(p->editorLayerName(layer), QString("Слой 2"));
+        QVERIFY(p->redo()); QCOMPARE(p->editorLayerName(layer), QString("Индикация"));
+        QVERIFY(p->redo()); QCOMPARE(p->editorLayerColor(layer), QColor("#8bdff2"));
+        top = p->getObjectAt(0); bottom = p->getObjectAt(1);
+        p->setActiveLayer(1);
+        QVERIFY(p->isObjectVisibleInEditor(bottom.data()));
+        QVERIFY(!p->isObjectVisibleInEditor(top.data()));
+        p->setShowAllLayers(true);
+        QVERIFY(p->isObjectVisibleInEditor(top.data()));
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), xml);
+        QVERIFY(p->setObjectsLayer({bottom}, layer));
+        QCOMPARE(p->layerObjectCount(layer), 2);
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), xml);
+        QVERIFY(p->undo()); QCOMPARE(p->layerObjectCount(1), 1);
+        QVERIFY(p->redo()); QCOMPARE(p->layerObjectCount(layer), 2);
+        const int duplicate = p->duplicateEditorLayer(layer);
+        QVERIFY(duplicate > layer); QCOMPARE(p->layerObjectCount(duplicate), 2);
+        QCOMPARE(p->getObjectCount(), 4);
+        QCOMPARE(p->getObjectAt(0)->getTypeName(), p->getObjectAt(2)->getTypeName());
+        QCOMPARE(p->getObjectAt(0)->getBoundingRect(), p->getObjectAt(2)->getBoundingRect());
+        const auto order = p->getObjects();
+        QVERIFY(p->mergeEditorLayer(duplicate, 1));
+        QCOMPARE(p->getObjects(), order); QCOMPARE(p->layerObjectCount(1), 2);
+        QVERIFY(!p->hasEditorLayer(duplicate));
+        QVERIFY(p->undo()); QVERIFY(p->hasEditorLayer(duplicate));
+        QVERIFY(p->removeEditorLayer(duplicate)); QCOMPARE(p->getObjectCount(), 2);
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(), 4);
+        QVERIFY(p->redo()); QCOMPARE(p->getObjectCount(), 2);
+        QTemporaryDir temp;
+        const auto file = temp.filePath("layers.xml");
+        QVERIFY(p->saveToFile(file)); QVERIFY(p->loadFromFile(file));
+        QCOMPARE(p->editorLayers().size(), 1); QCOMPARE(p->activeLayerId(), 1);
+        for (const auto &object : p->getObjects()) QCOMPARE(object->editorLayerId(), 1);
+    }
+    void mergeMultipleEditorLayers() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Multi layer merge", 640, 480, Qt::black);
+        p->addObject("rectangle");
+        const int second = p->addEditorLayer(); p->addObject("rectangle");
+        const int target = p->addEditorLayer(); p->addObject("dashline");
+        const int untouched = p->addEditorLayer(); p->addObject("rectangle");
+        QVERIFY(p->renameEditorLayer(target, "Индикация"));
+        QVERIFY(p->setEditorLayerColor(target, QColor("#8bdff2")));
+        p->groupObjects({1, 2});
+        const auto objects = p->getObjects();
+        const auto groups = p->objectGroups();
+        const auto xml = p->buildCompiledFpgaXml().toByteArray();
+        QSignalSpy changed(p, &ProjectManager::projectChanged);
+        QVERIFY(!p->mergeEditorLayers({1, second, -1}, target));
+        QVERIFY(!p->mergeEditorLayers({target, target}, target));
+        QVERIFY(!p->mergeEditorLayers({1, second}, target));
+        QVERIFY(changed.isEmpty()); QCOMPARE(p->editorLayers().size(), 4);
+        QVERIFY(p->mergeEditorLayers({target, 1, second, second}, target));
+        QCOMPARE(changed.size(), 1); QCOMPARE(p->editorLayers().size(), 2);
+        QCOMPARE(p->activeLayerId(), target); QCOMPARE(p->layerObjectCount(target), 3);
+        QCOMPARE(p->layerObjectCount(untouched), 1); QCOMPARE(p->getObjects(), objects);
+        QCOMPARE(p->editorLayerName(target), QString("Индикация"));
+        QCOMPARE(p->editorLayerColor(target), QColor("#8bdff2"));
+        QCOMPARE(p->objectGroups().first().members, groups.first().members);
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), xml);
+        QVERIFY(p->undo()); QCOMPARE(p->editorLayers().size(), 4);
+        QCOMPARE(p->layerObjectCount(1), 1); QCOMPARE(p->layerObjectCount(second), 1); QCOMPARE(p->layerObjectCount(target), 1);
+        QVERIFY(p->redo()); QCOMPARE(p->editorLayers().size(), 2); QCOMPARE(p->layerObjectCount(target), 3);
+    }
+    void layersMultiSelectionAndMerge() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Layer selection", 640, 480, Qt::black);
+        QList<int> ids{1}; p->addObject("rectangle");
+        for (int i = 0; i < 4; ++i) { ids.append(p->addEditorLayer()); p->addObject("rectangle"); }
+        LayersPanel panel; panel.resize(280, 300); panel.show(); QTest::qWait(5);
+        auto nameFor = [&panel](int id) -> QLineEdit * {
+            for (auto *name : panel.findChildren<QLineEdit *>("LayerNameEdit"))
+                if (name->property("layerId").toInt() == id) return name;
+            return nullptr;
+        };
+        auto selected = [&panel]() {
+            QSet<int> ids;
+            for (auto *row : panel.findChildren<QWidget *>("LayerRow"))
+                if (row->property("selected").toBool()) ids.insert(row->property("layerId").toInt());
+            return ids;
+        };
+        auto click = [&](int index, Qt::KeyboardModifiers modifiers = {}) {
+            auto *name = nameFor(ids[index]); QVERIFY(name);
+            QTest::mouseClick(name, Qt::LeftButton, modifiers);
+        };
+        auto *scroll = panel.findChild<QScrollArea *>("LayersScrollArea"); QVERIFY(scroll);
+        QVERIFY(scroll->verticalScrollBar()->maximum() > 0);
+        for (auto *button : scroll->findChildren<QToolButton *>()) {
+            const int x = button->mapTo(scroll->viewport(), QPoint()).x();
+            QVERIFY(x >= 0); QVERIFY(x + button->width() <= scroll->viewport()->width());
+            QCOMPARE(button->size(), QSize(32, 32));
+            if (button->objectName() != "LayerColorButton") QCOMPARE(button->iconSize(), QSize(18, 18));
+        }
+        click(0); QCOMPARE(selected(), QSet<int>{ids[0]});
+        auto *merge = nameFor(ids[0])->parentWidget()->findChild<QToolButton *>("MergeLayerButton");
+        QVERIFY(merge); QVERIFY(!merge->isEnabled());
+        click(2, Qt::ControlModifier); QCOMPARE(selected(), (QSet<int>{ids[0], ids[2]}));
+        QCOMPARE(p->activeLayerId(), ids[2]); QVERIFY(merge->isEnabled());
+        QVERIFY(!nameFor(ids[1])->parentWidget()->findChild<QToolButton *>("MergeLayerButton")->isEnabled());
+        click(1, Qt::MetaModifier); QCOMPARE(selected().size(), 3);
+        click(1, Qt::ControlModifier); QCOMPARE(selected(), (QSet<int>{ids[0], ids[2]}));
+        QVERIFY(selected().contains(p->activeLayerId()));
+        click(0); click(3, Qt::ShiftModifier);
+        QCOMPARE(selected(), (QSet<int>{ids[0], ids[1], ids[2], ids[3]}));
+        QCOMPARE(p->activeLayerId(), ids[3]);
+        p->setShowAllLayers(true); QCOMPARE(selected().size(), 4);
+        panel.refreshLayers(); QCOMPARE(selected().size(), 4);
+        scroll->verticalScrollBar()->setValue(0);
+        panel.grab().save(QCoreApplication::applicationDirPath() + "/layers-multiselection.png");
+        merge = nameFor(ids[3])->parentWidget()->findChild<QToolButton *>("MergeLayerButton"); QVERIFY(merge && merge->isEnabled());
+        QSignalSpy changed(p, &ProjectManager::projectChanged);
+        merge->click();
+        QVERIFY(!QApplication::activeModalWidget());
+        QCOMPARE(changed.size(), 1); QCOMPARE(p->editorLayers().size(), 2);
+        QCOMPARE(p->activeLayerId(), ids[3]); QCOMPARE(p->layerObjectCount(ids[3]), 4);
+        QTest::qWait(5); QCOMPARE(selected(), QSet<int>{ids[3]});
+        QVERIFY(p->undo()); QCOMPARE(p->editorLayers().size(), 5);
+        QVERIFY(p->redo()); QCOMPARE(p->editorLayers().size(), 2);
+        QTest::qWait(5);
+        p->setActiveLayer(ids[4]); QCOMPARE(selected(), QSet<int>{ids[4]});
+        // A normal click selects; a double click or F2 edits the name.
+        auto *name = nameFor(ids[4]); QVERIFY(name && name->isReadOnly());
+        QTest::mouseDClick(name, Qt::LeftButton); QVERIFY(!name->isReadOnly());
+        name->setText("Переименованный"); QTest::keyClick(name, Qt::Key_Return);
+        QCOMPARE(p->editorLayerName(ids[4]), QString("Переименованный"));
+        QTest::qWait(5); name = nameFor(ids[4]); QVERIFY(name && name->isReadOnly());
+        QTest::keyClick(name, Qt::Key_F2); name->setText("Отменить"); QTest::keyClick(name, Qt::Key_Escape);
+        QCOMPARE(name->text(), QString("Переименованный")); QVERIFY(name->isReadOnly());
+        p->createNewProject("Reset", 640, 480, Qt::black);
+        QCOMPARE(selected(), QSet<int>{1});
+    }
+    void editorLayerGroupsAndClipboard() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Groups", 640, 480, Qt::black);
+        p->addObject("rectangle"); p->addObject("rectangle");
+        const int group = p->groupObjects({0, 1}); QVERIFY(group >= 0);
+        QVERIFY(p->copyObjects({0, 1}));
+        const int layer = p->addEditorLayer();
+        const auto pasted = p->pasteObjects(); QCOMPARE(pasted.size(), 2);
+        for (int index : pasted) QCOMPARE(p->getObjectAt(index)->editorLayerId(), layer);
+        const int duplicate = p->duplicateEditorLayer(layer); QVERIFY(duplicate > layer);
+        QCOMPARE(p->objectGroups().size(), 3);
+        QVERIFY(p->removeEditorLayer(layer)); QCOMPARE(p->objectGroups().size(), 2);
+        for (const auto &g : p->objectGroups()) {
+            QCOMPARE(g.members.size(), 2);
+            for (int index : g.members) QVERIFY(p->getObjectAt(index));
+            QCOMPARE(p->getObjectAt(g.members[0])->editorLayerId(), p->getObjectAt(g.members[1])->editorLayerId());
+        }
+        QVERIFY(p->undo()); QCOMPARE(p->objectGroups().size(), 3);
+        p->createNewProject("3D", 1920, 1080, Qt::black); p->addObject("layer3d");
+        QVERIFY(p->duplicateEditorLayer(1) < 0);
+        QCOMPARE(p->editorLayers().size(), 1); QCOMPARE(p->getObjectCount(), 1);
+    }
+    void layerSelectionAndProperties() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Selection", 640, 480, Qt::black);
+        p->addObject("rectangle"); auto first = p->getObjectAt(0);
+        const int layer = p->addEditorLayer();
+        p->addObject("rectangle"); auto second = p->getObjectAt(0);
+        ViewportPanel viewport;
+        viewport.setSelectedIndexes({0, 1}); QCOMPARE(viewport.getSelectedIndexes(), QList<int>{0});
+        QSignalSpy changed(&viewport, &ViewportPanel::selectionChanged);
+        p->setShowAllLayers(true);
+        viewport.setSelectedIndexes({0, 1}); QCOMPARE(viewport.getSelectedIndexes().size(), 2);
+        ObjectPropertiesPanel properties; properties.resize(360, 540); properties.show();
+        properties.showSelectedObjects({0, 1});
+        auto *table = properties.findChild<QTableWidget *>("PropertiesTable"); QVERIFY(table);
+        auto *combo = properties.findChild<QComboBox *>("ObjectLayerCombo"); QVERIFY(combo);
+        QCOMPARE(combo->count(), 2); QCOMPARE(combo->currentIndex(), -1);
+        auto rowFor = [table](const QString &name) { for (int r = 0; r < table->rowCount(); ++r) if (table->item(r, 0)->text() == name) return r; return -1; };
+        QVERIFY(rowFor("Ширина") >= 0); QVERIFY(rowFor("Заливка") >= 0);
+        QVERIFY(p->setObjectProperty(first.data(), "Ширина", "75"));
+        properties.showSelectedObjects({0, 1});
+        QCOMPARE(table->item(rowFor("Ширина"), 1)->text(), QString("Разные значения"));
+        table->item(rowFor("Ширина"), 1)->setText("90");
+        QCOMPARE(first->getBoundingRect().width(), 90.); QCOMPARE(second->getBoundingRect().width(), 90.);
+        QVERIFY(p->undo());
+        QCOMPARE(p->getObjectAt(0)->getBoundingRect().width(), 120.);
+        QCOMPARE(p->getObjectAt(1)->getBoundingRect().width(), 75.);
+        first = p->getObjectAt(1); second = p->getObjectAt(0);
+        QVERIFY(!p->setObjectsProperty({first, second}, "Ширина", "ошибка"));
+        QCOMPARE(first->getBoundingRect().width(), 75.); QCOMPARE(second->getBoundingRect().width(), 120.);
+        QVERIFY(p->setObjectsProperty({first, second}, "Заливка", "#ff5c7a"));
+        QCOMPARE(dynamic_cast<RectangleObject *>(first.data())->fillColor.name(), QString("#ff5c7a"));
+        properties.showSelectedObjects({0, 1});
+        combo = properties.findChild<QComboBox *>("ObjectLayerCombo");
+        combo->setCurrentIndex(combo->findData(layer)); combo->activated(combo->currentIndex());
+        QCOMPARE(first->editorLayerId(), layer); QCOMPARE(second->editorLayerId(), layer);
+        p->setShowAllLayers(false); p->setActiveLayer(1);
+        QVERIFY(viewport.getSelectedIndexes().isEmpty()); QVERIFY(!changed.isEmpty());
+        // Different object types expose the intersection of their property names.
+        p->addObject("dashline"); properties.showSelectedObjects({0, 1});
+        QVERIFY(rowFor("Слой") >= 0); QVERIFY(rowFor("Заливка") < 0);
+        // One restricted object rejects the entire batch without changing the first.
+        p->createNewProject("Atomic", 1920, 1080, Qt::black);
+        p->addObject("rectangle"); p->addObject("layer3d");
+        auto rectangle = p->getObjectAt(1); const auto bounds = rectangle->getBoundingRect();
+        QVERIFY(!p->setObjectsProperty({rectangle, p->getObjectAt(0)}, "X", "25"));
+        QCOMPARE(rectangle->getBoundingRect(), bounds);
+    }
+    void layerRenderingAndBatchTransparency() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Layer colors", 640, 480, Qt::black);
+        p->addObject("rectangle"); auto first = p->getObjectAt(0);
+        const int layer = p->addEditorLayer();
+        p->addObject("rectangle"); auto second = p->getObjectAt(0);
+        auto *a = dynamic_cast<RectangleObject *>(first.data());
+        auto *b = dynamic_cast<RectangleObject *>(second.data()); QVERIFY(a && b);
+        a->x = 60.5; a->y = 60.5; a->width = 80; a->height = 60; a->strokeWidth = 0; a->fillColor = Qt::white;
+        b->x = 260.5; b->y = 60.5; b->width = 80; b->height = 60; b->strokeWidth = 0; b->fillColor = Qt::white;
+        ViewportPanel viewport; viewport.resize(640, 480); viewport.show(); QTest::qWait(5);
+        // A hidden layer neither draws nor receives clicks.
+        QTest::mouseClick(&viewport, Qt::LeftButton, Qt::NoModifier, QPoint(110, 95));
+        QVERIFY(viewport.getSelectedIndexes().isEmpty());
+        auto image = viewport.grab().toImage(); QCOMPARE(image.pixelColor(110, 95), QColor(Qt::black));
+        p->setShowAllLayers(true); viewport.setSelectedIndexes({0, 1});
+        image = viewport.grab().toImage();
+        auto colorPixels = [&image](const QRect &region, const QColor &target) {
+            int count = 0;
+            for (int y = region.top(); y <= region.bottom(); ++y) for (int x = region.left(); x <= region.right(); ++x) {
+                const QColor c = image.pixelColor(x, y);
+                if (qAbs(c.red() - target.red()) < 25 && qAbs(c.green() - target.green()) < 25 && qAbs(c.blue() - target.blue()) < 25) ++count;
+            }
+            return count;
+        };
+        QVERIFY(colorPixels(QRect(70, 66, 85, 65), p->editorLayerColor(1)) > 20);
+        QVERIFY(colorPixels(QRect(260, 66, 85, 65), p->editorLayerColor(layer)) > 20);
+        image.save(QCoreApplication::applicationDirPath() + "/layer-selection-colors.png");
+        QVERIFY(p->setObjectProperty(first.data(), "Прозрачность", "50"));
+        ObjectPropertiesPanel properties; properties.showSelectedObjects({0, 1});
+        auto *spin = properties.findChild<QSpinBox *>("TransparencySpin");
+        auto *slider = properties.findChild<QSlider *>("TransparencySlider"); QVERIFY(spin && slider);
+        QCOMPARE(spin->value(), -1); QCOMPARE(spin->text(), QString("Разные"));
+        slider->sliderPressed(); slider->setValue(0); slider->sliderReleased();
+        QCOMPARE(a->alpha, 255); QCOMPARE(b->alpha, 255); QCOMPARE(spin->minimum(), 0);
+        QCOMPARE(spin->text(), QString("0 %")); QVERIFY(spin->specialValueText().isEmpty());
+        properties.showObjectProperties(0);
+        QCOMPARE(properties.findChild<QSpinBox *>("TransparencySpin")->text(), QString("0 %"));
+        QVERIFY(p->undo());
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(1).data())->alpha, 128);
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(0).data())->alpha, 255);
+        const auto before = p->getObjectAt(1)->getBoundingRect();
+        QVERIFY(!p->setObjectsProperty(p->getObjects(), "Ширина", "nan"));
+        QVERIFY(!p->setObjectsProperty(p->getObjects(), "Ширина", "-10"));
+        QCOMPARE(p->getObjectAt(1)->getBoundingRect(), before);
+    }
+    void comboPopupGeometry_data() {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<bool>("dialog");
+        QTest::newRow("workspace") << QString("WorkspaceLayerCombo") << false;
+        QTest::newRow("object-layer") << QString("ObjectLayerCombo") << false;
+        QTest::newRow("property") << QString("PropertyValueCombo") << false;
+        QTest::newRow("dialog") << QString("DialogCombo") << true;
+    }
+    void comboPopupGeometry() {
+        QFETCH(QString, name);
+        QFETCH(bool, dialog);
+        std::unique_ptr<QWidget> host(dialog ? static_cast<QWidget *>(new QDialog) : new QWidget);
+        host->resize(360, 320);
+        auto *combo = new QComboBox(host.get());
+        combo->setObjectName(name); combo->setGeometry(20, 20, 240, 36);
+        for (int i = 0; i < 6; ++i) combo->addItem(QString("Пункт %1").arg(i + 1));
+        host->show(); QTest::qWait(5);
+        combo->showPopup(); QTest::qWait(5);
+        auto *view = combo->view(); QVERIFY(view->isVisible());
+        for (int row = 0; row < combo->count(); ++row) {
+            const QRect rect = view->visualRect(combo->model()->index(row, 0));
+            QVERIFY2(rect.height() >= combo->fontMetrics().height(), qPrintable(QString("row=%1; height=%2").arg(row).arg(rect.height())));
+            QVERIFY2(view->viewport()->rect().contains(rect), qPrintable(QString("%1 row %2: view=%3x%4; item=%5,%6 %7x%8; popup=%9x%10; style=%11")
+                .arg(name).arg(row).arg(view->viewport()->width()).arg(view->viewport()->height())
+                .arg(rect.x()).arg(rect.y()).arg(rect.width()).arg(rect.height())
+                .arg(view->window()->width()).arg(view->window()->height()).arg(qApp->style()->objectName())));
+        }
+        const auto selected = view->visualRect(combo->model()->index(0, 0));
+        const auto preview = view->viewport()->grab().toImage();
+        const QPoint sample(selected.right() - 6, selected.center().y());
+        const qreal ratio = preview.devicePixelRatio();
+        QCOMPARE(preview.pixelColor(qRound(sample.x() * ratio), qRound(sample.y() * ratio)), QColor("#00c8f0"));
+        view->window()->grab().save(QCoreApplication::applicationDirPath() + "/popup-" + name + ".png");
+        QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, view->visualRect(combo->model()->index(5, 0)).center());
+        QCOMPARE(combo->currentIndex(), 5);
+        for (int i = 6; i < 30; ++i) combo->addItem(QString("Пункт %1").arg(i + 1));
+        combo->showPopup(); QTest::qWait(5);
+        QVERIFY(view->isVisible()); QVERIFY(view->verticalScrollBar()->maximum() > 0);
+        view->scrollTo(combo->model()->index(29, 0)); QTest::qWait(5);
+        const QRect last = view->visualRect(combo->model()->index(29, 0));
+        QVERIFY(view->viewport()->rect().contains(last));
+        QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, last.center());
+        QCOMPARE(combo->currentIndex(), 29);
+    }
+    void layersWindowWidthMigration() {
+        auto settings = ApplicationSettings::create();
+        {
+            MainWindow window; QTest::qWait(5);
+            auto *dock = window.findChild<QDockWidget *>("LayersDock"); QVERIFY(dock);
+            dock->setFloating(true); dock->show(); dock->resize(440, 350); QTest::qWait(5);
+            settings.setValue("windowGeometry", window.saveGeometry());
+            settings.setValue("windowState", window.saveState());
+            settings.remove("layersPanelLayoutVersion");
+        }
+        {
+            MainWindow window; QTest::qWait(5);
+            auto *dock = window.findChild<QDockWidget *>("LayersDock"); QVERIFY(dock);
+            QCOMPARE(dock->width(), 320);
+            QCOMPARE(settings.value("layersPanelLayoutVersion").toInt(), 1);
+            dock->show(); dock->resize(360, 350); QTest::qWait(5);
+            settings.setValue("windowGeometry", window.saveGeometry());
+            settings.setValue("windowState", window.saveState());
+        }
+        {
+            MainWindow window; QTest::qWait(5);
+            auto *dock = window.findChild<QDockWidget *>("LayersDock"); QVERIFY(dock);
+            QCOMPARE(dock->width(), 360);
+        }
+        settings.remove("windowGeometry"); settings.remove("windowState");
+    }
+    void layersInterfaceLayout() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Layers UI", 640, 480, Qt::black);
+        p->addObject("rectangle"); p->addEditorLayer(); p->addObject("dashline");
+        LayersPanel layers; layers.resize(320, 350); layers.show(); QTest::qWait(5);
+        auto *list = layers.findChild<QScrollArea *>("LayersScrollArea"); QVERIFY(list);
+        QCOMPARE(list->widget()->findChildren<QWidget *>("LayerRow", Qt::FindDirectChildrenOnly).size(), 2);
+        auto *all = layers.findChild<QToolButton *>("ShowAllLayersButton"); QVERIFY(all);
+        all->click(); QVERIFY(p->showAllLayers());
+        auto edits = layers.findChildren<QLineEdit *>("LayerNameEdit"); QCOMPARE(edits.size(), 2);
+        QTest::mouseClick(edits[0], Qt::LeftButton); QTest::qWait(1); QCOMPARE(p->activeLayerId(), 1);
+        QTest::mouseDClick(edits[0], Qt::LeftButton); QVERIFY(!edits[0]->isReadOnly());
+        edits[0]->setText("Основной"); edits[0]->editingFinished(); QTest::qWait(5);
+        QCOMPARE(p->editorLayerName(1), QString("Основной"));
+        for (auto *button : layers.findChildren<QToolButton *>()) {
+            QVERIFY2(layers.rect().contains(QRect(button->mapTo(&layers, QPoint()), button->size())), qPrintable(button->objectName()));
+            if (button != all) {
+                QCOMPARE(button->width(), button->height());
+                QVERIFY(button->text().isEmpty());
+                QVERIFY(!button->icon().isNull());
+                QVERIFY(!button->icon().pixmap(button->iconSize()).isNull());
+            }
+        }
+        auto *add = layers.findChild<QToolButton *>("AddLayerButton"); QVERIFY(add);
+        QVERIFY(add->text().isEmpty()); QVERIFY(!add->icon().isNull());
+        layers.grab().save(QCoreApplication::applicationDirPath() + "/layers-panel.png");
+        layers.resize(280, 350); QTest::qWait(5);
+        for (auto *button : list->findChildren<QToolButton *>())
+            QVERIFY2(list->viewport()->rect().contains(QRect(button->mapTo(list->viewport(), QPoint()), button->size())),
+                qPrintable(QString("%1; view=%2x%3; button x=%4; row min=%5; row sizehint=%6")
+                .arg(button->objectName()).arg(list->viewport()->width()).arg(list->viewport()->height())
+                .arg(button->mapTo(list->viewport(), QPoint()).x()).arg(button->parentWidget()->minimumWidth()).arg(button->parentWidget()->minimumSizeHint().width())));
+        EditorWorkspacePanel workspace; workspace.resize(800, 500); workspace.show(); QTest::qWait(5);
+        auto *combo = workspace.findChild<QComboBox *>("WorkspaceLayerCombo"); QVERIFY(combo);
+        QCOMPARE(combo->count(), 2); QVERIFY(!combo->isEditable());
+        QCOMPARE(combo->width(), 180);
+        QCOMPARE(combo->parentWidget(), workspace.viewport());
+        QCOMPARE(combo->pos(), QPoint(8, 8));
+        QCOMPARE(workspace.viewport()->geometry().top(), workspace.selectionToolStrip()->geometry().top());
+        QCOMPARE(workspace.viewport()->geometry().top(), workspace.layout()->contentsMargins().top());
+        QVERIFY(!workspace.findChild<QLabel *>("WorkspaceLayerLabel"));
+        workspace.resize(1200, 500); QTest::qWait(5); QCOMPARE(combo->width(), 180);
+        combo->setCurrentIndex(1); combo->activated(1); QCOMPARE(p->activeLayerId(), combo->currentData().toInt());
+        QVERIFY(workspace.viewport()->rect().contains(combo->geometry()));
+        QCOMPARE(workspace.selectionToolStrip()->height(), workspace.viewport()->height());
+        ObjectPropertiesPanel properties; properties.resize(360, 520); properties.showSelectedObjects({0, 1}); properties.show(); QTest::qWait(5);
+        properties.grab().save(QCoreApplication::applicationDirPath() + "/multi-properties.png");
+        // The persistent layer field and ordinary dropdown editors share the same geometry.
+        p->addObject("text"); properties.showObjectProperties(0); QTest::qWait(5);
+        auto *table = properties.findChild<QTableWidget *>("PropertiesTable"); QVERIFY(table);
+        auto *layerCombo = properties.findChild<QComboBox *>("ObjectLayerCombo"); QVERIFY(layerCombo);
+        const QRect layerRect(layerCombo->mapTo(table->viewport(), QPoint()), layerCombo->size());
+        const int layerRow = table->rowCount() - 1;
+        QCOMPARE(table->item(layerRow, 0)->text(), QString("Слой"));
+        QVERIFY(table->visualItemRect(table->item(layerRow, 1)).contains(layerRect));
+        QVERIFY(!table->visualItemRect(table->item(layerRow - 1, 1)).intersects(layerRect));
+        int fontRow = -1;
+        for (int row = 0; row < table->rowCount(); ++row)
+            if (table->item(row, 0)->text() == "Шрифт") fontRow = row;
+        QVERIFY(fontRow >= 0);
+        table->editItem(table->item(fontRow, 1)); QTest::qWait(5);
+        auto *fontCombo = table->findChild<QComboBox *>("PropertyValueCombo"); QVERIFY(fontCombo);
+        QCOMPARE(fontCombo->size(), layerCombo->size());
+        const QRect fontRect(fontCombo->mapTo(table->viewport(), QPoint()), fontCombo->size());
+        QVERIFY(table->visualItemRect(table->item(fontRow, 1)).contains(fontRect));
+        properties.grab().save(QCoreApplication::applicationDirPath() + "/property-dropdowns.png");
+        MainWindow window; QTest::qWait(5); window.showNormal(); window.resize(1400, 900); window.show();
+        auto *dock = window.findChild<QDockWidget *>("LayersDock"); QVERIFY(dock);
+        dock->setFloating(false); window.addDockWidget(Qt::LeftDockWidgetArea, dock); dock->show();
+        QTest::qWait(10);
+        p->createNewProject("Интерфейс со слоями", 640, 480, Qt::black);
+        p->addObject("rectangle"); p->setObjectProperty(p->getObjectAt(0).data(), "X", "80");
+        p->renameEditorLayer(1, "Основной");
+        const int foreground = p->addEditorLayer(); p->renameEditorLayer(foreground, "Индикация");
+        p->addObject("rectangle"); p->setObjectProperty(p->getObjectAt(0).data(), "X", "280");
+        p->setShowAllLayers(true);
+        auto *viewport = window.findChild<ViewportPanel *>(); QVERIFY(viewport);
+        viewport->setSelectedIndexes({0, 1}); viewport->selectionChanged({0, 1});
+        QTest::qWait(5);
+        auto *layerScroll = dock->findChild<QScrollArea *>("LayersScrollArea"); QVERIFY(layerScroll);
+        QTRY_COMPARE(layerScroll->widget()->findChildren<QWidget *>("LayerRow", Qt::FindDirectChildrenOnly).size(), 2);
+        for (auto *row : layerScroll->widget()->findChildren<QWidget *>("LayerRow", Qt::FindDirectChildrenOnly)) {
+            QVERIFY2(row->isVisible(), qPrintable(QString("hidden %1").arg(row->property("layerId").toInt())));
+            QVERIFY(layerScroll->viewport()->rect().contains(QRect(row->mapTo(layerScroll->viewport(), QPoint()), row->size())));
+        }
+        for (auto *button : dock->findChildren<QToolButton *>())
+            QVERIFY2(dock->rect().contains(QRect(button->mapTo(dock, QPoint()), button->size())), qPrintable(button->objectName()));
+        window.grab().save(QCoreApplication::applicationDirPath() + "/layers-workspace.png");
     }
     void pythonVectors() {
         QFile file(QString::fromUtf8(PROTOCOL_VECTOR_FILE));
@@ -592,6 +1017,13 @@ private slots:
         ObjectPropertiesPanel panel; panel.resize(340,540); panel.show(); panel.showObjectProperties(index); QTest::qWait(5);
         auto *spin=panel.findChild<QSpinBox *>("TransparencySpin"); auto *slider=panel.findChild<QSlider *>("TransparencySlider");
         QVERIFY(spin && slider); QCOMPARE(spin->maximum(),100); QCOMPARE(slider->maximum(),100);
+        QCOMPARE(spin->value(),0); QCOMPARE(spin->text(),QString("0 %")); QVERIFY(spin->specialValueText().isEmpty());
+        auto *layerCombo = panel.findChild<QComboBox *>("ObjectLayerCombo"); QVERIFY(layerCombo);
+        QCOMPARE(layerCombo->height(), spin->height());
+        EditorWorkspacePanel workspace; workspace.resize(800,500); workspace.show(); QTest::qWait(5);
+        auto *workspaceCombo = workspace.findChild<QComboBox *>("WorkspaceLayerCombo"); QVERIFY(workspaceCombo);
+        QCOMPARE(workspaceCombo->height(), spin->height());
+        workspace.grab().save(QCoreApplication::applicationDirPath()+"/workspace-layer-field.png");
         const auto *properties=panel.findChild<QTableWidget *>("PropertiesTable"); QVERIFY(properties);
         for (int row=0;row<properties->rowCount();++row)
             if (properties->cellWidget(row,1)) QCOMPARE(properties->rowHeight(row),properties->rowHeight(0));
