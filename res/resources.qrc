@@ -32,6 +32,7 @@
         <file>icons/fpga/uart.svg</file>
         <file>icons/fpga/play.svg</file>
         <file>icons/fpga/stop.svg</file>
+        <file>icons/fpga/configuration.svg</file>
         <file>icons/aircraft-position/slider-thumb.svg</file>
         <file>icons/aircraft-position/altitude-track.svg</file>
         <file>icons/aircraft-position/course-pointer.svg</file>

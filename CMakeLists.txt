@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 1.0.9 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.10 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg SerialPort)
 
@@ -106,6 +106,8 @@ qt_add_executable(AvionixDesigner
     src/text/TextLayout.cpp
 
     # FPGA Подсистема
+    src/fpga/config/FpgaPipelineConfig.h
+    src/fpga/config/FpgaPipelineConfig.cpp
     src/fpga/model/FpgaCompiledDocument.h
     src/fpga/model/FpgaCompiledDocument.cpp
     src/fpga/model/FpgaHardwareScene.h

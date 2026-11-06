@@ -10,6 +10,9 @@
 #include "fpga/transport/FpgaPacketDump.h"
 
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QDir>
+#include <QLineEdit>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -34,13 +37,7 @@ constexpr int kDefaultUartBaudRate = 115200;
 constexpr int kDefaultUartIntervalMs = 20;
 constexpr int kMinimumUartIntervalMs = 0;
 constexpr int kMaximumUartIntervalMs = 60000;
-
-QString toolTipWithShortcut(const QString &text, const QKeySequence &shortcut = {})
-{
-    if (shortcut.isEmpty())
-        return text;
-    return QStringLiteral("%1 (%2)").arg(text, shortcut.toString(QKeySequence::NativeText));
-}
+constexpr int kConfigurationDialogMinWidth = 500;
 
 QToolButton* createIconButton(
     const QString &iconPath,
@@ -53,7 +50,7 @@ QToolButton* createIconButton(
     auto *button = new QToolButton(parent);
     button->setObjectName(QStringLiteral("SettingsToolButton"));
     button->setIcon(QIcon(iconPath));
-    button->setToolTip(toolTipWithShortcut(toolTip, shortcut));
+    button->setToolTip(shortcut.isEmpty() ? toolTip : QStringLiteral("%1 (%2)").arg(toolTip, shortcut.toString(QKeySequence::NativeText)));
     button->setCheckable(checkable);
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     return button;
@@ -71,17 +68,72 @@ QStringList availablePortNames()
     return names;
 }
 
+void prepareConfigurationDialog(QDialog &dialog)
+{
+    dialog.ensurePolished();
+    auto *layout = dialog.layout();
+    dialog.setMinimumWidth(qMax(kConfigurationDialogMinWidth, layout->totalMinimumSize().width()));
+    // minimumSizeHint не учитывает всю высоту перенесённого текста.
+    dialog.setMinimumHeight(qMax(layout->totalMinimumSize().height(), layout->totalHeightForWidth(dialog.minimumWidth())));
+    dialog.adjustSize();
+}
+
+void warnAboutConfigurationChange(const FpgaPipelineConfig &configuration, QWidget *parent)
+{
+    const auto &previous = ProjectManager::instance()->fpgaConfiguration();
+    if (previous.isValid() && previous != configuration) {
+        QMessageBox::warning(parent, QStringLiteral("Изменена конфигурация ПЛИС"),
+            QStringLiteral("Сцена не соответствует последней экспортированной конфигурации. "
+                "Сохраните новый tube_config_pkg.sv и пересоберите прошивку ПЛИС."));
+    }
+}
+
+// ConfigurationExportFields - поле пути конфигурации и кнопка выбора файла.
+class ConfigurationExportFields : public QVBoxLayout
+{
+public:
+    ConfigurationExportFields(const QString &path, QWidget *parent)
+        : QVBoxLayout()
+    {
+        setObjectName("ConfigurationExportFields");
+        auto *layout = this;
+        layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(10);
+        auto *caption = new QLabel(QStringLiteral("Файл конфигурации"), parent);
+        caption->setObjectName("DialogFieldLabel");
+        layout->addWidget(caption);
+        auto *row = new QHBoxLayout;
+        m_path = new QLineEdit(path, parent);
+        m_path->setObjectName("FpgaConfigurationPathEdit");
+        m_path->setMinimumWidth(0);
+        m_path->setToolTip(QStringLiteral("Файл tube_config_pkg.sv для отдельной сборки проекта ПЛИС"));
+        auto *browse = new QPushButton(QStringLiteral("Обзор"), parent);
+        browse->setObjectName("ConfigurationBrowseButton");
+        browse->setShortcut(QKeySequence("Alt+O"));
+        browse->setToolTip(QStringLiteral("Обзор (Alt+O)"));
+        connect(browse, &QPushButton::clicked, this, [this] {
+            const auto file = QFileDialog::getSaveFileName(m_path->window(), QStringLiteral("Экспорт конфигурации ПЛИС"), m_path->text(),
+                QStringLiteral("SystemVerilog (*.sv);;Все файлы (*.*)"));
+            if (!file.isEmpty()) m_path->setText(file);
+        });
+        row->addWidget(m_path, 1); row->addWidget(browse);
+        layout->addLayout(row);
+    }
+    QString filePath() const { return m_path->text().trimmed(); }
+private:
+    QLineEdit *m_path = nullptr;
+};
+
 // UartStreamingDialog - диалог порта, скоростей и интервала перед началом передачи.
 class UartStreamingDialog : public QDialog
 {
 public:
-    explicit UartStreamingDialog(QWidget *parent = nullptr)
+    UartStreamingDialog(const QString &path, QWidget *parent)
         : QDialog(parent)
     {
         setObjectName(QStringLiteral("UartStreamingDialog"));
         setWindowTitle(QStringLiteral("UART трансляция"));
         setModal(true);
-        setMinimumWidth(430);
+        setMinimumWidth(kConfigurationDialogMinWidth);
 
         auto *titleLabel = new QLabel(QStringLiteral("UART трансляция"), this);
         titleLabel->setObjectName(QStringLiteral("DialogTitleLabel"));
@@ -95,11 +147,11 @@ public:
         m_portCombo = new QComboBox(this);
         m_portCombo->setObjectName(QStringLiteral("UartPortCombo"));
         m_portCombo->setEditable(true);
-        m_portCombo->setFixedHeight(32);
 
         auto *refreshButton = new QPushButton(QStringLiteral("Обновить"), this);
         refreshButton->setObjectName(QStringLiteral("SecondaryButton"));
-        refreshButton->setFixedHeight(32);
+        refreshButton->setShortcut(QKeySequence("Alt+R"));
+        refreshButton->setToolTip(QStringLiteral("Обновить список портов (Alt+R)"));
         connect(refreshButton, &QPushButton::clicked, this, [this]() {
             refreshPorts(m_portCombo->currentText());
         });
@@ -115,13 +167,11 @@ public:
         m_loadBaudRateSpin->setObjectName(QStringLiteral("UartLoadBaudRateSpin"));
         m_loadBaudRateSpin->setRange(1200, 4000000);
         m_loadBaudRateSpin->setSingleStep(9600);
-        m_loadBaudRateSpin->setFixedHeight(32);
 
         m_baudRateSpin = new QSpinBox(this);
         m_baudRateSpin->setObjectName(QStringLiteral("UartBaudRateSpin"));
         m_baudRateSpin->setRange(1200, 4000000);
         m_baudRateSpin->setSingleStep(9600);
-        m_baudRateSpin->setFixedHeight(32);
 
         m_intervalSpin = new QSpinBox(this);
         m_intervalSpin->setObjectName(QStringLiteral("UartIntervalSpin"));
@@ -129,7 +179,6 @@ public:
         m_intervalSpin->setSingleStep(1);
         m_intervalSpin->setSpecialValueText(QStringLiteral("Без дополнительной паузы"));
         m_intervalSpin->setSuffix(QStringLiteral(" мс"));
-        m_intervalSpin->setFixedHeight(32);
 
         auto *form = new QGridLayout();
         form->setObjectName(QStringLiteral("UartStreamingForm"));
@@ -145,6 +194,7 @@ public:
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
         buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Запустить"));
         buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Отмена"));
+
         connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
@@ -155,6 +205,14 @@ public:
         layout->addWidget(descriptionLabel);
         layout->addSpacing(2);
         layout->addLayout(form);
+        auto *separator = new QFrame(this); separator->setFrameShape(QFrame::HLine);
+        layout->addWidget(separator);
+        auto *hint = new QLabel(QStringLiteral("Файл tube_config_pkg.sv будет сохранён автоматически перед открытием порта."), this);
+        hint->setObjectName("ConfigurationAutoSaveNotice");
+        hint->setWordWrap(true);
+        layout->addWidget(hint);
+        m_configuration = new ConfigurationExportFields(path, this);
+        layout->addLayout(m_configuration);
         layout->addWidget(buttons);
     }
 
@@ -173,6 +231,7 @@ public:
     int loadBaudRate() const { return m_loadBaudRateSpin->value(); }
     int baudRate() const { return m_baudRateSpin->value(); }
     int intervalMs() const { return m_intervalSpin->value(); }
+    QString configurationPath() const { return m_configuration->filePath(); }
 
 private:
     void addFormRow(QGridLayout *form, int row, const QString &labelText, QWidget *field)
@@ -202,6 +261,7 @@ private:
     QSpinBox *m_loadBaudRateSpin = nullptr;
     QSpinBox *m_baudRateSpin = nullptr;
     QSpinBox *m_intervalSpin = nullptr;
+    ConfigurationExportFields *m_configuration = nullptr;
 };
 }
 
@@ -210,13 +270,16 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
 {
     setPanelName(QStringLiteral("FpgaStreamingPanel"));
 
-    m_binButton = createIconButton(QStringLiteral(":/icons/icons/fpga/bin.svg"), QStringLiteral("BIN dump"), this, true, QKeySequence(QStringLiteral("Ctrl+Alt+B")));
-    m_simulatorButton = createIconButton(QStringLiteral(":/icons/icons/fpga/simulator.svg"), QStringLiteral("Симулятор ПЛИС"), this, true, QKeySequence(QStringLiteral("Ctrl+Alt+F")));
-    m_uartButton = createIconButton(QStringLiteral(":/icons/icons/fpga/uart.svg"), QStringLiteral("UART"), this, true, QKeySequence(QStringLiteral("Ctrl+Alt+U")));
-    m_startButton = createIconButton(QStringLiteral(":/icons/icons/fpga/play.svg"), QStringLiteral("Запустить выбранные режимы"), this, false, QKeySequence(QStringLiteral("Ctrl+Enter")));
-    m_stopButton = createIconButton(QStringLiteral(":/icons/icons/fpga/stop.svg"), QStringLiteral("Остановить активные режимы"), this, false, QKeySequence(QStringLiteral("Ctrl+Shift+Enter")));
+    m_binButton = createIconButton(QStringLiteral(":/icons/icons/fpga/bin.svg"), QStringLiteral("BIN dump"), this, true, QKeySequence("Ctrl+Alt+B"));
+    m_simulatorButton = createIconButton(QStringLiteral(":/icons/icons/fpga/simulator.svg"), QStringLiteral("Симулятор ПЛИС"), this, true, QKeySequence("Ctrl+Alt+F"));
+    m_uartButton = createIconButton(QStringLiteral(":/icons/icons/fpga/uart.svg"), QStringLiteral("UART"), this, true, QKeySequence("Ctrl+Alt+U"));
+    m_startButton = createIconButton(QStringLiteral(":/icons/icons/fpga/play.svg"), QStringLiteral("Запустить выбранные режимы"), this, false, QKeySequence("Ctrl+Return"));
+    m_stopButton = createIconButton(QStringLiteral(":/icons/icons/fpga/stop.svg"), QStringLiteral("Остановить активные режимы"), this, false, QKeySequence("Ctrl+Shift+Return"));
     m_stopButton->setEnabled(false);
     m_simulatorButton->setChecked(true);
+    m_exportConfigurationButton = createIconButton(QStringLiteral(":/icons/icons/fpga/configuration.svg"),
+        QStringLiteral("Экспорт конфигурации ПЛИС"), this, false, QKeySequence("Ctrl+Alt+E"));
+    m_exportConfigurationButton->setObjectName("ExportFpgaConfigurationButton");
 
     m_uartTransport = new FpgaUartTransport(this);
     connect(m_uartTransport, &FpgaUartTransport::setupComplete, this, [this]() {
@@ -231,8 +294,9 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
     });
 
     auto *flow = createFlowPanel(this);
-    for (auto *button : {m_binButton, m_simulatorButton, m_uartButton, m_startButton, m_stopButton})
+    for (auto *button : {m_binButton, m_simulatorButton, m_uartButton, m_exportConfigurationButton, m_startButton, m_stopButton})
         flow->addWidget(button);
+    connect(m_exportConfigurationButton, &QToolButton::clicked, this, &FpgaStreamingPanel::exportConfiguration);
 
     connect(m_startButton, &QToolButton::clicked, this, &FpgaStreamingPanel::startStreaming);
     connect(m_stopButton, &QToolButton::clicked, this, &FpgaStreamingPanel::stopStreaming);
@@ -258,6 +322,7 @@ bool FpgaStreamingPanel::compilePackets(bool showError)
 
 void FpgaStreamingPanel::startStreaming()
 {
+    if (m_running) return;
     if (!hasSelectedMode()) {
         QMessageBox::information(this, QStringLiteral("ПЛИС"), QStringLiteral("Выберите хотя бы один режим загрузки."));
         return;
@@ -265,10 +330,16 @@ void FpgaStreamingPanel::startStreaming()
 
     if (!ensureCompiled())
         return;
+    const quint64 sceneRevision = ProjectManager::instance()->sceneRevision();
 
     if (m_uartButton->isChecked()) {
         if (!configureUartStreaming())
             return;
+        if (ProjectManager::instance()->sceneRevision() != sceneRevision) {
+            QMessageBox::warning(this, QStringLiteral("Сцена изменена"),
+                QStringLiteral("Сцена изменилась во время подготовки конфигурации. Повторите запуск UART для актуальной сцены."));
+            return;
+        }
     }
 
     if (m_binButton->isChecked()) {
@@ -317,6 +388,16 @@ void FpgaStreamingPanel::toggleUartMode()
     m_uartButton->setChecked(!m_uartButton->isChecked());
 }
 
+void FpgaStreamingPanel::toggleBinMode()
+{
+    m_binButton->setChecked(!m_binButton->isChecked());
+}
+
+void FpgaStreamingPanel::toggleSimulatorMode()
+{
+    m_simulatorButton->setChecked(!m_simulatorButton->isChecked());
+}
+
 void FpgaStreamingPanel::modeSelectionChanged()
 {
     if (m_running)
@@ -343,8 +424,16 @@ bool FpgaStreamingPanel::simulatorModeActive() const
 bool FpgaStreamingPanel::configureUartStreaming()
 {
     auto settings = ApplicationSettings::create();
-    UartStreamingDialog dialog(this);
+    QString error;
+    const auto configuration = FpgaPipelineConfig::fromScene(m_bundle.document, &error);
+    if (!configuration.isValid()) {
+        QMessageBox::warning(this, QStringLiteral("Конфигурация ПЛИС"), error);
+        return false;
+    }
+    warnAboutConfigurationChange(configuration, this);
+    UartStreamingDialog dialog(defaultConfigurationPath(), this);
     dialog.loadSettings(settings);
+    prepareConfigurationDialog(dialog);
     if (dialog.exec() != QDialog::Accepted)
         return false;
 
@@ -352,6 +441,9 @@ bool FpgaStreamingPanel::configureUartStreaming()
         QMessageBox::warning(this, QStringLiteral("UART"), QStringLiteral("Выберите или введите UART порт."));
         return false;
     }
+    // Порт не открывается до успешного сохранения файла для того же bundle.
+    if (!saveConfiguration(dialog.configurationPath())) return false;
+    m_uartConfiguration = configuration;
 
     m_uartConfig.portName = dialog.portName();
     m_uartConfig.baudRate = dialog.baudRate();
@@ -393,6 +485,16 @@ void FpgaStreamingPanel::transmitUartFrame()
             QMessageBox::warning(this, QStringLiteral("UART"), QStringLiteral("Не удалось сформировать сцену."));
             return;
         }
+        QString error;
+        const auto current = FpgaPipelineConfig::fromScene(m_bundle.document, &error);
+        if (!current.isValid() || current != m_uartConfiguration) {
+            stopUartStreaming();
+            setRunning(simulatorModeActive());
+            QMessageBox::warning(this, QStringLiteral("Изменена конфигурация ПЛИС"),
+                QStringLiteral("Передача UART остановлена: изменена структура аппаратного конвейера. "
+                    "Экспортируйте новый tube_config_pkg.sv и пересоберите прошивку ПЛИС.\n\n") + error);
+            return;
+        }
         m_uartTransport->updateScene(m_bundle);
         m_lastSceneRevision = project->sceneRevision();
     }
@@ -417,4 +519,52 @@ void FpgaStreamingPanel::invalidatePackets()
         m_updateScheduled = true;
         QTimer::singleShot(0, this, &FpgaStreamingPanel::transmitUartFrame);
     }
+}
+
+QString FpgaStreamingPanel::defaultConfigurationPath() const
+{
+    const auto project = ProjectManager::instance()->getFilePath();
+    const QString directory = project.isEmpty()
+        ? ApplicationSettings::create().value("fpga/configurationDirectory", QDir::homePath()).toString()
+        : QFileInfo(project).absolutePath();
+    return QDir(directory).filePath(QStringLiteral("tube_config_pkg.sv"));
+}
+
+bool FpgaStreamingPanel::saveConfiguration(const QString &path)
+{
+    QString error;
+    if (path.isEmpty() || !ProjectManager::instance()->exportFpgaConfiguration(path, m_bundle.document, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Экспорт конфигурации ПЛИС"),
+            path.isEmpty() ? QStringLiteral("Укажите путь к файлу tube_config_pkg.sv.") : error);
+        return false;
+    }
+    auto settings = ApplicationSettings::create();
+    settings.setValue("fpga/configurationDirectory", QFileInfo(path).absolutePath());
+    return true;
+}
+
+void FpgaStreamingPanel::exportConfiguration()
+{
+    if (!ensureCompiled()) return;
+    QString error;
+    const auto configuration = FpgaPipelineConfig::fromScene(m_bundle.document, &error);
+    if (!configuration.isValid()) { QMessageBox::warning(this, QStringLiteral("Конфигурация ПЛИС"), error); return; }
+    warnAboutConfigurationChange(configuration, this);
+    QDialog dialog(this);
+    dialog.setObjectName("FpgaConfigurationDialog");
+    dialog.setWindowTitle(QStringLiteral("Экспорт конфигурации ПЛИС"));
+    dialog.setMinimumWidth(kConfigurationDialogMinWidth);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(22, 20, 22, 18); layout->setSpacing(14);
+    auto *title = new QLabel(QStringLiteral("Экспорт конфигурации ПЛИС"), &dialog);
+    title->setObjectName("DialogTitleLabel"); layout->addWidget(title);
+    auto *fields = new ConfigurationExportFields(defaultConfigurationPath(), &dialog);
+    layout->addLayout(fields);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    prepareConfigurationDialog(dialog);
+    if (dialog.exec() == QDialog::Accepted) saveConfiguration(fields->filePath());
 }

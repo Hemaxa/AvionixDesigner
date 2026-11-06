@@ -1,6 +1,8 @@
 // ObjectListPanel - панель со списком объектов проекта.
 
 #include "ObjectListPanel.h"
+#include <QApplication>
+#include <QAction>
 #include "ProjectManager.h"
 #include "ElidedLabel.h"
 #include "RectangleObject.h"
@@ -77,8 +79,8 @@ QToolButton *createLockButton(QWidget *parent, QHBoxLayout *layout, bool locked)
   button->setChecked(locked);
   button->setIcon(QIcon(locked ? ":/icons/icons/list/lock-on.svg"
                                : ":/icons/icons/list/lock-off.svg"));
-  button->setToolTip(locked ? QStringLiteral("Разрешить выделение")
-                            : QStringLiteral("Заблокировать выделение"));
+  button->setToolTip(locked ? QStringLiteral("Разрешить выделение (Ctrl+L)")
+                            : QStringLiteral("Заблокировать выделение (Ctrl+L)"));
   button->setFixedSize(30, 30);
   button->setIconSize(QSize(24, 24));
   layout->addWidget(button, 0, Qt::AlignVCenter);
@@ -100,7 +102,7 @@ QCheckBox *addExportControls(QWidget *parent, QHBoxLayout *layout,
 
   auto *check = new QCheckBox(parent);
   check->setObjectName("ObjectExportCheck");
-  check->setToolTip(toolTip);
+  check->setToolTip(QStringLiteral("%1 (Ctrl+E)").arg(toolTip));
   check->setChecked(enabled);
   check->ensurePolished();
   check->setFixedSize(check->sizeHint().width(), 30);
@@ -131,6 +133,49 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
   m_listWidget->setDefaultDropAction(Qt::MoveAction);
   m_listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   layout->addWidget(m_listWidget);
+
+  auto currentItem = [this]() {
+    auto *focus = QApplication::focusWidget();
+    for (int row = 0; row < m_listWidget->count(); ++row) {
+      auto *item = m_listWidget->item(row);
+      auto *widget = m_listWidget->itemWidget(item);
+      if (widget && (widget == focus || widget->isAncestorOf(focus))) return item;
+    }
+    return m_listWidget->currentItem();
+  };
+  auto clickRowControl = [this, currentItem](int control) {
+    auto *item = currentItem();
+    if (!item) return;
+    const int row = m_listWidget->row(item);
+    auto *widget = m_listWidget->itemWidget(item);
+    if (!widget) return;
+    if (control == 2) {
+      if (auto *check = widget->findChild<QCheckBox *>("ObjectExportCheck")) check->click();
+    } else {
+      for (auto *button : widget->findChildren<QToolButton *>("ObjectListIconButton")) {
+        if (button->property("selectionLock").toBool() == (control == 1)) { button->click(); break; }
+      }
+    }
+    // Перестройка строки после блокировки не должна мешать разблокировать её с клавиатуры.
+    m_listWidget->setCurrentRow(row, QItemSelectionModel::NoUpdate);
+    m_listWidget->setFocus(Qt::ShortcutFocusReason);
+  };
+  // RowCommand - сочетание клавиш для кнопки текущей строки.
+  struct RowCommand { const char *title; const char *key; int control; };
+  for (const auto &command : {RowCommand{"Видимость текущего объекта или группы", "Ctrl+Shift+H", 0},
+                              RowCommand{"Блокировка текущего объекта или группы", "Ctrl+L", 1},
+                              RowCommand{"Экспорт текущего объекта или группы", "Ctrl+E", 2}}) {
+    auto *action = new QAction(tr(command.title), this);
+    action->setShortcut(QKeySequence(command.key));
+    action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    addAction(action);
+    connect(action, &QAction::triggered, this, [clickRowControl, control = command.control] { clickRowControl(control); });
+  }
+  auto *rename = new QAction(tr("Переименовать объект или группу"), this);
+  rename->setShortcut(QKeySequence("F2"));
+  rename->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+  addAction(rename);
+  connect(rename, &QAction::triggered, this, [this, currentItem] { onItemDoubleClicked(currentItem()); });
 
   connect(ProjectManager::instance(), &ProjectManager::editorLayerViewChanged, this, &ObjectListPanel::refreshList);
 
@@ -206,6 +251,7 @@ void ObjectListPanel::refreshList() {
                               ? QStringLiteral("Скрыть на холсте")
                               : QStringLiteral("Показать на холсте"));
     eyeButton->setFixedSize(30, 30);
+    eyeButton->setToolTip(QStringLiteral("%1 (Ctrl+Shift+H)").arg(eyeButton->toolTip()));
     eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
@@ -289,6 +335,7 @@ void ObjectListPanel::refreshList() {
                               ? QStringLiteral("Скрыть группу на холсте")
                               : QStringLiteral("Показать группу на холсте"));
     eyeButton->setFixedSize(30, 30);
+    eyeButton->setToolTip(QStringLiteral("%1 (Ctrl+Shift+H)").arg(eyeButton->toolTip()));
     eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 

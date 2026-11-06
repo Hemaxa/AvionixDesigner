@@ -228,6 +228,7 @@ QCheckBox::indicator:checked {
 
 #LibraryCard,
 #SelectionToolStrip QToolButton,
+#ExportFpgaConfigurationButton,
 #SettingsToolButton {
     background-color: #121922;
     border: 1px solid #22303c;
@@ -240,6 +241,7 @@ QCheckBox::indicator:checked {
 
 #LibraryCard:hover,
 #SelectionToolStrip QToolButton:hover,
+#ExportFpgaConfigurationButton:hover,
 #SettingsToolButton:hover {
     background-color: #17212b;
     border-color: #00c8f0;
@@ -247,6 +249,7 @@ QCheckBox::indicator:checked {
 
 #LibraryCard:pressed,
 #SelectionToolStrip QToolButton:pressed,
+#ExportFpgaConfigurationButton:pressed,
 #SettingsToolButton:pressed {
     background-color: #0a0f14;
 }
@@ -257,6 +260,7 @@ QCheckBox::indicator:checked {
 }
 
 #SelectionToolStrip QToolButton,
+#ExportFpgaConfigurationButton,
 #SettingsToolButton {
     padding: 0;
     font-size: 11px;
@@ -400,6 +404,7 @@ QToolButton#LibraryCard {
 }
 
 #SelectionToolStrip QToolButton,
+QToolButton#ExportFpgaConfigurationButton,
 QToolButton#SettingsToolButton,
 QPushButton#SettingsColorButton {
     min-width: 52px;
@@ -410,6 +415,7 @@ QPushButton#SettingsColorButton {
 }
 
 #SelectionToolStrip QToolButton,
+QToolButton#ExportFpgaConfigurationButton,
 QToolButton#SettingsToolButton {
     qproperty-iconSize: 32px 32px;
 }
@@ -668,11 +674,7 @@ QDialog#UartStreamingDialog #DialogFieldLabel {
 QDialog#NewProjectDialog QLineEdit,
 QDialog#NewProjectDialog QSpinBox,
 QDialog#NewProjectDialog QDoubleSpinBox,
-QDialog#NewProjectDialog #ProjectColorButton,
-QDialog#UartStreamingDialog QComboBox,
-QDialog#UartStreamingDialog QSpinBox,
-QDialog#UartStreamingDialog QDoubleSpinBox,
-QDialog#UartStreamingDialog QPushButton {
+QDialog#NewProjectDialog #ProjectColorButton {
     min-height: 30px;
     max-height: 32px;
     padding: 5px 10px;
@@ -745,3 +747,15 @@ QScrollBar::sub-page:horizontal {
 #DeleteLayerButton:hover { color: #ff5c7a; border-color: #ff5c7a; }
 #ShowAllLayersButton { min-height: 30px; padding: 3px 8px; }
 #ShowAllLayersButton:checked { background: #063847; border-color: #00c8f0; color: #8bdff2; }
+
+/* Диалоги экспорта структуры аппаратного конвейера. */
+#FpgaConfigurationDialog { background: #0f141a; }
+#FpgaConfigurationPathEdit { min-height: 30px; padding: 4px 8px; }
+#ConfigurationBrowseButton { min-height: 30px; padding: 4px 10px; }
+
+/* Высота полей UART задаётся стилем целиком, без конфликта с fixedHeight. */
+QDialog#UartStreamingDialog QComboBox,
+QDialog#UartStreamingDialog QSpinBox,
+QDialog#UartStreamingDialog QPushButton {
+    min-height: 32px; max-height: 32px; padding: 0 10px;
+}

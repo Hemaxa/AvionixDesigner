@@ -705,6 +705,28 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
         }
     }
     if (state.nextGroupId <= maxGroup || state.nextGroupId == INT_MAX) root.fail("Некорректный счётчик групп.");
+    // Последний экспорт является состоянием редактора и не попадает в UART/XML objects.
+    auto configuration = editor.firstChildElement("fpga-configuration");
+    if (reading) {
+        state.fpgaConfiguration = {};
+        if (!configuration.isNull()) {
+            if (!configuration.nextSiblingElement("fpga-configuration").isNull()) root.fail("Повторная конфигурация ПЛИС.");
+            for (auto n = configuration.firstChildElement(); !n.isNull(); n = n.nextSiblingElement()) {
+                if (n.tagName() != "stage") { root.fail("Неизвестное поле конфигурации ПЛИС."); break; }
+                FpgaPipelineStage stage;
+                Fields fields(n, true, error);
+                fields.value("type", stage.type); fields.value("param-count", stage.parameterCount); fields.value("ramid", stage.ramId);
+                state.fpgaConfiguration.stages.append(stage);
+            }
+            if (!state.fpgaConfiguration.isValid()) root.fail("Повреждена сохранённая конфигурация ПЛИС.");
+        }
+    } else if (state.fpgaConfiguration.isValid()) {
+        configuration = append(editor, "fpga-configuration");
+        for (auto stage : state.fpgaConfiguration.stages) {
+            Fields fields(append(configuration, "stage"), false, error);
+            fields.value("type", stage.type); fields.value("param-count", stage.parameterCount); fields.value("ramid", stage.ramId);
+        }
+    }
     // Сначала читаемые настройки и сцена, затем потенциально объёмные ресурсы.
     if (!reading) editor.appendChild(resourcesNode);
     return error.isEmpty();

@@ -580,7 +580,7 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   m_autopilotButton->setAutoRaise(true);
   m_autopilotButton->setFixedSize(92, 54);
   m_autopilotButton->setIconSize(QSize(92, 54));
-  m_autopilotButton->setToolTip(QStringLiteral("Автопилот: 1400 км/ч; 0° = +X, 90° = +Y"));
+  m_autopilotButton->setToolTip(QStringLiteral("Автопилот: 1400 км/ч; 0° = +X, 90° = +Y (Ctrl+Alt+A)"));
 
   auto *coordinateLayout = new QGridLayout();
   coordinateLayout->setContentsMargins(0, 0, 0, 0);
@@ -948,6 +948,10 @@ void AircraftPositionPanel::adjustScreenY(int direction, bool fast) {
 void AircraftPositionPanel::adjustAltitude(int direction, bool fast) {
   m_altitudeSpin->setValue(m_altitudeSpin->value()
       + direction * (fast ? kFastAltitudeStep : Layer3dFormat::heightStep));
+}
+
+void AircraftPositionPanel::toggleAutopilot() {
+  m_autopilotButton->click();
 }
 
 void AircraftPositionPanel::syncAutopilotButtons() {
