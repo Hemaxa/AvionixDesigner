@@ -12,6 +12,7 @@
 #include "BaseObject.h"
 #include "TextObject.h"
 #include "EditorViewState.h"
+#include "fpga/config/FpgaPipelineConfig.h"
 
 class EditorProjectDocument;
 class ThreeDViewObject;
@@ -46,6 +47,9 @@ public:
     bool saveToFile(const QString &targetFile = QString());
     // собирает строгий XML-формат для ПЛИС в памяти без записи на диск
     QDomDocument buildCompiledFpgaXml() const;
+    // Сохраняет SystemVerilog и запоминает структуру только после успешной записи.
+    bool exportFpgaConfiguration(const QString &path, const FpgaHardwareScene &scene, QString *error = nullptr);
+    const FpgaPipelineConfig &fpgaConfiguration() const { return m_fpgaConfiguration; }
     // Импортирует изображение выбранного аппаратного типа и выделяет цветовые маски.
     int importImage(const QString &fileName, bool rotating = false);
 
@@ -262,6 +266,7 @@ private:
     int m_activeLayerId = 1;
     bool m_showAllLayers = false;
     EditorViewState m_editorViewState;
+    FpgaPipelineConfig m_fpgaConfiguration;
     QMap<QString, ParamSchema> m_schemas;
     QMap<int, FpgaFont> m_fonts;
     QList<ProjectSnapshot> m_undoStack;

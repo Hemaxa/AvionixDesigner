@@ -197,7 +197,7 @@ void MainWindow::onSaveFileAs() {
   auto *project = ProjectManager::instance();
 
   const QString fileName = QFileDialog::getSaveFileName(
-      this, "Сохранить проект как...",
+      this, "Сохранить проект как",
       project->getFilePath().isEmpty() ? project->getProjectName() + ".xml"
                                        : project->getFilePath(),
       "XML (*.xml)");
@@ -445,14 +445,26 @@ void MainWindow::applyDefaultFloatingDockSizes() {
 }
 
 void MainWindow::createMenus() {
+  auto *startFpga = createAction(tr("Запустить режимы ПЛИС"), QKeySequence("Ctrl+Return"), m_fpgaStreaming, SLOT(startStreaming()));
+  startFpga->setShortcuts({QKeySequence("Ctrl+Return"), QKeySequence("Ctrl+Enter")});
+  auto *stopFpga = createAction(tr("Остановить режимы ПЛИС"), QKeySequence("Ctrl+Shift+Return"), m_fpgaStreaming, SLOT(stopStreaming()));
+  stopFpga->setShortcuts({QKeySequence("Ctrl+Shift+Return"), QKeySequence("Ctrl+Shift+Enter")});
+  auto *binMode = createAction(tr("BIN dump"), QKeySequence("Ctrl+Alt+B"), m_fpgaStreaming, SLOT(toggleBinMode()));
+  auto *simulatorMode = createAction(tr("Симулятор ПЛИС"), QKeySequence("Ctrl+Alt+F"), m_fpgaStreaming, SLOT(toggleSimulatorMode()));
+  auto *uartMode = createAction(tr("UART"), QKeySequence("Ctrl+Alt+U"), m_fpgaStreaming, SLOT(toggleUartMode()));
+  for (auto *action : {startFpga, stopFpga, binMode, simulatorMode, uartMode}) m_fpgaStreaming->addAction(action);
+  auto *background = createAction(tr("Цвет фона"), QKeySequence("Ctrl+Alt+C"), m_viewportSettings, SLOT(onChangeBgColor()));
+  m_viewportSettings->addAction(background);
+  auto *autopilot = createAction(tr("Автопилот"), QKeySequence("Ctrl+Alt+A"), m_aircraftPosition, SLOT(toggleAutopilot()));
+  m_aircraftPosition->addAction(autopilot);
   QMenu *fileMenu = menuBar()->addMenu("Файл");
-  fileMenu->addAction(createAction("Создать...", QKeySequence::New, this,
+  fileMenu->addAction(createAction("Создать", QKeySequence::New, this,
                                    SLOT(onNewProject())));
   fileMenu->addAction(
-      createAction("Открыть...", QKeySequence::Open, this, SLOT(onOpenFile())));
+      createAction("Открыть", QKeySequence::Open, this, SLOT(onOpenFile())));
   fileMenu->addAction(
       createAction("Сохранить", QKeySequence::Save, this, SLOT(onSaveFile())));
-  fileMenu->addAction(createAction("Сохранить как...", QKeySequence::SaveAs,
+  fileMenu->addAction(createAction("Сохранить как", QKeySequence::SaveAs,
                                    this, SLOT(onSaveFileAs())));
   fileMenu->addSeparator();
   fileMenu->addAction(
@@ -492,7 +504,7 @@ void MainWindow::createMenus() {
   };
   connect(ProjectManager::instance(), &ProjectManager::editorViewStateChanged, this, syncTransformModes);
   syncTransformModes();
-  editMenu->addAction(createAction(tr("Изменить прозрачность…"), QKeySequence("Ctrl+Alt+T"), this, SLOT(editTransparency())));
+  editMenu->addAction(createAction(tr("Изменить прозрачность"), QKeySequence("Ctrl+Alt+T"), this, SLOT(editTransparency())));
   editMenu->addSeparator();
 
   auto addAlignAction = [this, editMenu](const QString &title,
@@ -568,7 +580,7 @@ void MainWindow::createMenus() {
   }
 
   for (bool rotating : {false, true}) {
-    auto *action = objectsMenu->addAction(rotating ? "Добавить вращающееся изображение..." : "Добавить статическое изображение...");
+    auto *action = objectsMenu->addAction(rotating ? "Добавить вращающееся изображение" : "Добавить статическое изображение");
     action->setIcon(QIcon(rotating ? ":/icons/icons/library/rotating-image.svg" : ":/icons/icons/library/static-image.svg"));
     action->setShortcut(QKeySequence(rotating ? "Ctrl+Shift+I" : "Ctrl+I"));
     connect(action, &QAction::triggered, this, [this, rotating]() { onImportImage(rotating); });
@@ -579,17 +591,23 @@ void MainWindow::createMenus() {
   mergeStatic->setObjectName("MergeStaticAction");
   mergeStatic->setIcon(QIcon(":/icons/icons/selection/merge-static.svg"));
   objectsMenu->addAction(mergeStatic);
-  objectsMenu->addAction(createAction(tr("Проверить память ПЛИС…"), QKeySequence("Ctrl+Alt+M"), this, SLOT(checkHardwareResources())));
+  objectsMenu->addAction(createAction(tr("Проверить память ПЛИС"), QKeySequence("Ctrl+Alt+M"), this, SLOT(checkHardwareResources())));
+  auto *exportConfiguration = createAction(tr("Экспорт конфигурации ПЛИС"), QKeySequence("Ctrl+Alt+E"), m_fpgaStreaming, SLOT(exportConfiguration()));
+  exportConfiguration->setObjectName("ExportFpgaConfigurationAction");
+  exportConfiguration->setIcon(QIcon(":/icons/icons/fpga/configuration.svg"));
+  objectsMenu->addAction(exportConfiguration);
+  m_fpgaStreaming->addAction(exportConfiguration);
 
   QMenu *viewMenu = menuBar()->addMenu("Вид");
-  viewMenu->addAction(m_layersDock->toggleViewAction());
-  viewMenu->addAction(m_objectListDock->toggleViewAction());
-  viewMenu->addAction(m_objectPropertiesDock->toggleViewAction());
-  viewMenu->addAction(m_objectLibraryDock->toggleViewAction());
-  viewMenu->addAction(m_viewportSettingsDock->toggleViewAction());
-  viewMenu->addAction(m_fpgaStreamingDock->toggleViewAction());
-  viewMenu->addAction(m_fpgaSimulatorDock->toggleViewAction());
-  viewMenu->addAction(m_aircraftPositionDock->toggleViewAction());
+  int dockShortcut = 1;
+  for (auto *dock : {m_layersDock, m_objectListDock, m_objectPropertiesDock, m_objectLibraryDock,
+                     m_viewportSettingsDock, m_fpgaStreamingDock, m_fpgaSimulatorDock, m_aircraftPositionDock}) {
+    auto *action = dock->toggleViewAction();
+    action->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+%1").arg(dockShortcut++)));
+    action->setToolTip(QStringLiteral("%1 (%2)").arg(action->text(), action->shortcut().toString(QKeySequence::NativeText)));
+    viewMenu->addAction(action);
+    addAction(action);
+  }
   viewMenu->addSeparator();
 
   QAction *resetViewAction = viewMenu->addAction("Сбросить масштаб");
@@ -652,7 +670,7 @@ void MainWindow::createMenus() {
   });
 
   QMenu *settingsMenu = menuBar()->addMenu("Настройки");
-  settingsMenu->addAction(createAction("Параметры...", QKeySequence("Ctrl+,"),
+  settingsMenu->addAction(createAction("Параметры", QKeySequence("Ctrl+,"),
                                        this, SLOT(openSettings())));
 }
 

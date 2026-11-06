@@ -26,6 +26,9 @@ public:
     explicit AircraftPositionPanel(QWidget *parent = nullptr);
     void setThreeDViewAvailable(bool available);
 
+public slots:
+    void toggleAutopilot();
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;

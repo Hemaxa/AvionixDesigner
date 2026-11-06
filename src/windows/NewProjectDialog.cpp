@@ -2,6 +2,7 @@
 
 #include "NewProjectDialog.h"
 
+#include <QKeySequence>
 #include <QColorDialog>
 #include <QDialogButtonBox>
 #include <QGridLayout>
@@ -88,6 +89,8 @@ NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
 
     m_colorButton = new QPushButton(QStringLiteral("Выбрать цвет"), this);
     m_colorButton->setObjectName(QStringLiteral("ProjectColorButton"));
+    m_colorButton->setShortcut(QKeySequence("Alt+C"));
+    m_colorButton->setToolTip(QStringLiteral("Выбрать цвет (Alt+C)"));
     m_colorButton->setFixedHeight(32);
     formLayout->addWidget(createFormLabel(QStringLiteral("Фон"), this), 3, 0);
     formLayout->addWidget(m_colorButton, 3, 1);

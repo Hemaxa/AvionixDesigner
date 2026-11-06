@@ -21,6 +21,8 @@ public:
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 private:
+    QWidget *activeLayerRow() const;
+    void activateLayerButton(const QString &objectName);
     void refreshViewState();
     void selectLayer(int id, Qt::KeyboardModifiers modifiers);
     void mergeSelectedLayers();

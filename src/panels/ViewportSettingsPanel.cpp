@@ -77,7 +77,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_bgColorButton = new QPushButton(this);
     m_bgColorButton->setObjectName("SettingsColorButton");
     m_bgColorButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    m_bgColorButton->setToolTip(QStringLiteral("Цвет фона"));
+    m_bgColorButton->setToolTip(QStringLiteral("Цвет фона (Ctrl+Alt+C)"));
     flow->addWidget(m_bgColorButton);
 
     m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), this, QStringLiteral("Shift+V"));

@@ -1613,6 +1613,7 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     m_gridStep = state.gridStep; m_gridColor = state.gridColor;
     m_snapCanvasGuideColor = state.canvasGuideColor; m_snapGridGuideColor = state.gridGuideColor; m_snapObjectGuideColor = state.objectGuideColor;
     m_editorViewState = state.view;
+    m_fpgaConfiguration = state.fpgaConfiguration;
     m_fonts = sourceDocument.fonts;
     m_schemas = sourceDocument.schemas;
     m_filePath = fileName;
@@ -1639,6 +1640,7 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_snapToGrid = false;
     m_snapToObjects = false;
     m_editorViewState = {};
+    m_fpgaConfiguration = {};
     readGlobalWorkspaceSettings();
 
     m_objects.clear();
@@ -2894,6 +2896,16 @@ QDomDocument ProjectManager::buildCompiledFpgaXml() const
     );
 }
 
+bool ProjectManager::exportFpgaConfiguration(const QString &path, const FpgaHardwareScene &scene, QString *error)
+{
+    const auto configuration = FpgaPipelineConfig::fromScene(scene, error);
+    if (!configuration.isValid() || !configuration.writeFile(path, error)) return false;
+    m_fpgaConfiguration = configuration;
+    emit logMessage(tr("Конфигурация ПЛИС сохранена: %1; этапов: %2, параметров: %3/%4. Пересборка и программирование платы выполняются отдельно.")
+        .arg(path).arg(configuration.stages.size()).arg(configuration.parameterCount()).arg(FpgaPipelineConfig::parameterArraySize));
+    return true;
+}
+
 bool ProjectManager::saveToFile(const QString &targetFile)
 {
     m_lastErrorMessage.clear();
@@ -2923,6 +2935,7 @@ bool ProjectManager::saveToFile(const QString &targetFile)
     state.gridStep = m_gridStep; state.gridColor = m_gridColor;
     state.canvasGuideColor = m_snapCanvasGuideColor; state.gridGuideColor = m_snapGridGuideColor; state.objectGuideColor = m_snapObjectGuideColor;
     state.view = m_editorViewState;
+    state.fpgaConfiguration = m_fpgaConfiguration;
     if (!EditorProjectXml::write(doc, state, &m_lastErrorMessage)) return false;
 
     QSaveFile outFile(outPath);

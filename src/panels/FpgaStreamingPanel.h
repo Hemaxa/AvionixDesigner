@@ -5,6 +5,7 @@
 #include "BasePanel.h"
 #include "fpga/packets/FpgaPacket.h"
 #include "fpga/transport/FpgaUartTransport.h"
+#include "fpga/config/FpgaPipelineConfig.h"
 
 class QToolButton;
 
@@ -27,6 +28,9 @@ public slots:
     void stopStreaming();
 
     void toggleUartMode();
+    void toggleBinMode();
+    void toggleSimulatorMode();
+    void exportConfiguration();
 
 private slots:
     void modeSelectionChanged();
@@ -42,13 +46,16 @@ private:
     void stopUartStreaming();
     void setRunning(bool running);
     void invalidatePackets();
-
+    bool saveConfiguration(const QString &path);
+    QString defaultConfigurationPath() const;
 
     QToolButton *m_binButton = nullptr;
     QToolButton *m_simulatorButton = nullptr;
     QToolButton *m_uartButton = nullptr;
     QToolButton *m_startButton = nullptr;
     QToolButton *m_stopButton = nullptr;
+    QToolButton *m_exportConfigurationButton = nullptr;
+    FpgaPipelineConfig m_uartConfiguration;
 
     FpgaPacketBundle m_bundle;
     FpgaUartTransport *m_uartTransport = nullptr;

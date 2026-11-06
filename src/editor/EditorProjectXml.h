@@ -30,6 +30,7 @@ struct State
     QColor gridGuideColor;
     QColor objectGuideColor;
     EditorViewState view;
+    FpgaPipelineConfig fpgaConfiguration;
 };
 
 // Запись/чтение <editor>. Аппаратные данные экспортируемых

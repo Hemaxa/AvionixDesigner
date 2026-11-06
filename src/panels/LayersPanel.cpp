@@ -3,6 +3,8 @@
 #include "LayersPanel.h"
 #include "ProjectManager.h"
 
+#include <QApplication>
+#include <QAction>
 #include <QColorDialog>
 #include <QEvent>
 #include <QHBoxLayout>
@@ -29,7 +31,7 @@ LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
     m_allLayers = new QToolButton(this);
     m_allLayers->setObjectName("ShowAllLayersButton");
     m_allLayers->setText(tr("Все слои"));
-    m_allLayers->setToolTip(tr("Показать объекты всех слоёв. Новые объекты добавляются на выбранный слой."));
+    m_allLayers->setToolTip(tr("Показать объекты всех слоёв (Ctrl+Shift+A). Новые объекты добавляются на выбранный слой."));
     m_allLayers->setCheckable(true);
     m_allLayers->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     layout->addWidget(m_allLayers);
@@ -49,13 +51,29 @@ LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
     add->setObjectName("AddLayerButton");
     add->setFixedSize(32, 32);
     add->setIconSize(QSize(18, 18));
-    add->setToolTip(tr("Добавить слой"));
+    add->setToolTip(tr("Добавить слой (Ctrl+Shift+N)"));
     add->setAccessibleName(tr("Добавить слой"));
     add->setIcon(QIcon(QStringLiteral(":/icons/icons/layers/add.svg")));
     layout->addWidget(add, 0, Qt::AlignHCenter);
     auto *project = ProjectManager::instance();
     connect(add, &QToolButton::clicked, project, &ProjectManager::addEditorLayer);
     connect(m_allLayers, &QToolButton::toggled, project, &ProjectManager::setShowAllLayers);
+    // RowCommand - команда активного слоя; сочетание создаётся один раз на панель.
+    struct RowCommand { const char *button; const char *shortcut; const char *title; };
+    for (const auto &command : {
+             RowCommand{"AddLayerButton", "Ctrl+Shift+N", "Добавить слой"},
+             RowCommand{"ShowAllLayersButton", "Ctrl+Shift+A", "Показать все слои"},
+             RowCommand{"DuplicateLayerButton", "Ctrl+Shift+D", "Дублировать слой"},
+             RowCommand{"MergeLayerButton", "Ctrl+Shift+M", "Объединить выделенные слои"},
+             RowCommand{"DeleteLayerButton", "Ctrl+Shift+Delete", "Удалить слой"},
+             RowCommand{"LayerColorButton", "Ctrl+Shift+C", "Цвет выделения слоя"}}) {
+        auto *action = new QAction(tr(command.title), this);
+        action->setShortcut(QKeySequence(command.shortcut));
+        action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        addAction(action);
+        connect(action, &QAction::triggered, this,
+            [this, name = QString::fromLatin1(command.button)] { activateLayerButton(name); });
+    }
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setSingleShot(true);
     connect(m_refreshTimer, &QTimer::timeout, this, &LayersPanel::refreshLayers);
@@ -77,6 +95,25 @@ LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
         refreshViewState();
     });
     refreshLayers();
+}
+
+QWidget *LayersPanel::activeLayerRow() const
+{
+    for (int i = 0; i < m_rowsLayout->count(); ++i) {
+        auto *row = m_rowsLayout->itemAt(i)->widget();
+        if (row && row->property("layerId").toInt() == ProjectManager::instance()->activeLayerId()) return row;
+    }
+    return nullptr;
+}
+
+void LayersPanel::activateLayerButton(const QString &objectName)
+{
+    if (objectName == "AddLayerButton" || objectName == "ShowAllLayersButton") {
+        if (auto *button = findChild<QToolButton *>(objectName)) button->click();
+        return;
+    }
+    if (auto *row = activeLayerRow())
+        if (auto *button = row->findChild<QToolButton *>(objectName)) button->click();
 }
 
 bool LayersPanel::eventFilter(QObject *watched, QEvent *event)
@@ -178,6 +215,7 @@ void LayersPanel::selectLayer(int id, Qt::KeyboardModifiers modifiers)
 
 void LayersPanel::refreshLayers()
 {
+    const bool restoreFocus = m_rows->isAncestorOf(QApplication::focusWidget());
     m_refreshTimer->stop();
     m_rebuilding = true;
     auto *project = ProjectManager::instance();
@@ -198,7 +236,7 @@ void LayersPanel::refreshLayers()
         auto *color = new QToolButton(row);
         color->setObjectName("LayerColorButton");
         color->setFixedSize(32, 32);
-        color->setToolTip(tr("Цвет выделения на слое"));
+        color->setToolTip(tr("Цвет выделения на слое (Ctrl+Shift+C)"));
         QPixmap swatch(16, 16); swatch.fill(layer.selectionColor);
         color->setIcon(QIcon(swatch));
         layout->addWidget(color);
@@ -215,7 +253,7 @@ void LayersPanel::refreshLayers()
         name->setMinimumWidth(70);
         name->setReadOnly(true);
         name->setCursor(Qt::ArrowCursor);
-        name->setToolTip(tr("Ctrl/⌘ — несколько слоёв, Shift — диапазон. Двойной щелчок — изменить имя. Объектов: %1").arg(project->layerObjectCount(layer.id)));
+        name->setToolTip(tr("Ctrl/⌘ — несколько слоёв, Shift — диапазон. F2 или двойной щелчок — изменить имя. Объектов: %1").arg(project->layerObjectCount(layer.id)));
         layout->addWidget(name, 1);
         auto action = [&](const QString &icon, const QString &tip, const QString &objectName) {
             auto *button = new QToolButton(row);
@@ -231,6 +269,9 @@ void LayersPanel::refreshLayers()
         auto *duplicate = action(QStringLiteral("duplicate"), tr("Дублировать слой с объектами"), "DuplicateLayerButton");
         auto *merge = action(QStringLiteral("merge"), tr("Объединить выделенные слои в активный слой"), "MergeLayerButton");
         auto *remove = action(QStringLiteral("delete"), tr("Удалить слой с объектами"), "DeleteLayerButton");
+        duplicate->setToolTip(tr("Дублировать слой с объектами (Ctrl+Shift+D)"));
+        merge->setToolTip(tr("Объединить выделенные слои в активный слой (Ctrl+Shift+M)"));
+        remove->setToolTip(tr("Удалить слой с объектами (Ctrl+Shift+Delete)"));
         merge->setEnabled(false);
         remove->setEnabled(project->editorLayers().size() > 1);
         m_rowsLayout->addWidget(row);
@@ -263,6 +304,8 @@ void LayersPanel::refreshLayers()
     m_rowsLayout->activate();
     m_rebuilding = false;
     refreshViewState();
+    if (restoreFocus) if (auto *row = activeLayerRow())
+        if (auto *name = row->findChild<QLineEdit *>("LayerNameEdit")) name->setFocus(Qt::ShortcutFocusReason);
 }
 
 void LayersPanel::refreshViewState()

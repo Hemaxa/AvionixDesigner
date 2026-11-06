@@ -23,6 +23,8 @@
 #include <QColorDialog>
 #include <QMenuBar>
 #include <QMenu>
+#include <QMessageBox>
+#include "fpga/config/FpgaPipelineConfig.h"
 #include "AppearanceManager.h"
 #include "ApplicationSettings.h"
 #include "FlowLayout.h"
@@ -52,6 +54,9 @@
 #include <QComboBox>
 #include <QPushButton>
 #include <QFile>
+#include <QFileInfo>
+#include <QFileDialog>
+#include <QRegularExpression>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -1468,7 +1473,7 @@ private slots:
         QVERIFY(window.findChild<QAction *>("ProportionalResizeAction")); QVERIFY(window.findChild<QAction *>("SteppedRotationAction"));
         QVERIFY(window.findChild<QToolButton *>("MergeStaticButton"));
         SettingsWindow settings; int shortcuts=0;
-        for(auto *label:settings.findChildren<QLabel *>()) if(label->text()=="Ctrl+Alt+G" || label->text()=="Ctrl+Alt+M" || label->text()=="Ctrl+Shift+P" || label->text()=="Ctrl+Shift+R") ++shortcuts;
+        for(auto *label:settings.findChildren<QLabel *>()) if(label->text()==QKeySequence("Ctrl+Alt+G").toString(QKeySequence::NativeText) || label->text()==QKeySequence("Ctrl+Alt+M").toString(QKeySequence::NativeText) || label->text()==QKeySequence("Ctrl+Shift+P").toString(QKeySequence::NativeText) || label->text()==QKeySequence("Ctrl+Shift+R").toString(QKeySequence::NativeText)) ++shortcuts;
         QCOMPARE(shortcuts,4);
     }
     void selectionAndLocks() {
@@ -1544,6 +1549,131 @@ private slots:
             }
         }
         QCOMPARE(imports, 2);
+    }
+    void globalCommandShortcuts() {
+        auto *p=ProjectManager::instance(); p->createNewProject("shortcuts",1024,768,Qt::black); p->addObject("rectangle");
+        ApplicationSettings::create().setValue("autoLoad",false);
+        MainWindow window; window.showNormal(); window.resize(1100,720);
+        window.activateWindow(); QTest::qWait(10);
+        auto *panel=window.findChild<FpgaStreamingPanel *>(); QVERIFY(panel);
+        auto buttonFor=[panel](const QKeySequence &key) -> QToolButton * {
+            const auto suffix=QStringLiteral("(%1)").arg(key.toString(QKeySequence::NativeText));
+            for(auto *button:panel->findChildren<QToolButton *>())
+                if(button->toolTip().endsWith(suffix)) return button;
+            return nullptr;
+        };
+        for(auto *scope:QList<QWidget *>{panel,window.findChild<ViewportSettingsPanel *>(),window.findChild<AircraftPositionPanel *>(),
+                                       window.findChild<LayersPanel *>(),window.findChild<ObjectListPanel *>()}) {
+            QVERIFY(scope);
+            for(auto *button:scope->findChildren<QToolButton *>()) {
+                QVERIFY2(button->actions().isEmpty(),qPrintable("Unexpected button menu: "+button->toolTip()));
+                QVERIFY(!button->menu());
+            }
+        }
+        for(const auto *key:{"Ctrl+Alt+B","Ctrl+Alt+F","Ctrl+Alt+U"}) {
+            auto *button=buttonFor(QKeySequence(key)); QVERIFY(button);
+            const bool before=button->isChecked();
+            QTest::keySequence(&window,QKeySequence(key)); QCOMPARE(button->isChecked(),!before);
+            QTest::keySequence(&window,QKeySequence(key)); QCOMPARE(button->isChecked(),before);
+        }
+        auto *dock=window.findChild<QDockWidget *>("FpgaStreamingDock"); QVERIFY(dock);
+        dock->setFloating(true); dock->show(); dock->activateWindow(); QTest::qWait(5);
+        auto *uart=buttonFor(QKeySequence("Ctrl+Alt+U")); QVERIFY(uart);
+        QTest::keySequence(panel,QKeySequence("Ctrl+Alt+U")); QVERIFY(uart->isChecked());
+        QTest::keySequence(panel,QKeySequence("Ctrl+Alt+U")); QVERIFY(!uart->isChecked());
+        dock->hide(); window.activateWindow(); QTest::qWait(5);
+        QSignalSpy launched(panel,&FpgaStreamingPanel::simulatorLaunchRequested);
+        auto *stop=buttonFor(QKeySequence("Ctrl+Shift+Return")); QVERIFY(stop);
+        QTest::keySequence(&window,QKeySequence("Ctrl+Return")); QCOMPARE(launched.size(),1); QVERIFY(stop->isEnabled());
+        window.activateWindow(); QTest::qWait(5);
+        QTest::keySequence(&window,QKeySequence("Ctrl+Return")); QCOMPARE(launched.size(),1);
+        QTest::keySequence(&window,QKeySequence("Ctrl+Shift+Return")); QVERIFY(!stop->isEnabled());
+        QTest::keySequence(&window,QKeySequence("Ctrl+Enter")); QCOMPARE(launched.size(),2);
+        window.activateWindow(); QTest::qWait(5);
+        QTest::keySequence(&window,QKeySequence("Ctrl+Shift+Enter")); QVERIFY(!stop->isEnabled());
+        p->addObject("layer3d");
+        auto *autopilot=window.findChild<QToolButton *>("AircraftAutopilotButton"); QVERIFY(autopilot && autopilot->isEnabled());
+        QTest::keySequence(&window,QKeySequence("Ctrl+Alt+A")); QVERIFY(autopilot->isChecked());
+        QTest::keySequence(&window,QKeySequence("Ctrl+Alt+A")); QVERIFY(!autopilot->isChecked());
+        auto *exportAction=window.findChild<QAction *>("ExportFpgaConfigurationAction"); QVERIFY(exportAction);
+        QVERIFY(panel->actions().contains(exportAction)); QCOMPARE(exportAction->shortcut(),QKeySequence("Ctrl+Alt+E"));
+        QTemporaryDir temp; const auto path=temp.filePath("tube_config_pkg.sv"); bool inspected=false,browsed=false;
+        QTimer::singleShot(0,&window,[&] {
+            if(auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+                inspected=dialog->objectName()=="FpgaConfigurationDialog";
+                dialog->activateWindow(); QTest::qWait(5);
+                QTimer::singleShot(150,dialog,[&] {
+                    if(auto *picker=qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) { browsed=true; picker->reject(); }
+                });
+                QTest::keySequence(dialog,QKeySequence("Alt+O"));
+                QTest::qWait(200);
+                if(auto *field=dialog->findChild<QLineEdit *>("FpgaConfigurationPathEdit")) field->setText(path);
+                dialog->accept();
+            }
+        });
+        QTest::keySequence(&window,QKeySequence("Ctrl+Alt+E")); QVERIFY(inspected && browsed); QVERIFY(QFileInfo::exists(path));
+        SettingsWindow settings;
+        auto *hotkeys=settings.findChild<QScrollArea *>("HotkeysScrollArea"); QVERIFY(hotkeys);
+        QSet<QString> documented;
+        for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) documented.insert(QKeySequence(label->text()).toString(QKeySequence::PortableText));
+        documented.insert(QKeySequence(QKeySequence::Delete).toString(QKeySequence::PortableText));
+        documented.insert(QKeySequence(Qt::Key_Backspace).toString(QKeySequence::PortableText));
+        QMap<QString,QAction *> registered;
+        for(auto *action:window.findChildren<QAction *>()) {
+            QVERIFY(!action->text().endsWith("…") && !action->text().endsWith("..."));
+            if(action->shortcutContext()!=Qt::WindowShortcut || action->shortcut().isEmpty()) continue;
+            const auto primary=action->shortcut().toString(QKeySequence::PortableText);
+            QVERIFY2(documented.contains(primary),qPrintable("Shortcut missing from Settings: "+action->text()+" / "+primary));
+            for(const auto &key:action->shortcuts()) {
+                const auto text=key.toString(QKeySequence::PortableText);
+                QVERIFY2(!registered.contains(text) || registered.value(text)==action,qPrintable("Duplicate global shortcut: "+text));
+                registered.insert(text,action);
+            }
+        }
+        for(auto *button:window.findChildren<QAbstractButton *>()) QVERIFY(!button->text().endsWith("…") && !button->text().endsWith("..."));
+        settings.show(); settings.findChild<QListWidget *>()->setCurrentRow(1); QTest::qWait(5);
+        for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) if(label->text()=="Экспорт конфигурации ПЛИС:") {
+            hotkeys->ensureWidgetVisible(label); break;
+        }
+        settings.grab().save(QCoreApplication::applicationDirPath()+"/hotkeys-fpga.png");
+    }
+    void contextCommandShortcuts() {
+        auto *p=ProjectManager::instance(); p->createNewProject("context keys",1024,768,Qt::black);
+        {
+            LayersPanel panel; panel.resize(600,350); panel.show(); panel.activateWindow(); QTest::qWait(5);
+            auto activeName=[&panel,p]() -> QLineEdit * {
+                for(auto *name:panel.findChildren<QLineEdit *>("LayerNameEdit")) if(name->property("layerId").toInt()==p->activeLayerId()) return name;
+                return nullptr;
+            };
+            QVERIFY(activeName()); activeName()->setFocus();
+            QTest::keySequence(activeName(),QKeySequence("Ctrl+Shift+N")); QTRY_COMPARE(p->editorLayers().size(),2);
+            QTest::qWait(5); QVERIFY(activeName());
+            QTest::keySequence(activeName(),QKeySequence("Ctrl+Shift+D")); QTRY_COMPARE(p->editorLayers().size(),3);
+            QTest::qWait(5); QTest::keySequence(activeName(),QKeySequence("Ctrl+Shift+A")); QVERIFY(p->showAllLayers());
+            QTest::qWait(5); QTest::keySequence(activeName(),QKeySequence("F2")); QVERIFY(!activeName()->isReadOnly());
+            activeName()->setText("Keyboard layer"); QTest::keyClick(activeName(),Qt::Key_Return);
+            QTRY_COMPARE(p->editorLayerName(p->activeLayerId()),QString("Keyboard layer"));
+            QTest::qWait(5); QTest::keySequence(activeName(),QKeySequence::SelectAll);
+            QTest::keySequence(activeName(),QKeySequence("Ctrl+Shift+M")); QTRY_COMPARE(p->editorLayers().size(),1);
+            QTest::qWait(5); QTest::keySequence(activeName(),QKeySequence("Ctrl+Shift+N")); QTRY_COMPARE(p->editorLayers().size(),2);
+            QTest::qWait(5); QTest::keySequence(activeName(),QKeySequence("Ctrl+Shift+Delete")); QTRY_COMPARE(p->editorLayers().size(),1);
+        }
+        p->addObject("rectangle");
+        {
+            ObjectListPanel panel; panel.resize(400,240); panel.refreshList(); panel.show(); panel.activateWindow(); QTest::qWait(5);
+            auto *list=panel.findChild<QListWidget *>(); QVERIFY(list); list->setCurrentRow(0); list->setFocus();
+            auto object=p->getObjectAt(0);
+            QTest::keySequence(list,QKeySequence("Ctrl+Shift+H")); QVERIFY(!object->isViewVisible());
+            QTest::keySequence(list,QKeySequence("Ctrl+Shift+H")); QVERIFY(object->isViewVisible());
+            QTest::keySequence(list,QKeySequence("Ctrl+E")); QVERIFY(!object->isExportEnabled());
+            QTest::keySequence(list,QKeySequence("Ctrl+E")); QVERIFY(object->isExportEnabled());
+            QTest::keySequence(list,QKeySequence("Ctrl+L")); QVERIFY(object->isSelectionLocked());
+            QTest::keySequence(list,QKeySequence("Ctrl+L")); QVERIFY(!object->isSelectionLocked());
+            QTimer::singleShot(0,&panel,[] { if(auto *d=qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+                if(auto *edit=d->findChild<QLineEdit *>()) edit->setText("Keyboard object"); d->accept();
+            }});
+            QTest::keySequence(list,QKeySequence("F2")); QCOMPARE(object->customName(),QString("Keyboard object"));
+        }
     }
     void aircraftPivotAtEdges() {
         auto *p = ProjectManager::instance();
@@ -1718,29 +1848,249 @@ private slots:
         }
         window.grab().save(QCoreApplication::applicationDirPath()+"/workspace.png");
     }
+    void pipelineConfigMatchesPackets() {
+        FpgaHardwareScene scene; scene.width=320; scene.height=240;
+        scene.schemas.insert("rotationobject",FpgaSchemaRegistry::instance()->buildSchema("rotationobject"));
+        scene.memories={{FpgaMemoryKind::StaticMask,"777"},{FpgaMemoryKind::RotationTiles,"7777"}};
+        FpgaHardwareObject rectangle; rectangle.type="rectangle"; rectangle.iparams={testInit("rectangle",{{"enb",1},{"w",4},{"h",4}})};
+        FpgaHardwareObject group; group.type="staticgroup"; group.startParamIndex=1; group.memId=0;
+        for(int i=0;i<3;++i) group.iparams.append(testInit("staticgroup",{{"enb",1},{"w",1},{"h",1},{"addr",quint32(i)}}));
+        FpgaHardwareObject rotation; rotation.type="rotationobject"; rotation.startParamIndex=4; rotation.memId=1;
+        rotation.iparams={testInit("rotationobject",{{"enb",1},{"right",2},{"bottom",2},{"sq",1},{"cos",65536}})};
+        FpgaHardwareObject view; view.type="layer3d"; view.iparams={QString(38,'0')};
+        scene.objects={view,rectangle,group,rotation};
+        QString error; const auto config=FpgaPipelineConfig::fromScene(scene,&error); QVERIFY2(config.isValid(),qPrintable(error));
+        QCOMPARE(config.stages.size(),3); QCOMPARE(config.parameterCount(),5);
+        const QList<int> types={0,2,1},counts={1,3,1},banks={0,0,1};
+        for(int i=0;i<3;++i) { QCOMPARE(config.stages[i].type,types[i]); QCOMPARE(config.stages[i].parameterCount,counts[i]); QCOMPARE(config.stages[i].ramId,banks[i]); }
+        const QString sv=QString::fromUtf8(config.systemVerilog());
+        QVERIFY(sv.startsWith("package tube_config_pkg;")); QVERIFY(sv.endsWith("endpackage\n"));
+        QVERIFY(sv.contains("N_STAGES = 3;")); QVERIFY(sv.contains("PARAM_ARRAY_SIZE = 200;"));
+        auto values=[&](const QString &name) {
+            auto body=sv.section(name+" [0:N_STAGES-1] = '{",1).section("};",0,0);
+            body.remove(QRegularExpression("//[^\n]*")); QStringList result;
+            for(const auto &v:body.split(',',Qt::SkipEmptyParts)) result.append(v.trimmed());
+            return result;
+        };
+        QCOMPARE(values("STAGE_TYPE"),(QStringList{"TYPE_RECTANGLE","TYPE_STATICGROUP","TYPE_ROTATIONOBJECT"}));
+        QCOMPARE(values("STAGE_PARAM_COUNT"),(QStringList{"1","3","1"}));
+        QCOMPARE(values("STAGE_RAMID"),(QStringList{"0","0","1"}));
+        for(int i=0;i<8;++i) QVERIFY(sv.contains(FpgaPipelineConfig::stageTypeName(i)+" = "+QString::number(i)));
+        const auto bundle=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        int parameter=0; QSet<int> memory;
+        for(const auto &packet:bundle.packets) {
+            if(packet.type==FpgaPacketType::Parameter) QCOMPARE(packet.objId,parameter++);
+            if(packet.type==FpgaPacketType::StaticMemory || packet.type==FpgaPacketType::RotationMemory) memory.insert(packet.memId);
+        }
+        QCOMPARE(parameter,config.parameterCount()); QCOMPARE(memory,(QSet<int>{0,1}));
+        scene.objects.last().iparams.append(rotation.iparams.first());
+        auto expanded=FpgaPipelineConfig::fromScene(scene,&error); QVERIFY2(expanded.isValid(),qPrintable(error));
+        QCOMPARE(expanded.stages.size(),4); QCOMPARE(expanded.parameterCount(),6); QCOMPARE(expanded.stages.last().ramId,1);
+        for(const auto &entry:QList<QPair<QString,int>>{{"rectangle_a",3},{"dashline",4},{"aviahorizont",5},{"RibonScale",6}}) {
+            scene.objects={rectangle}; scene.objects[0].type=entry.first;
+            QCOMPARE(FpgaPipelineConfig::fromScene(scene,&error).stages.first().type,entry.second);
+        }
+        scene.objects={};
+        for(int i=0;i<200;++i) { auto r=rectangle; r.startParamIndex=i; scene.objects.append(r); }
+        QVERIFY(FpgaPipelineConfig::fromScene(scene,&error).isValid());
+        auto extra=rectangle; extra.startParamIndex=200; scene.objects.append(extra);
+        QVERIFY(!FpgaPipelineConfig::fromScene(scene,&error).isValid()); QVERIFY(error.contains("200"));
+        scene.objects={rotation}; scene.objects[0].startParamIndex=0; scene.objects[0].memId=-1;
+        QVERIFY(!FpgaPipelineConfig::fromScene(scene,&error).isValid());
+        scene.objects={rectangle}; scene.objects[0].type="unsupported";
+        QVERIFY(!FpgaPipelineConfig::fromScene(scene,&error).isValid());
+        scene.objects={rectangle}; scene.objects[0].startParamIndex=1;
+        QVERIFY(!FpgaPipelineConfig::fromScene(scene,&error).isValid());
+        scene.objects={view}; QVERIFY(!FpgaPipelineConfig::fromScene(scene,&error).isValid());
+    }
+    void pipelineConfigPersistence() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp; QString error;
+        p->createNewProject("config",320,160,Qt::black); p->addObject("rectangle"); p->addObject("text");
+        auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        const auto hardware=p->buildCompiledFpgaXml().toByteArray(); const auto revision=p->sceneRevision();
+        const auto path=temp.filePath("tube_config_pkg.sv");
+        QVERIFY2(p->exportFpgaConfiguration(path,bundle.document,&error),qPrintable(error));
+        const auto saved=p->fpgaConfiguration(); QVERIFY(saved.isValid()); QCOMPARE(p->sceneRevision(),revision);
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),hardware);
+        QFile sv(path); QVERIFY(sv.open(QIODevice::ReadOnly)); const auto original=sv.readAll(); sv.close();
+        QCOMPARE(original,saved.systemVerilog());
+        QVERIFY(!p->exportFpgaConfiguration(temp.filePath("missing/file.sv"),bundle.document,&error)); QCOMPARE(p->fpgaConfiguration(),saved);
+        auto invalid=bundle.document; invalid.objects.clear();
+        QVERIFY(!p->exportFpgaConfiguration(path,invalid,&error));
+        QVERIFY(sv.open(QIODevice::ReadOnly)); QCOMPARE(sv.readAll(),original); sv.close();
+        const auto project=temp.filePath("project.xml"); QVERIFY(p->saveToFile(project));
+        p->createNewProject("reset",320,160,Qt::black); QVERIFY(!p->fpgaConfiguration().isValid());
+        QVERIFY2(p->loadFromFile(project),qPrintable(p->lastErrorMessage())); QCOMPARE(p->fpgaConfiguration(),saved);
+        for(const auto &object:p->getObjects()) if(auto *r=dynamic_cast<RectangleObject *>(object.data())) QVERIFY(p->setObjectProperty(r,"X","25"));
+        p->addEditorLayer(); QVERIFY(p->groupObjects({0,1})>=0);
+        bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error); QCOMPARE(FpgaPipelineConfig::fromScene(bundle.document,&error),saved);
+        p->addObject("dashline"); bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY(FpgaPipelineConfig::fromScene(bundle.document,&error)!=saved); QVERIFY(p->undo());
+        QFile xml(project); QVERIFY(xml.open(QIODevice::ReadOnly)); QDomDocument doc; QVERIFY(doc.setContent(xml.readAll())); xml.close();
+        auto stage=doc.documentElement().firstChildElement("editor").firstChildElement("fpga-configuration").firstChildElement("stage");
+        QVERIFY(!stage.isNull()); stage.setAttribute("type",99);
+        QVERIFY(xml.open(QIODevice::WriteOnly)); auto text=doc.toString(); text.replace("windows-1251","UTF-8"); xml.write(text.toUtf8()); xml.close();
+        const auto objects=p->getObjects(); QVERIFY(!p->loadFromFile(project)); QCOMPARE(p->getObjects(),objects); QCOMPARE(p->fpgaConfiguration(),saved);
+    }
+    void pipelineConfigInterface() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp;
+        p->createNewProject("config UI",320,160,Qt::black); p->addObject("rectangle");
+        FpgaStreamingPanel panel; panel.resize(420,130); panel.show();
+        QTest::qWait(5);
+        auto *button=panel.findChild<QToolButton *>("ExportFpgaConfigurationButton"); QVERIFY(button); QVERIFY(!button->icon().isNull());
+        auto *scroll=panel.findChild<QScrollArea *>(); QVERIFY(scroll);
+        auto *flow=dynamic_cast<FlowLayout *>(scroll->widget()->layout()); QVERIFY(flow);
+        QCOMPARE(flow->count(),6); QCOMPARE(flow->itemAt(3)->widget(),button);
+        auto *uart=qobject_cast<QToolButton *>(flow->itemAt(2)->widget()); QVERIFY(uart);
+        QVERIFY(uart->toolTip().startsWith("UART"));
+        QCOMPARE(button->size(),uart->size()); QCOMPARE(button->iconSize(),uart->iconSize());
+        QCOMPARE(button->geometry().left(),uart->geometry().right()+1+flow->spacing());
+        QCOMPARE(button->geometry().top(),uart->geometry().top());
+        QVERIFY(panel.findChildren<QLabel *>().isEmpty());
+        panel.grab().save(QCoreApplication::applicationDirPath()+"/fpga-controls.png");
+        const auto path=temp.filePath("tube_config_pkg.sv"); bool inspected=false;
+        QTimer::singleShot(0,&panel,[&] {
+            auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget()); if(!dialog) return;
+            inspected=dialog->objectName()=="FpgaConfigurationDialog";
+            auto *field=dialog->findChild<QLineEdit *>("FpgaConfigurationPathEdit"); if(!field) { dialog->reject(); return; }
+            field->setText(path);
+            dialog->grab().save(QCoreApplication::applicationDirPath()+"/fpga-configuration-export.png"); dialog->accept();
+        });
+        panel.exportConfiguration(); QVERIFY(inspected); QVERIFY(QFileInfo::exists(path));
+        p->addObject("dashline");
+        const auto previous=p->fpgaConfiguration();
+        bool warned=false,cancelled=false; QTimer respond;
+        connect(&respond,&QTimer::timeout,&panel,[&] {
+            if(auto *d=qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+                if(auto *box=qobject_cast<QMessageBox *>(d)) {
+                    warned=box->text().contains("tube_config_pkg.sv"); box->accept();
+                } else if(d->objectName()=="FpgaConfigurationDialog") {
+                    cancelled=true; d->reject();
+                }
+            }
+        });
+        respond.start(5); panel.exportConfiguration(); respond.stop(); QCOMPARE(p->fpgaConfiguration(),previous);
+        QVERIFY(warned && cancelled); QVERIFY(p->undo());
+        MainWindow window; QVERIFY(window.findChild<QAction *>("ExportFpgaConfigurationAction"));
+    }
+    void uartAutomaticallyExportsConfig() {
+#ifndef Q_OS_UNIX
+        QSKIP("UART UI integration uses a Unix pseudo-terminal.");
+#else
+        auto *p=ProjectManager::instance(); QTemporaryDir temp; QString error;
+        p->createNewProject("UART config",320,160,Qt::black); p->addObject("rectangle");
+        PtyCapture capture; QVERIFY(capture.master>=0);
+        const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        const auto path=temp.filePath("tube_config_pkg.sv");
+        FpgaStreamingPanel panel; panel.resize(480,130); panel.show(); panel.toggleUartMode();
+        bool inspected=false;
+        QTimer::singleShot(0,&panel,[&] {
+            auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget()); if(!dialog) return;
+            inspected=dialog->objectName()=="UartStreamingDialog" && !QFileInfo::exists(path);
+            dialog->findChild<QComboBox *>("UartPortCombo")->setCurrentText(QString::fromLocal8Bit(capture.name));
+            dialog->findChild<QSpinBox *>("UartLoadBaudRateSpin")->setValue(57600);
+            dialog->findChild<QSpinBox *>("UartBaudRateSpin")->setValue(115200);
+            dialog->findChild<QLineEdit *>("FpgaConfigurationPathEdit")->setText(path);
+            dialog->grab().save(QCoreApplication::applicationDirPath()+"/uart-configuration.png"); dialog->accept();
+        });
+        panel.startStreaming(); QVERIFY(inspected); QVERIFY(QFileInfo::exists(path)); QVERIFY(p->fpgaConfiguration().isValid());
+        const auto expected=QByteArray(1,char(0))+FpgaUartTransport::sceneBytes(bundle);
+        QTRY_VERIFY_WITH_TIMEOUT(capture.data().size()>=expected.size(),3000); QCOMPARE(capture.data(),expected);
+        auto *transport=panel.findChild<FpgaUartTransport *>(); QVERIFY(transport && transport->isRunning());
+        bool warned=false; QTimer closeWarning;
+        connect(&closeWarning,&QTimer::timeout,&panel,[&] { if(auto *box=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) { warned=true; box->accept(); } });
+        closeWarning.start(5);
+        const auto rectangle=p->getObjectAt(0); QVERIFY(p->setObjectProperty(rectangle.data(),"X","20"));
+        QTRY_VERIFY_WITH_TIMEOUT(capture.data().size()>expected.size(),1500); QVERIFY(transport->isRunning()); QVERIFY(!warned);
+        p->addObject("dashline"); QTRY_VERIFY_WITH_TIMEOUT(warned,1500); QVERIFY(!transport->isRunning());
+        closeWarning.stop(); panel.stopStreaming();
+#endif
+    }
+    void uartConfigFailureAndCancel() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp;
+        p->createNewProject("UART file error",320,160,Qt::black); p->addObject("rectangle");
+        FpgaStreamingPanel panel; panel.toggleUartMode();
+        auto *transport=panel.findChild<FpgaUartTransport *>(); QVERIFY(transport);
+        QSignalSpy failed(transport,&FpgaUartTransport::failed),launch(&panel,&FpgaStreamingPanel::simulatorLaunchRequested);
+        bool configured=false,warning=false,refreshed=false; QTimer respond;
+        connect(&respond,&QTimer::timeout,&panel,[&] {
+            auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget()); if(!dialog) return;
+            if(dialog->objectName()=="UartStreamingDialog") {
+                configured=true;
+                auto *refresh=dialog->findChild<QPushButton *>("SecondaryButton");
+                QSignalSpy clicked(refresh,&QPushButton::clicked);
+                QTest::keySequence(dialog,QKeySequence("Alt+R"));
+                QTest::qWait(150);
+                refreshed=clicked.size()==1;
+                dialog->findChild<QComboBox *>("UartPortCombo")->setCurrentText("not-a-real-port");
+                dialog->findChild<QLineEdit *>("FpgaConfigurationPathEdit")->setText(temp.filePath("missing/tube_config_pkg.sv"));
+                dialog->accept();
+            } else if(auto *box=qobject_cast<QMessageBox *>(dialog)) { warning=true; box->accept(); }
+        });
+        respond.start(5); panel.startStreaming(); respond.stop();
+        QVERIFY(configured && warning && refreshed); QVERIFY(!p->fpgaConfiguration().isValid());
+        QVERIFY(!transport->isRunning()); QVERIFY(failed.isEmpty()); QVERIFY(launch.isEmpty());
+        const auto cancelled=temp.filePath("cancelled.sv");
+        QTimer::singleShot(0,&panel,[&] {
+            auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget()); if(!dialog) return;
+            dialog->findChild<QLineEdit *>("FpgaConfigurationPathEdit")->setText(cancelled); dialog->reject();
+        });
+        panel.startStreaming(); QVERIFY(!QFileInfo::exists(cancelled)); QVERIFY(!p->fpgaConfiguration().isValid());
+        QVERIFY(!transport->isRunning()); QVERIFY(launch.isEmpty());
+    }
     void uartDialogLayout() {
         auto *p=ProjectManager::instance();
-        p->createNewProject("uart dialog",1024,768,Qt::black);p->addObject("layer3d");
+        p->createNewProject("uart dialog",1024,768,Qt::black);p->addObject("layer3d");p->addObject("rectangle");
         FpgaStreamingPanel panel;
         bool inspected=false;QString issue;
-        QTimer::singleShot(0,&panel,[&](){
+        bool mismatch=false,warned=false;
+        auto inspectDialog=[&](){
             auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());
             if(!dialog) return;
+            if(auto *box=qobject_cast<QMessageBox *>(dialog)) {
+                warned=box->text().contains("tube_config_pkg.sv");
+                if(!mismatch) issue="Unexpected UART configuration warning.";
+                box->grab().save(QCoreApplication::applicationDirPath()+"/fpga-configuration-mismatch.png");
+                box->accept(); return;
+            }
             inspected=dialog->objectName()=="UartStreamingDialog";
-            QList<QRect> rectangles;
+            QList<QPair<QString,QRect>> rectangles;
             for(auto *widget:dialog->findChildren<QWidget *>()) {
                 if(!qobject_cast<QAbstractSpinBox *>(widget) && !qobject_cast<QComboBox *>(widget)
-                    && !qobject_cast<QPushButton *>(widget)) continue;
+                    && !qobject_cast<QPushButton *>(widget) && widget->objectName()!="FpgaConfigurationPathEdit") continue;
                 QRect rect(widget->mapTo(dialog,QPoint()),widget->size());
                 if(!dialog->rect().contains(rect)) issue="Control lies outside UART dialog.";
-                for(auto other:rectangles) if(other.intersects(rect)) issue="UART controls overlap.";
-                rectangles.append(rect);
+                for(const auto &other:rectangles) if(other.second.intersects(rect)) issue=QString("UART controls overlap: %1 and %2").arg(other.first,widget->objectName());
+                rectangles.append({widget->objectName(),rect});
+            }
+            if(!dialog->findChild<QLabel *>("ConfigurationAutoSaveNotice")) issue="UART automatic save notice is missing.";
+            if(dialog->findChild<QLabel *>("ConfigurationSummary") || dialog->findChild<QLabel *>("ConfigurationNotice")
+                || dialog->findChild<QLabel *>("ConfigurationMismatchWarning")) issue="UART contains redundant configuration details.";
+            for(auto *label:dialog->findChildren<QLabel *>()) {
+                const QRect rect(label->mapTo(dialog,QPoint()),label->size());
+                for(const auto &other:rectangles) if(other.second.intersects(rect)) issue=QString("UART labels overlap: %1 and %2").arg(other.first,label->objectName());
+                rectangles.append({label->objectName(),rect});
+                if(label->wordWrap()) {
+                    if(label->height()<label->heightForWidth(label->width())) issue="UART configuration text is clipped.";
+                    const auto textBounds=label->fontMetrics().boundingRect(QRect(0,0,label->contentsRect().width(),10000),Qt::TextWordWrap,label->text());
+                    if(textBounds.height()>label->contentsRect().height()) issue="UART configuration text exceeds its contents rectangle.";
+                }
             }
             dialog->grab().save(QCoreApplication::applicationDirPath()+"/uart-dialog.png");
             dialog->reject();
-        });
+        };
+        QTimer inspect; connect(&inspect,&QTimer::timeout,&panel,inspectDialog); inspect.start(5);
         panel.toggleUartMode();panel.startStreaming();
         QVERIFY(inspected);QVERIFY2(issue.isEmpty(),qPrintable(issue));
+        QVERIFY(!p->fpgaConfiguration().isValid());
+        QVERIFY(!panel.findChild<FpgaUartTransport *>()->isRunning());
+        QTemporaryDir temp; QString error;
+        const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY2(p->exportFpgaConfiguration(temp.filePath("tube_config_pkg.sv"),bundle.document,&error),qPrintable(error));
+        p->addObject("dashline"); mismatch=true; inspected=false;
+        panel.startStreaming();
+        inspect.stop(); QVERIFY(inspected && warned);QVERIFY2(issue.isEmpty(),qPrintable(issue));
+        QVERIFY(!panel.findChild<FpgaUartTransport *>()->isRunning());
     }
     void longLabelsAndWarnings() {
         auto *p=ProjectManager::instance();
