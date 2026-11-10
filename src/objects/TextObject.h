@@ -15,6 +15,7 @@ public:
     QString fontFamily = QStringLiteral("Arial");
     int pixelSize = 14;
     int fontIndex = 0;
+    int symbolCapacity = 0; // Ноль выделяет по одной позиции на текущий код строки.
     QString extraCharacters = QStringLiteral("α°+-/");
     QStringList exportAlphabetGroups;
     bool restrictedAtlasEditing = false;

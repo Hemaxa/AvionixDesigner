@@ -10,6 +10,7 @@ class QString;
 class FpgaProjectPacketBuilder
 {
 public:
-    static FpgaPacketBundle buildCurrentProject(QString *errorMessage = nullptr);
+    static FpgaPacketBundle buildCurrentProject(QString *errorMessage = nullptr,
+                                               const FpgaHardwareScene *loaded = nullptr);
 };
 

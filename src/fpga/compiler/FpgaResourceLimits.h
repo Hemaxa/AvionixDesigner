@@ -11,6 +11,8 @@ namespace FpgaResourceLimits {
 inline int staticParameters() { return ApplicationSettings::staticGroupElements(); }
 inline int staticPixels() { return ApplicationSettings::staticGroupPixels(); }
 constexpr int rotationTiles = 2048;
+// SYMBOLs использует bram[BD:0] с BD = 16384 в поставляемом RTL.
+constexpr int fontPixels = 16385;
 
 // Report - ошибки экспорта и предупреждения об уменьшении растров.
 struct Report
@@ -20,6 +22,6 @@ struct Report
     QStringList messages() const { return errors + warnings; }
 };
 
-// Проверяет статические/вращающиеся растры; готовые маски текста проверяются также компилятором сцены.
+// Проверяет статические/вращающиеся растры. Атласы шрифтов проверяет компилятор сцены.
 Report inspect(const BaseObject &object);
 }

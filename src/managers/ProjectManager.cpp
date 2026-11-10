@@ -636,6 +636,7 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
         clone->fontFamily = text->fontFamily;
         clone->pixelSize = text->pixelSize;
         clone->fontIndex = text->fontIndex;
+        clone->symbolCapacity = text->symbolCapacity;
         clone->restrictedAtlasEditing = text->restrictedAtlasEditing;
         clone->exportAlphabetGroups = text->exportAlphabetGroups;
         if (text->hasFontAtlas())
@@ -1482,7 +1483,7 @@ QDomDocument buildCompiledXmlDocument(const QString &projectName,
                 }
             }
             if (characters.isEmpty())
-                continue;
+                characters = QStringLiteral(" ");
 
             objectsEl.appendChild(createFontResourceElement(doc, it.key(), nextFontIndex, characters, fontSchema, &font));
         }

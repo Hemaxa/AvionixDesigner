@@ -4,6 +4,7 @@
 #include <QElapsedTimer>
 #include <QMutexLocker>
 #include <QSerialPort>
+#include <utility>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
 #else
@@ -11,17 +12,50 @@
 #include <termios.h>
 #endif
 
+namespace {
+QList<FpgaPacket> scenePackets(const FpgaPacketBundle &bundle)
+{
+    auto packets = bundle.packets;
+    packets.removeIf([](const FpgaPacket &packet) {
+        return packet.type == FpgaPacketType::Layer3d && packet.payloadSize != 1;
+    });
+    return packets;
+}
+
+QByteArray packetBytes(const QList<FpgaPacket> &packets)
+{
+    QByteArray bytes;
+    for (const auto &packet : packets)
+        bytes.append(packet.bytes);
+    return bytes;
+}
+
+QByteArray updateBytes(const QList<FpgaPacket> &sent, const QList<FpgaPacket> &next)
+{
+    if (sent.size() != next.size())
+        return packetBytes(next);
+    QByteArray changes;
+    for (qsizetype i = 0; i < next.size(); ++i) {
+        const auto &packet = next[i];
+        const auto &previous = sent[i];
+        if (packet.type != previous.type || packet.objId != previous.objId || packet.objectType != previous.objectType)
+            return packetBytes(next);
+        if (packet.bytes == previous.bytes)
+            continue;
+        if (packet.type == FpgaPacketType::StaticMemory || packet.type == FpgaPacketType::RotationMemory)
+            return packetBytes(next);
+        changes.append(packet.bytes);
+    }
+    return changes;
+}
+}
+
 FpgaUartTransport::FpgaUartTransport(QObject *parent) : QThread(parent) {}
 FpgaUartTransport::~FpgaUartTransport() { stopStreaming(); }
 
 QByteArray FpgaUartTransport::sceneBytes(const FpgaPacketBundle &bundle)
 {
-    QByteArray bytes;
-    for (const auto &packet : bundle.packets) {
-        if (packet.type != FpgaPacketType::Layer3d || packet.payloadSize == 1)
-            bytes.append(packet.bytes);
-    }
-    return bytes;
+    return packetBytes(scenePackets(bundle));
 }
 
 bool FpgaUartTransport::startStreaming(const FpgaPacketBundle &bundle, const FpgaUartConfig &config, QString *error)
@@ -36,11 +70,8 @@ bool FpgaUartTransport::startStreaming(const FpgaPacketBundle &bundle, const Fpg
         const QMutexLocker lock(&m_mutex);
         m_config = config;
         m_stop = false;
-        m_lastScene = m_scene = sceneBytes(bundle);
-        m_lastOrdinary.clear();
-        for (const auto &packet : bundle.packets)
-            if (packet.type != FpgaPacketType::Layer3d) m_lastOrdinary.append(packet.bytes);
-        m_pendingFullScene = true;
+        m_scene = scenePackets(bundle);
+        m_scenePending = true;
         m_position.clear();
     }
     start();
@@ -59,18 +90,9 @@ void FpgaUartTransport::stopStreaming()
 
 void FpgaUartTransport::updateScene(const FpgaPacketBundle &bundle)
 {
-    const QByteArray bytes = sceneBytes(bundle);
-    QByteArray ordinary, side;
-    for (const auto &packet : bundle.packets) {
-        if (packet.type != FpgaPacketType::Layer3d) ordinary.append(packet.bytes);
-        else if (packet.payloadSize == 1) side = packet.bytes;
-    }
     const QMutexLocker lock(&m_mutex);
-    if (bytes == m_lastScene) return;
-    m_pendingFullScene = m_pendingFullScene || ordinary != m_lastOrdinary;
-    m_scene = m_pendingFullScene ? bytes : side;
-    m_lastScene = bytes;
-    m_lastOrdinary = ordinary;
+    m_scene = scenePackets(bundle);
+    m_scenePending = true;
     m_changed.wakeAll();
 }
 
@@ -90,13 +112,12 @@ bool FpgaUartTransport::stopping()
 void FpgaUartTransport::run()
 {
     FpgaUartConfig config;
-    QByteArray initialScene;
+    QList<FpgaPacket> sent;
     {
         const QMutexLocker lock(&m_mutex);
         config = m_config;
-        initialScene = m_scene;
-        m_scene.clear();
-        m_pendingFullScene = false;
+        sent = std::exchange(m_scene, {});
+        m_scenePending = false;
     }
     QSerialPort port;
     port.setPortName(config.portName.trimmed());
@@ -146,6 +167,7 @@ void FpgaUartTransport::run()
         }
         return !stopping();
     };
+    QByteArray initialScene = packetBytes(sent);
     if (config.writeInitialZero) initialScene.prepend(char(0));
     bool success = write(initialScene);
     if (success && !port.setBaudRate(config.baudRate)) {
@@ -158,11 +180,18 @@ void FpgaUartTransport::run()
     while (success && !stopping()) {
         emit positionRequested();
         QByteArray bytes;
+        QList<FpgaPacket> nextScene;
+        bool isScene = false;
         bool isPosition = false;
         {
             QMutexLocker lock(&m_mutex);
             while (!m_stop) {
-                if (!m_scene.isEmpty()) { bytes.swap(m_scene); m_pendingFullScene = false; break; }
+                if (m_scenePending) {
+                    nextScene.swap(m_scene);
+                    m_scenePending = false;
+                    isScene = true;
+                    break;
+                }
                 const qint64 waitMs = nextPosition - clock.elapsed();
                 if (!m_position.isEmpty() && waitMs <= 0) {
                     bytes.swap(m_position); isPosition = true; break;
@@ -171,6 +200,11 @@ void FpgaUartTransport::run()
                 else m_changed.wait(&m_mutex);
             }
             if (m_stop) break;
+        }
+        if (isScene) {
+            // Сравниваем с уже отправленной сценой, даже если промежуточные правки были вытеснены.
+            bytes = updateBytes(sent, nextScene);
+            sent = std::move(nextScene);
         }
         if (isPosition) nextPosition = clock.elapsed() + config.intervalMs;
         success = write(bytes);

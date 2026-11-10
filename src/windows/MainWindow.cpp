@@ -1053,14 +1053,24 @@ void MainWindow::mergeSelectedStaticGroups() {
 
 void MainWindow::checkHardwareResources() {
   QStringList messages;
+  bool hasErrors = false;
+  bool hasText = false;
   for (const auto &object : ProjectManager::instance()->getObjects()) {
     if (!object->isExportEnabled()) continue;
+    hasText |= object->getTypeName() == "text";
     const auto report = FpgaResourceLimits::inspect(*object);
+    hasErrors |= !report.errors.isEmpty();
     if (!report.messages().isEmpty())
       messages.append((object->customName().isEmpty() ? object->getDisplayName() : object->customName()) + ":\n" + report.messages().join('\n'));
   }
+  if (hasText && !hasErrors) {
+    QString error;
+    const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+    if (error.isEmpty()) messages += bundle.document.warnings;
+    else messages.append(error);
+  }
   if (messages.isEmpty())
-    QMessageBox::information(this, tr("Память ПЛИС"), tr("Статические группы и вращающиеся изображения укладываются в ограничения памяти и параметров."));
+    QMessageBox::information(this, tr("Память ПЛИС"), tr("Растровые объекты укладываются в ограничения памяти и параметров."));
   else
     QMessageBox::warning(this, tr("Ограничения ПЛИС"), messages.join("\n\n"));
 }

@@ -2,6 +2,7 @@
 
 #include "fpga/compiler/FpgaSceneCompiler.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
+#include "fpga/config/FpgaPipelineConfig.h"
 
 #include "BitParser.h"
 #include "FpgaSchemaRegistry.h"
@@ -18,11 +19,11 @@ int field(const QString &hex, const ParamSchema &schema, const QString &name)
     return int(BitParser::extract(hex, info.offset, info.size));
 }
 
-QString staticInit(const ParamSchema &schema, bool enabled, quint32 color, const QRect &rect, int address)
+QString symbolInit(const ParamSchema &schema, quint32 color, const QRect &rect, int address)
 {
     QString hex(38, '0');
     const QMap<QString, quint32> values = {
-        {"enb", enabled ? 1u : 0u}, {"color", color},
+        {"enb", 1u}, {"color", color},
         {"x", quint32(rect.x())}, {"y", quint32(rect.y())},
         {"w", quint32(rect.width())}, {"h", quint32(rect.height())}, {"addr", quint32(address)}
     };
@@ -34,7 +35,8 @@ QString staticInit(const ParamSchema &schema, bool enabled, quint32 color, const
 }
 }
 
-FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &document, QString *errorMessage) const
+FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &document, QString *errorMessage,
+                                             const FpgaHardwareScene *loaded) const
 {
     if (errorMessage)
         errorMessage->clear();
@@ -55,11 +57,15 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
     scene.schemas.remove("font");
     scene.schemas.remove("text");
     const auto staticSchema = FpgaSchemaRegistry::instance()->buildSchema("staticgroup");
-    if (!document.fonts.isEmpty())
-        scene.schemas.insert("staticgroup", staticSchema);
     scene.warnings = document.warnings;
 
     const int memoryCapacity = FpgaResourceLimits::staticPixels();
+    const QString disabled(38, '0');
+    const QRect screen(0, 0, scene.width, scene.height);
+    QMap<int, int> fontBanks;
+    QMap<int, QMap<QPair<QChar, int>, int>> clippedGlyphs;
+    QList<QRect> stageGlyphs;
+    bool overlappingGlyphs = false;
     int nextParameter = 0;
     const auto textSchema = document.schemas.value("text");
     for (const auto &source : document.objects) {
@@ -70,40 +76,102 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
 
             for (const auto &hex : source.iparams) {
                 const int count = field(hex, textSchema, "char_count");
-                if (count == 0)
-                    continue;
                 const int fontIndex = field(hex, textSchema, "font_index");
+                int capacity = source.symbolCapacity ? source.symbolCapacity : count;
+                if (loaded) {
+                    const qsizetype index = scene.textFields.size();
+                    if (index >= loaded->textFields.size() || loaded->textFields[index].fontIndex != fontIndex)
+                        return fail(QStringLiteral("Изменился состав текстовых полей. Требуется новая конфигурация ПЛИС."));
+                    if (source.symbolCapacity && source.symbolCapacity != loaded->textFields[index].capacity)
+                        return fail(QStringLiteral("Изменилось число позиций SYMBOLs. Экспортируйте новый tube_config_pkg.sv."));
+                    capacity = loaded->textFields[index].capacity;
+                }
+                if (count > capacity)
+                    return fail(QStringLiteral("В поле отведено %1 позиций SYMBOLs, требуется %2. "
+                                               "Увеличьте резерв и экспортируйте новый tube_config_pkg.sv.").arg(capacity).arg(count));
+                scene.textFields.append({fontIndex, capacity});
+                if (!capacity) continue;
+                if (nextParameter + capacity > FpgaPipelineConfig::parameterArraySize)
+                    return fail(QStringLiteral("Для сцены доступно %1 слов параметров. Сократите надписи или число объектов.")
+                        .arg(FpgaPipelineConfig::parameterArraySize));
+
                 const auto fontIt = document.fonts.constFind(fontIndex);
                 if (fontIt == document.fonts.cend())
                     return fail(QStringLiteral("В аппаратной сцене отсутствует шрифт %1.").arg(fontIndex));
-                const auto &font = fontIt.value();
-                TextMask mask;
+                const FpgaFont *font = &fontIt.value();
+                if (loaded) {
+                    const auto previous = loaded->fonts.constFind(fontIndex);
+                    if (previous == loaded->fonts.cend() || previous->name != font->name || previous->size != font->size)
+                        return fail(QStringLiteral("Изменился шрифт текстового поля. Загрузите сцену заново."));
+                    font = &previous.value();
+                }
+                if (!fontBanks.contains(fontIndex)) {
+                    if (font->maskData.size() > FpgaResourceLimits::fontPixels)
+                        return fail(QStringLiteral("Атлас «%1», %2 пкс занимает %3 ячеек SYMBOLs из %4. "
+                                                   "Уменьшите размер шрифта или сократите алфавит.")
+                            .arg(font->name).arg(font->size).arg(font->maskData.size()).arg(FpgaResourceLimits::fontPixels));
+                    if (scene.memories.size() >= memoryBankCount)
+                        return fail(QStringLiteral("Сцена требует более 256 банков памяти; идентификатор банка имеет 8 бит."));
+                    fontBanks.insert(fontIndex, scene.memories.size());
+                    scene.memories.append({FpgaMemoryKind::FontAtlas, font->maskData});
+                    scene.fonts.insert(fontIndex, *font);
+                    scene.schemas.insert("symbols", staticSchema);
+                }
+                const int memId = fontBanks.value(fontIndex);
+                // Между другими этапами сохраняется каскад сцены. Повторные этапы читают тот же RAMID.
+                if (scene.objects.isEmpty() || scene.objects.last().type != "symbols" || scene.objects.last().memId != memId) {
+                    scene.objects.append({QStringLiteral("symbols"), false, {}, nextParameter, memId});
+                    stageGlyphs.clear();
+                }
+                QStringList params(capacity, disabled);
+                TextLayout layout;
                 QString layoutError;
-                if (!composeTextMask(characters.mid(field(hex, textSchema, "char_offset"), count), font, &mask, &layoutError, memoryCapacity))
-                    return fail(layoutError);
-                if (mask.data.isEmpty()) continue;
+                if (!layoutText(characters.mid(field(hex, textSchema, "char_offset"), count), *font, &layout, &layoutError))
+                    return fail(loaded ? layoutError + QStringLiteral(" Загрузите сцену с нужным алфавитом заново.") : layoutError);
+                const bool enabled = field(hex, textSchema, "enb");
+                const quint32 color = field(hex, textSchema, "color");
                 const QPoint origin(field(hex, textSchema, "x"), field(hex, textSchema, "y"));
-                const QRect fullRect(origin + mask.offset, mask.size);
-                const QRect visible = fullRect.intersected(QRect(0, 0, scene.width, scene.height));
-                if (visible.isEmpty()) continue;
-                if (visible.x() > 4095 || visible.y() > 4095 || visible.width() > 4095 || visible.height() > 4095)
-                    return fail(QStringLiteral("Координаты или габариты текста не помещаются в 12-битные поля STATICGROUP."));
-                if (scene.memories.size() >= memoryBankCount)
-                    return fail(QStringLiteral("Сцена требует более 256 банков памяти; идентификатор банка имеет 8 бит."));
-                if (nextParameter >= 65536)
-                    return fail(QStringLiteral("Сцена требует более 65536 слов параметров; индекс параметра имеет 16 бит."));
-                QString data;
-                const QPoint crop = visible.topLeft() - fullRect.topLeft();
-                for (int y = 0; y < visible.height(); ++y)
-                    data.append(mask.data.mid((crop.y() + y) * mask.size.width() + crop.x(), visible.width()));
-                FpgaHardwareObject object;
-                object.type = QStringLiteral("staticgroup");
-                object.memId = scene.memories.size();
-                object.startParamIndex = nextParameter++;
-                object.iparams.append(staticInit(staticSchema, field(hex, textSchema, "enb"),
-                    quint32(field(hex, textSchema, "color")), visible, 0));
-                scene.memories.append({FpgaMemoryKind::StaticMask, data});
-                scene.objects.append(object);
+                for (const auto &positioned : layout.glyphs) {
+                    const auto &glyph = font->glyphs[positioned.character];
+                    if (!enabled || !glyph.enabled) continue;
+                    const QRect rect(origin + positioned.position, QSize(glyph.width, glyph.height));
+                    const QRect visible = rect.intersected(screen);
+                    if (visible.isEmpty()) continue;
+                    if (visible.x() > 4095 || visible.y() > 4095 || visible.width() > 4095 || visible.height() > 4095)
+                        return fail(QStringLiteral("Координаты или габариты символа выходят за 12-битные поля SYMBOLs."));
+                    int address = glyph.offset;
+                    if (address < 0 || qint64(address) + qint64(glyph.width) * glyph.height > font->maskData.size())
+                        return fail(QStringLiteral("Маска символа «%1» выходит за границы атласа.").arg(positioned.character));
+                    // RTL увеличивает адрес только на видимых пикселях. При обрезке справа
+                    // нужен новый шаг строки, поэтому один раз дописываем обрезанный глиф.
+                    if (visible.width() != rect.width() && visible.height() > 1) {
+                        auto &variants = clippedGlyphs[memId];
+                        const auto key = qMakePair(positioned.character, visible.width());
+                        if (!variants.contains(key)) {
+                            QString &data = scene.memories[memId].data;
+                            const int end = data.size() + visible.width() * glyph.height;
+                            if (end > FpgaResourceLimits::fontPixels)
+                                return fail(QStringLiteral("Атлас «%1» с обрезанными у края экрана символами превышает %2 ячеек SYMBOLs.")
+                                    .arg(font->name).arg(FpgaResourceLimits::fontPixels));
+                            variants.insert(key, data.size());
+                            for (int y = 0; y < glyph.height; ++y)
+                                data.append(font->maskData.sliced(address + y * glyph.width, visible.width()));
+                        }
+                        address = variants.value(key);
+                    }
+                    if (!overlappingGlyphs) {
+                        for (const auto &previous : stageGlyphs) {
+                            if (previous.intersects(visible)) {
+                                overlappingGlyphs = true;
+                                break;
+                            }
+                        }
+                        stageGlyphs.append(visible);
+                    }
+                    params[positioned.textIndex] = symbolInit(staticSchema, color, visible, address);
+                }
+                scene.objects.last().iparams += params;
+                nextParameter += capacity;
             }
             continue;
         }
@@ -140,5 +208,12 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
         }
         scene.objects.append(object);
     }
+    if (loaded && scene.textFields.size() != loaded->textFields.size())
+        return fail(QStringLiteral("Изменился состав текстовых полей. Требуется новая конфигурация ПЛИС."));
+    if (!scene.fonts.isEmpty() && nextParameter > FpgaPipelineConfig::parameterArraySize)
+        return fail(QStringLiteral("Для сцены доступно %1 слов параметров. Сократите надписи или число объектов.")
+            .arg(FpgaPipelineConfig::parameterArraySize));
+    if (overlappingGlyphs)
+        scene.warnings.append(QStringLiteral("Прямоугольники символов пересекаются. RTL SYMBOLs читает только одну маску на пиксель внутри этапа."));
     return scene;
 }

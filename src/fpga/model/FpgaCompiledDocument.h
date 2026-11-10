@@ -21,6 +21,7 @@ struct FpgaCompiledObject
     bool leftAnchored = false;
     QStringList iparams;
     QString data;
+    int symbolCapacity = 0; // Резерв надписи из свойств редактора.
 };
 
 // Исходный документ с ресурсами шрифтов; вход для FpgaSceneCompiler.

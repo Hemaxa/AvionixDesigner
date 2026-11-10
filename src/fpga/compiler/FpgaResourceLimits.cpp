@@ -7,9 +7,6 @@
 #include "StaticGroupObject.h"
 #include "TextObject.h"
 #include "RasterGeometry.h"
-#include "text/FontRasterizer.h"
-#include "text/TextLayout.h"
-#include <QFont>
 
 #include <QtMath>
 
@@ -17,14 +14,10 @@ namespace FpgaResourceLimits {
 Report inspect(const BaseObject &object)
 {
     Report report;
-    if (const auto *text = dynamic_cast<const TextObject *>(&object)) {
-        QFont qfont(text->fontFamily); qfont.setPixelSize(text->pixelSize);
-        const auto font = text->hasFontAtlas() ? text->fontAtlas() : rasterizeFont(qfont, text->text);
-        TextMask mask;
-        QString error;
-        if (!composeTextMask(text->text, font, &mask, &error, staticPixels())) report.errors.append(error);
+    // TextObject наследуется от StaticGroupObject для предпросмотра. Память
+    // текста проверяется при сборке общего атласа в FpgaSceneCompiler.
+    if (dynamic_cast<const TextObject *>(&object))
         return report;
-    }
 
     if (const auto *image = dynamic_cast<const ImageObject *>(&object)) {
         if (image->isRotationObject()) {

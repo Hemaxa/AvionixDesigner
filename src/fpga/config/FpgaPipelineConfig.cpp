@@ -59,7 +59,9 @@ FpgaPipelineConfig FpgaPipelineConfig::fromScene(const FpgaHardwareScene &scene,
         const bool memory = type == 1 || type == 2 || type == 7;
         if (memory && (object.memId < 0 || object.memId >= scene.memories.size() || object.memId > 255))
             return fail(QStringLiteral("У растрового этапа отсутствует допустимый RAMID."));
-        if (memory && scene.memories[object.memId].kind != (type == 1 ? FpgaMemoryKind::RotationTiles : FpgaMemoryKind::StaticMask))
+        const auto kind = type == 1 ? FpgaMemoryKind::RotationTiles
+            : (type == 7 ? FpgaMemoryKind::FontAtlas : FpgaMemoryKind::StaticMask);
+        if (memory && scene.memories[object.memId].kind != kind)
             return fail(QStringLiteral("Тип памяти не соответствует аппаратному этапу."));
         if (!memory && object.memId != -1) return fail(QStringLiteral("Этап без растровой памяти ссылается на банк."));
         const int ramId = memory ? object.memId : 0;

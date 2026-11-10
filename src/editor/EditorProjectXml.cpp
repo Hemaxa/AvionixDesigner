@@ -13,6 +13,7 @@
 #include "ThreeDViewObject.h"
 #include "FpgaSchemaRegistry.h"
 #include "BitParser.h"
+#include "fpga/config/FpgaPipelineConfig.h"
 #include "fpga/model/FpgaCompiledDocument.h"
 
 #include <QBuffer>
@@ -430,6 +431,9 @@ void objectFields(Fields &a, BaseObject &object, Resources &resources)
             }
             a.text("text", text->text); a.text("font-family", text->fontFamily); a.text("extra-characters", text->extraCharacters);
             a.value("pixel-size", text->pixelSize); a.value("font-index", text->fontIndex); a.value("restricted-atlas-editing", text->restrictedAtlasEditing);
+            a.value("symbol-capacity", text->symbolCapacity);
+            if (text->symbolCapacity < 0 || text->symbolCapacity > FpgaPipelineConfig::parameterArraySize)
+                a.fail("Некорректное число позиций текста для ПЛИС.");
             auto alphabets = a.child("export-alphabets");
             if (a.reading) {
                 text->exportAlphabetGroups.clear();
@@ -656,6 +660,9 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
             if (auto *text = dynamic_cast<TextObject *>(ptr.data())) {
                 Fields editing(options, reading, error);
                 editing.text("extra-characters", text->extraCharacters);
+                editing.value("symbol-capacity", text->symbolCapacity);
+                if (text->symbolCapacity < 0 || text->symbolCapacity > FpgaPipelineConfig::parameterArraySize)
+                    editing.fail("Некорректное число позиций текста для ПЛИС.");
                 auto alphabets = editing.child("export-alphabets");
                 if (reading) {
                     text->exportAlphabetGroups.clear();

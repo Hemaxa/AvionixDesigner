@@ -12,6 +12,7 @@ struct PositionedGlyph
 {
     QChar character;
     QPoint position;
+    qsizetype textIndex = 0;
 };
 
 // TextLayout - общий расчёт расположения букв для редактора и аппаратного экспорта.
@@ -26,7 +27,7 @@ struct TextLayout
 bool layoutText(const QString &text, const FpgaFont &font, TextLayout *layout,
                 QString *errorMessage = nullptr);
 
-// TextMask - общая маска строки для предпросмотра и аппаратного экспорта.
+// TextMask - общая маска строки для предпросмотра в редакторе.
 struct TextMask
 {
     QSize layoutSize;

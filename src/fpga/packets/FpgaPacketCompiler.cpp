@@ -101,6 +101,8 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaHardwareScene &document, 
     for (const auto &memory : document.memories) {
         if (memory.kind == FpgaMemoryKind::StaticMask && memory.data.size() > FpgaResourceLimits::staticPixels())
             return fail(QStringLiteral("Статическая память превышает %1 адресуемых ячеек.").arg(FpgaResourceLimits::staticPixels()));
+        if (memory.kind == FpgaMemoryKind::FontAtlas && memory.data.size() > FpgaResourceLimits::fontPixels)
+            return fail(QStringLiteral("Атлас превышает %1 ячеек SYMBOLs.").arg(FpgaResourceLimits::fontPixels));
         for (const auto level : memory.data)
             if (level < QLatin1Char('0') || level > QLatin1Char('7'))
                 return fail(QStringLiteral("Растр должен содержать только уровни маски 0…7."));
@@ -142,7 +144,7 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaHardwareScene &document, 
     for (int objectIndex = 0; objectIndex < document.objects.size(); ++objectIndex) {
         const auto &object = document.objects[objectIndex];
         if (object.type == QStringLiteral("font") || object.type == QStringLiteral("text"))
-            return fail(QStringLiteral("Перед упаковкой текст должен быть преобразован в статические объекты."));
+            return fail(QStringLiteral("Перед упаковкой текст должен быть преобразован в SYMBOLs."));
         if (object.type == QStringLiteral("layer3d"))
             continue;
         if (object.type == "staticgroup" && object.iparams.size() > FpgaResourceLimits::staticParameters())
@@ -182,11 +184,6 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaHardwareScene &document, 
             appendStaticMemory(object.memId, objectIndex, object.type);
         }
     }
-    // Алфавит нужен и тогда, когда строка пока пустая или содержит только пробелы.
-    for (int memId = 0; memId < document.memories.size(); ++memId)
-        if (!uploadedMemories.contains(memId) && document.memories[memId].kind == FpgaMemoryKind::StaticMask)
-            appendStaticMemory(memId, -1, QStringLiteral("staticgroup"));
-
     // После загрузки сцены идут команда стороны 3D-вида и первое положение самолета.
     for (int i = 0; i < document.objects.size(); ++i) {
         const auto &object = document.objects[i];
