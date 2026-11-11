@@ -735,6 +735,29 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
         } else {
             Fields parameters(meta.child("parameters"), reading, error); objectFields(parameters, *ptr, resources);
         }
+        auto pivotNode = object.firstChildElement("rotation-pivot");
+        if ((!reading && ptr->editorRotationPivot()) || (reading && !pivotNode.isNull())) {
+            const auto *image = dynamic_cast<ImageObject *>(ptr.data());
+            if ((!image || !image->isRotationObject()) && !dynamic_cast<RotationObject *>(ptr.data())) {
+                root.fail("Редакторский центр вращения задан у неподдерживаемого объекта."); return false;
+            }
+            if (!reading) pivotNode = append(object, "rotation-pivot");
+            if (reading && !pivotNode.nextSiblingElement("rotation-pivot").isNull()) {
+                root.fail("Повторный центр вращения объекта."); return false;
+            }
+            QPointF point = reading ? QPointF() : ptr->rotationCenter();
+            double x = point.x(), y = point.y(); Fields pivot(pivotNode, reading, error);
+            pivot.value("canvas-x", x); pivot.value("canvas-y", y);
+            if (reading) {
+                bool invertible = false;
+                const auto inverse = ptr->rotationFrame().inverted(&invertible);
+                const auto local = inverse.map(QPointF(x, y));
+                if (!invertible || !qIsFinite(local.x()) || !qIsFinite(local.y())) {
+                    root.fail("Некорректный центр вращения объекта."); return false;
+                }
+                ptr->setEditorRotationPivot(local);
+            }
+        }
         if (!layerIds.contains(layer)) root.fail("Объект ссылается на отсутствующий слой.");
         if (reading) {
             ptr->setEditorLayerId(layer); ptr->setCustomName(name); ptr->setViewVisible(visible); ptr->setSelectionLocked(locked);

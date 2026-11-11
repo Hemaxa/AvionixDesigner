@@ -5,6 +5,7 @@
 #include "ProjectManager.h"
 #include "FpgaSchemaRegistry.h"
 #include "ExpressionSpinBox.h"
+#include "EditorGestures.h"
 
 #include <QKeySequence>
 #include <QHBoxLayout>
@@ -180,8 +181,8 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Вставить:", new QLabel(QKeySequence(QKeySequence::Paste).toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Сдвинуть выделение на 1 пиксель:", new QLabel("← / ↑ / → / ↓", this));
     hotkeysLayout->addRow("Сдвинуть с настраиваемым шагом:", new QLabel("Shift + ← / ↑ / → / ↓", this));
-    hotkeysLayout->addRow("Удалить объект:", new QLabel(QKeySequence(QKeySequence::Delete).toString(QKeySequence::NativeText)
-        + " / " + QKeySequence(Qt::Key_Backspace).toString(QKeySequence::NativeText), this));
+    hotkeysLayout->addRow("Удалить объект:", new QLabel(QKeySequence(QKeySequence::Delete).toString(QKeySequence::NativeText), this));
+    hotkeysLayout->addRow("Удалить объект (Backspace):", new QLabel(QKeySequence(Qt::Key_Backspace).toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Сгруппировать:", new QLabel(QKeySequence("Ctrl+G").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Разгруппировать:", new QLabel(QKeySequence("Ctrl+Shift+G").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Объединить в staticgroup:", new QLabel(QKeySequence("Ctrl+Alt+G").toString(QKeySequence::NativeText), this));
@@ -190,6 +191,7 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Поворот с шагом 15° (вкл/выкл):", new QLabel(QKeySequence("Ctrl+Shift+R").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Пропорции при перетаскивании ручки:", new QLabel("Shift + мышь", this));
     hotkeysLayout->addRow("Поворот с шагом 15° / 90°:", new QLabel("Shift / Ctrl + мышь", this));
+    hotkeysLayout->addRow("Поставить центр вращения внутри выделенного объекта:", new QLabel(EditorGestures::rotationPivotShortcut(), this));
     hotkeysLayout->addRow("На передний план:", new QLabel(QKeySequence("Ctrl+]").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("На задний план:", new QLabel(QKeySequence("Ctrl+[").toString(QKeySequence::NativeText), this));
 
@@ -202,6 +204,12 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("По нижнему краю:", new QLabel(QKeySequence("Ctrl+Alt+Down").toString(QKeySequence::NativeText), this));
 
     hotkeysLayout->addRow(new QLabel("<br><b>Вид и привязки:</b>", this));
+    hotkeysLayout->addRow("Масштабирование относительно холста:", new QLabel("Ctrl + колесо мыши", this));
+    hotkeysLayout->addRow("Панорамирование:", new QLabel("Зажать среднюю или правую кнопку мыши", this));
+    hotkeysLayout->addRow("Добавить к выделению:", new QLabel("Shift + ЛКМ / Shift + рамка", this));
+    hotkeysLayout->addRow("Переключить выделение объекта:", new QLabel("Ctrl + ЛКМ", this));
+    hotkeysLayout->addRow("Переместить ось симметрии:", new QLabel("ЛКМ + перетаскивание оси", this));
+    hotkeysLayout->addRow("Отменить перетаскивание оси симметрии:", new QLabel(QKeySequence("Esc").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Сбросить масштаб:", new QLabel(QKeySequence("Ctrl+0").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Показать сетку:", new QLabel(QKeySequence("Shift+V").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Привязка к сетке:", new QLabel(QKeySequence("Shift+G").toString(QKeySequence::NativeText), this));
@@ -221,7 +229,12 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Цвет выделения активного слоя:", new QLabel(QKeySequence("Ctrl+Shift+C").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Показать все слои:", new QLabel(QKeySequence("Ctrl+Shift+A").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Переименовать слой:", new QLabel(QKeySequence("F2").toString(QKeySequence::NativeText), this));
-    hotkeysLayout->addRow("Выбрать все слои / диапазон:", new QLabel("Ctrl+A / Shift + ↑ или ↓", this));
+    hotkeysLayout->addRow("Переименовать слой мышью:", new QLabel("Двойной щелчок по имени слоя", this));
+    hotkeysLayout->addRow("Выбрать все слои:", new QLabel(QKeySequence(QKeySequence::SelectAll).toString(QKeySequence::NativeText), this));
+    hotkeysLayout->addRow("Перейти к соседнему слою:", new QLabel("↑ / ↓", this));
+    hotkeysLayout->addRow("Выделить диапазон / переключить слой:", new QLabel("Shift + ЛКМ или ↑/↓; Ctrl + ЛКМ", this));
+    hotkeysLayout->addRow("Переименовать слой с клавиатуры:", new QLabel(QKeySequence("Return").toString(QKeySequence::NativeText), this));
+    hotkeysLayout->addRow("Отменить переименование слоя:", new QLabel(QKeySequence("Esc").toString(QKeySequence::NativeText), this));
 
     hotkeysLayout->addRow(new QLabel("<br><b>Текущая строка списка объектов:</b>", this));
     hotkeysLayout->addRow("Видимость объекта или группы:", new QLabel(QKeySequence("Ctrl+Shift+H").toString(QKeySequence::NativeText), this));
@@ -240,7 +253,9 @@ void SettingsWindow::createWidgets()
 
     hotkeysLayout->addRow(new QLabel("<br><b>ПЛИС:</b>", this));
     hotkeysLayout->addRow("Запустить режимы:", new QLabel(QKeySequence("Ctrl+Return").toString(QKeySequence::NativeText), this));
+    hotkeysLayout->addRow("Запустить режимы (цифровой Enter):", new QLabel(QKeySequence("Ctrl+Enter").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Остановить режимы:", new QLabel(QKeySequence("Ctrl+Shift+Return").toString(QKeySequence::NativeText), this));
+    hotkeysLayout->addRow("Остановить режимы (цифровой Enter):", new QLabel(QKeySequence("Ctrl+Shift+Enter").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("BIN dump:", new QLabel(QKeySequence("Ctrl+Alt+B").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Симулятор ПЛИС:", new QLabel(QKeySequence("Ctrl+Alt+F").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("UART:", new QLabel(QKeySequence("Ctrl+Alt+U").toString(QKeySequence::NativeText), this));
@@ -256,6 +271,7 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Цвет линий объектов:", new QLabel(QKeySequence("Alt+O").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Сбросить все настройки:", new QLabel(QKeySequence("Alt+R").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Подтвердить / отменить:", new QLabel("Enter / Esc", this));
+    hotkeysLayout->addRow("Вычислить выражение в числовом поле:", new QLabel("Enter / завершение редактирования", this));
     hotkeysLayout->addRow("Переход между полями / нажать кнопку или переключить флажок:", new QLabel("Tab / Shift+Tab; Space", this));
 
     hotkeysLayout->addRow(new QLabel("<br><b>Позиционирование самолета:</b>", this));
@@ -267,6 +283,14 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Высота ±0,25 м:", new QLabel("+ / − (также =)", this));
     hotkeysLayout->addRow("Высота ±10 м:", new QLabel("Shift + (+ / − / =)", this));
     hotkeysLayout->addRow("Высота ±100 м (на ползунке):", new QLabel("Page Up / Page Down", this));
+    hotkeysLayout->addRow("Высота или курс колесом мыши:", new QLabel("Колесо; Shift + колесо — ускоренный шаг", this));
+    hotkeysLayout->addRow("Координаты X/Y в числовых полях:", new QLabel("↑/↓ или колесо: 1/64 точки; с Shift: 1 точка", this));
+    hotkeysLayout->addRow("Курс / высота / тангаж в числовых полях:", new QLabel("↑/↓ или колесо; с Shift — ускоренный шаг", this));
+#ifdef Q_OS_MACOS
+    auto *mouseModifierHint = new QLabel("В описаниях жестов с мышью Ctrl соответствует ⌘, Alt — ⌥.", this);
+    mouseModifierHint->setWordWrap(true);
+    hotkeysLayout->addRow(mouseModifierHint);
+#endif
     auto *aircraftHint = new QLabel("Клавиши действуют при фокусе в панели позиционирования. "
         "В числовых полях сохраняется обычное редактирование. На основной клавиатуре «=» "
         "даёт точный набор высоты, Shift+= — ускоренный.", this);

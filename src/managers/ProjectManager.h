@@ -124,6 +124,7 @@ public:
     // Проверяем весь набор до изменения, затем записываем одну операцию истории.
     bool setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects, const QString &name, const QString &value);
     bool isObjectPropertyEditable(const BaseObject *object, const QString &name) const;
+    bool setObjectRotationPivot(int index, const QPointF &canvasPosition);
 
     bool canCreateSymmetry(const QList<int> &indexes) const;
     QList<int> createSymmetry(const QList<int> &indexes, Qt::Orientation orientation);
@@ -133,7 +134,7 @@ public:
     bool setSymmetryAxisPosition(int id, double position, bool recordChange = true);
     QPointF constrainSymmetryMove(const QList<int> &indexes, const QPointF &delta) const;
     bool symmetryFitsCanvas(const BaseObject *source, const QRectF &bounds) const;
-    bool canEditGeometry(int index, const std::function<void(BaseObject *)> &edit) const;
+    bool canEditGeometry(int index, const std::function<void(BaseObject *)> &edit, bool clampToCanvas = true) const;
 
     // EditorLayer - имя, цвет выделения и идентификатор редакторского слоя.
     struct EditorLayer {

@@ -7,6 +7,8 @@
 #include "ImageObject.h"
 #include "RotationObject.h"
 #include "ApplicationSettings.h"
+#include "EditorGestures.h"
+#include <cmath>
 #include <algorithm>
 #include <QPainter>
 #include <QWheelEvent>
@@ -102,7 +104,7 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     setAcceptDrops(true);
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
-    setToolTip(tr("Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°."));
+    setToolTip(tr("Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°. %1 внутри выделенного вращающегося объекта — поставить центр вращения.").arg(EditorGestures::rotationPivotShortcut()));
 
     // подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, QOverload<>::of(&QWidget::update));
@@ -316,6 +318,20 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
         painter.drawEllipse(QPointF(rect.center().x(), rect.top() - size * 3), half, half);
     }
 
+    painter.restore();
+}
+
+void ViewportPanel::drawRotationPivot(QPainter &painter, const BaseObject *object)
+{
+    const auto center = object->rotationCenter();
+    if (!qIsFinite(center.x()) || !qIsFinite(center.y())) return;
+    const double scale = currentTotalScale(), radius = 4.0 / scale, arm = 8.0 / scale;
+    painter.save();
+    QPen pen(m_selectionColor, 1.5); pen.setCosmetic(true); painter.setPen(pen);
+    painter.setBrush(palette().color(QPalette::Window));
+    painter.drawEllipse(center, radius, radius);
+    painter.drawLine(center + QPointF(-arm, 0), center + QPointF(arm, 0));
+    painter.drawLine(center + QPointF(0, -arm), center + QPointF(0, arm));
     painter.restore();
 }
 
@@ -1012,6 +1028,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
             QRectF rect = objects[i]->getBoundingRect();
             bool canRotate = objects[i]->supportsRotationHandle();
             drawManipulators(painter, rect, singleSelection && objects[i]->canResize(), singleSelection && canRotate);
+            if (singleSelection && canRotate) drawRotationPivot(painter, objects[i].data());
         }
     }
 
@@ -1078,6 +1095,13 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         QPointF canvasPos = mapToCanvas(event->pos());
         m_lastMousePos = canvasPos;
         auto pm = ProjectManager::instance();
+        if (event->modifiers() == EditorGestures::rotationPivotModifiers) {
+            m_dragMode = None;
+            if (m_selectedIndex >= 0 && pm->setObjectRotationPivot(m_selectedIndex, canvasPos)) {
+                emit objectChanged(); update();
+            }
+            event->accept(); return;
+        }
         if (event->modifiers() == Qt::NoModifier) {
             const int axisId = hitTestSymmetryAxis(canvasPos);
             if (axisId >= 0) {
@@ -1104,9 +1128,12 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 const int handle = hitTestManipulators(canvasPos, object->getBoundingRect(), object->canResize(), object->supportsRotationHandle());
                 if (handle == 100) {
                     m_dragMode = Rotate;
-                    m_rotationCenter = object->getBoundingRect().center();
-                    if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data()))
-                        m_rotationCenter = QPointF(rotation->xRot, rotation->yRot);
+                    m_rotationCenter = object->rotationCenter();
+                    // При совпадении ручки с центром направление поворота не определено.
+                    if (QLineF(canvasPos, m_rotationCenter).length() < 1e-9) { m_dragMode = None; return; }
+                    if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data())) m_rotationStartAngle = rotation->getAngleDegrees();
+                    else if (const auto *image = dynamic_cast<const ImageObject *>(object.data())) m_rotationStartAngle = image->rotationDegrees;
+                    m_rotationStartPointerAngle = qRadiansToDegrees(qAtan2(canvasPos.y() - m_rotationCenter.y(), canvasPos.x() - m_rotationCenter.x()));
                     return;
                 }
                 if (handle > 0) {
@@ -1372,13 +1399,16 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         } else if (m_dragMode == Rotate && obj->supportsRotationHandle()) {
             m_activeSnapGuides.clear();
             const QPointF center = m_rotationCenter;
+            if (QLineF(canvasPos, center).length() < 1e-9) return;
             double angleRad = qAtan2(canvasPos.y() - center.y(), canvasPos.x() - center.x());
-            // Добавляем 90 градусов так как 0 градусов указывает направо, а ручка смотрит вверх
-            double angleDeg = qRadiansToDegrees(angleRad) + 90.0;
+            // Отсчёт от положения ручки в начале жеста исключает скачок угла
+            // при произвольном центре и уже повёрнутом объекте.
+            double angleDeg = m_rotationStartAngle + std::remainder(qRadiansToDegrees(angleRad) - m_rotationStartPointerAngle, 360.0);
             if (event->modifiers() & Qt::ControlModifier)
                 angleDeg = qRound(angleDeg / 90.0) * 90.0;
             else if (m_rotationSnapping || event->modifiers().testFlag(Qt::ShiftModifier))
                 angleDeg = qRound(angleDeg / 15.0) * 15.0;
+            if (!ProjectManager::instance()->canEditGeometry(m_selectedIndex, [&](BaseObject *probe) { probe->setRotation(angleDeg); }, false)) return;
             ensureDragHistoryRecorded();
             obj->setRotation(angleDeg);
             emit objectChanged();

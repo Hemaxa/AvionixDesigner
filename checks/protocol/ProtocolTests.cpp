@@ -29,6 +29,7 @@
 #include "ApplicationSettings.h"
 #include "ExpressionSpinBox.h"
 #include "ObjectReflection.h"
+#include "EditorGestures.h"
 #include <QCursor>
 #include "FlowLayout.h"
 #include "BitParser.h"
@@ -201,6 +202,106 @@ private slots:
         QVERIFY(installRussianTranslation(*qApp));
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
+    }
+    void rotationPivotMetadataAndExport() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp;
+        QImage raster(80,60,QImage::Format_ARGB32); raster.fill(Qt::transparent);
+        { QPainter painter(&raster); painter.fillRect(QRect(30,25,20,10),Qt::white); }
+        const auto png=temp.filePath("pivot.png"); QVERIFY(raster.save(png));
+        for(bool imageType:{false,true}) {
+            p->createNewProject("Pivot",320,240,Qt::black);
+            if(imageType) QVERIFY(p->importImage(png,true)>=0); else QVERIFY(p->addObject("rotationobject")>=0);
+            auto object=p->getObjectAt(0);
+            if(auto *image=dynamic_cast<ImageObject *>(object.data())) { image->x=80; image->y=70; }
+            if(auto *rotation=dynamic_cast<RotationObject *>(object.data())) {
+                rotation->xRot=120;rotation->yRot=100;rotation->left=-40;rotation->right=40;rotation->top=-30;rotation->bottom=30;
+                rotation->sinVal=0;rotation->cosVal=65536;rotation->maskImage=raster;rotation->restoreHardwareLayers({});
+            }
+            auto render=[](BaseObject *object) { QImage frame(320,240,QImage::Format_ARGB32); frame.fill(Qt::transparent); QPainter painter(&frame);object->draw(painter);painter.end();return frame; };
+            QString error;
+            const auto xmlBefore=p->buildCompiledFpgaXml().toByteArray();
+            const auto bytesBefore=FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)); QVERIFY2(error.isEmpty(),qPrintable(error));
+            const auto previewBefore=render(object.data());
+            const QPointF pivot(112,98);
+            QVERIFY(p->setObjectRotationPivot(0,pivot)); QCOMPARE(object->rotationCenter(),pivot);
+            QCOMPARE(render(object.data()),previewBefore);
+            QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),xmlBefore);
+            QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)),bytesBefore);
+            QVERIFY(!p->setObjectRotationPivot(0,pivot));
+            QVERIFY(!p->setObjectRotationPivot(0,QPointF(1000,1000)));
+            QVERIFY(p->undo()); QVERIFY(!p->getObjectAt(0)->editorRotationPivot()); QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),xmlBefore);
+            QVERIFY(p->redo()); QCOMPARE(p->getObjectAt(0)->rotationCenter(),pivot);
+            const auto path=temp.filePath("pivot.xml"); QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage()));
+            QFile f(path); QVERIFY(f.open(QIODevice::ReadOnly));QDomDocument doc;QVERIFY(doc.setContent(f.readAll()));f.close();
+            const auto meta=doc.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object").firstChildElement("rotation-pivot");
+            QVERIFY(!meta.isNull()); QCOMPARE(meta.attribute("canvas-x").toDouble(),pivot.x()); QCOMPARE(meta.attribute("canvas-y").toDouble(),pivot.y());
+            QVERIFY(doc.documentElement().firstChildElement("objects").elementsByTagName("rotation-pivot").isEmpty());
+            QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+            object=p->getObjectAt(0); QVERIFY(QLineF(object->rotationCenter(),pivot).length()<1e-8);
+            if(imageType) QVERIFY(dynamic_cast<ImageObject *>(object.data())->width<80); // Аппаратная маска обрезана; метка осталась на месте.
+            const auto current=object;
+            auto invalid=doc.cloneNode(true).toDocument();
+            invalid.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object").firstChildElement("rotation-pivot").setAttribute("canvas-x","nan");
+            QFile bad(temp.filePath("invalid-pivot.xml")); QVERIFY(bad.open(QIODevice::WriteOnly)); bad.write(invalid.toByteArray());bad.close();
+            QVERIFY(!p->loadFromFile(bad.fileName())); QCOMPARE(p->getObjectAt(0),current);
+            QVERIFY(p->copyObjects({0})); QCOMPARE(p->pasteObjects(QPointF(220,170)),QList<int>{0});
+            const auto clone=p->getObjectAt(0);
+            QCOMPARE(clone->editorRotationPivot(),object->editorRotationPivot());
+            QVERIFY(QLineF(clone->rotationCenter()-clone->getBoundingRect().topLeft(),object->rotationCenter()-object->getBoundingRect().topLeft()).length()<1e-8);
+            const auto clonePivot=clone->rotationCenter();
+            QCOMPARE(p->createSymmetry({0},Qt::Vertical),QList<int>{1}); QVERIFY(p->detachSymmetryCopy(1));
+            QVERIFY(QLineF(p->getObjectAt(1)->rotationCenter(),QPointF(320-clonePivot.x(),clonePivot.y())).length()<1e-6);
+            object->setRotation(90); QVERIFY(QLineF(object->rotationCenter(),pivot).length()<.001);
+            object->moveBy(7,9); QVERIFY(QLineF(object->rotationCenter(),pivot+QPointF(7,9)).length()<.001);
+            // Старый XML без редакторского центра остаётся совместимым.
+            auto legacy=doc.cloneNode(true).toDocument();auto first=legacy.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");first.removeChild(first.firstChildElement("rotation-pivot"));
+            QFile old(temp.filePath("legacy-pivot.xml"));QVERIFY(old.open(QIODevice::WriteOnly));old.write(legacy.toByteArray());old.close();
+            QVERIFY2(p->loadFromFile(old.fileName()),qPrintable(p->lastErrorMessage()));QVERIFY(!p->getObjectAt(0)->editorRotationPivot());
+        }
+        p->createNewProject("Unsupported pivot",320,240,Qt::black);p->addObject("rectangle");
+        QVERIFY(!p->setObjectRotationPivot(0,p->getObjectAt(0)->getBoundingRect().center()));
+    }
+    void rotationPivotGestureAndRotation() {
+        auto *p=ProjectManager::instance();p->createNewProject("Pivot gesture",640,480,Qt::black);p->addObject("rotationobject");
+        auto *rotation=dynamic_cast<RotationObject *>(p->getObjectAt(0).data());
+        rotation->xRot=220;rotation->yRot=180;rotation->left=-40;rotation->right=40;rotation->top=-30;rotation->bottom=30;
+        rotation->maskImage=QImage(80,60,QImage::Format_ARGB32);rotation->maskImage.fill(Qt::white);rotation->restoreHardwareLayers({});rotation->setRotation(25);
+        ViewportPanel viewport;viewport.resize(640,480);viewport.show();viewport.setSelectedIndex(0);QTest::qWait(5);
+        auto state=p->editorViewState();state.scale=1.4;state.offset=QPointF(25,-15);p->setEditorViewState(state);
+        const double scale=.95*state.scale;
+        auto point=[&](const QPointF &p) { return QPoint(qRound(320-320*scale+state.offset.x()+p.x()*scale),qRound(240-240*scale+state.offset.y()+p.y()*scale)); };
+        const auto desired=rotation->rotationFrame().map(QPointF(.25,.4));
+        const auto xml=p->buildCompiledFpgaXml().toByteArray();
+        QTest::mouseClick(&viewport,Qt::LeftButton,EditorGestures::rotationPivotModifiers,point(desired));
+        QVERIFY(rotation->editorRotationPivot());QVERIFY(QLineF(rotation->rotationCenter(),desired).length()<1.);QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),xml);
+        QCOMPARE(viewport.getSelectedIndexes(),QList<int>{0});
+        rotation->setRotation(0);const auto pivot=rotation->rotationCenter();
+        const auto bounds=rotation->getBoundingRect();const auto handle=QPointF(bounds.center().x(),bounds.top()-24/scale);
+        const auto from=point(handle);QTransform turn;turn.rotate(90);const auto to=point(pivot+turn.map(handle-pivot));
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,from);
+        // Нулевое перемещение ручки не должно давать скачок угла.
+        QMouseEvent still(QEvent::MouseMove,QPointF(from),QPointF(viewport.mapToGlobal(from)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&viewport,&still);
+        QVERIFY(qAbs(rotation->getAngleDegrees())<.001);
+        QMouseEvent move(QEvent::MouseMove,QPointF(to),QPointF(viewport.mapToGlobal(to)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&viewport,&move);
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,to);
+        QVERIFY(qAbs(rotation->getAngleDegrees()-90)<1.);QVERIFY(QLineF(rotation->rotationCenter(),pivot).length()<.01);
+        viewport.grab().save(QCoreApplication::applicationDirPath()+"/rotation-pivot.png");
+        QVERIFY(p->undo());rotation=dynamic_cast<RotationObject *>(p->getObjectAt(0).data());QVERIFY(qAbs(rotation->getAngleDegrees())<.001);QVERIFY(QLineF(rotation->rotationCenter(),pivot).length()<.01);
+        // У длинного повёрнутого объекта метка может совпасть с ручкой поворота.
+        rotation->setEditorRotationPivot(std::nullopt);rotation->xRot=320;rotation->yRot=240;
+        rotation->left=-100;rotation->right=100;rotation->top=-10;rotation->bottom=10;rotation->setRotation(90);
+        viewport.setSelectedIndex(0);const auto same=point(QPointF(320,230-24/scale));
+        QTest::mouseClick(&viewport,Qt::LeftButton,EditorGestures::rotationPivotModifiers,same);
+        const auto stationaryPivot=rotation->rotationCenter();QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,same);
+        const auto far=same+QPoint(20,15);QMouseEvent overlap(QEvent::MouseMove,QPointF(far),QPointF(viewport.mapToGlobal(far)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&viewport,&overlap);
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,far);QVERIFY(qAbs(rotation->getAngleDegrees()-90)<.001);QCOMPARE(rotation->rotationCenter(),stationaryPivot);
+        // Выбор точки на другом цветном слое и общий поворот нескольких слоёв.
+        RotationObject multi;multi.left=-40;multi.right=40;multi.top=-30;multi.bottom=30;multi.xRot=120;multi.yRot=100;multi.cosVal=65536;
+        multi.restoreHardwareLayers({{-40,-30,40,30,120,100,0,65536,Qt::red,true},{-40,-30,40,30,180,100,0,65536,Qt::green,true}});
+        const QPointF secondLayerPoint(200,100);QVERIFY(multi.contains(secondLayerPoint));multi.setEditorRotationPivot(multi.rotationFrame().inverted().map(secondLayerPoint));
+        multi.setRotation(90);QVERIFY(QLineF(multi.rotationCenter(),secondLayerPoint).length()<.001);
+        QCOMPARE(multi.hardwareLayers()[0].xRot,200.);QCOMPARE(multi.hardwareLayers()[0].yRot,20.);
+        QCOMPARE(multi.hardwareLayers()[1].xRot,200.);QCOMPARE(multi.hardwareLayers()[1].yRot,80.);
     }
     void symmetryLifecycleAndXml() {
         auto *p=ProjectManager::instance(); p->createNewProject("Symmetry",320,240,Qt::black);
@@ -2007,26 +2108,38 @@ private slots:
         auto *hotkeys=settings.findChild<QScrollArea *>("HotkeysScrollArea"); QVERIFY(hotkeys);
         QSet<QString> documented;
         for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) documented.insert(QKeySequence(label->text()).toString(QKeySequence::PortableText));
-        documented.insert(QKeySequence(QKeySequence::Delete).toString(QKeySequence::PortableText));
-        documented.insert(QKeySequence(Qt::Key_Backspace).toString(QKeySequence::PortableText));
         QMap<QString,QAction *> registered;
         for(auto *action:window.findChildren<QAction *>()) {
             QVERIFY(!action->text().endsWith("…") && !action->text().endsWith("..."));
-            if(action->shortcutContext()!=Qt::WindowShortcut || action->shortcut().isEmpty()) continue;
-            const auto primary=action->shortcut().toString(QKeySequence::PortableText);
-            QVERIFY2(documented.contains(primary),qPrintable("Shortcut missing from Settings: "+action->text()+" / "+primary));
+            if(action->shortcut().isEmpty()) continue;
             for(const auto &key:action->shortcuts()) {
                 const auto text=key.toString(QKeySequence::PortableText);
+                QVERIFY2(documented.contains(text),qPrintable("Shortcut missing from Settings: "+action->text()+" / "+text));
+                if(action->shortcutContext()!=Qt::WindowShortcut) continue;
                 QVERIFY2(!registered.contains(text) || registered.value(text)==action,qPrintable("Duplicate global shortcut: "+text));
                 registered.insert(text,action);
             }
         }
+        NewProjectDialog newProject;
+        for(auto *dialog:QList<QWidget *>{&settings,&newProject}) for(auto *button:dialog->findChildren<QAbstractButton *>()) {
+            if(button->shortcut().isEmpty()) continue;
+            const auto key=button->shortcut().toString(QKeySequence::PortableText);
+            QVERIFY2(documented.contains(key),qPrintable("Dialog shortcut missing from Settings: "+button->text()+" / "+key));
+        }
+        QStringList gestureTexts;
+        for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) gestureTexts.append(label->text());
+        for(const auto &gesture:QStringList{EditorGestures::rotationPivotShortcut(),"Ctrl + колесо мыши","Shift + ЛКМ / Shift + рамка","Ctrl + ЛКМ"})
+            QVERIFY2(gestureTexts.contains(gesture),qPrintable("Gesture missing from Settings: "+gesture));
         for(auto *button:window.findChildren<QAbstractButton *>()) QVERIFY(!button->text().endsWith("…") && !button->text().endsWith("..."));
         settings.show(); settings.findChild<QListWidget *>()->setCurrentRow(1); QTest::qWait(5);
         for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) if(label->text()=="Экспорт конфигурации ПЛИС:") {
             hotkeys->ensureWidgetVisible(label); break;
         }
         settings.grab().save(QCoreApplication::applicationDirPath()+"/hotkeys-fpga.png");
+        for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) if(label->text()==EditorGestures::rotationPivotShortcut()) {
+            hotkeys->ensureWidgetVisible(label); break;
+        }
+        settings.grab().save(QCoreApplication::applicationDirPath()+"/hotkeys-rotation-pivot.png");
     }
     void contextCommandShortcuts() {
         auto *p=ProjectManager::instance(); p->createNewProject("context keys",1024,768,Qt::black);

@@ -1,6 +1,7 @@
 // ProjectManager - менеджер проекта, связывающий внутреннюю модель редактора с экспортом в XML.
 
 #include <QFile>
+#include <QLineF>
 #include <QDomDocument>
 #include <QFileInfo>
 #include <QImage>
@@ -563,6 +564,7 @@ void copyBaseFlags(const BaseObject *source, BaseObject *target)
     target->setEditRestrictionHint(source->editRestrictionHint());
     target->setCustomName(source->customName());
     target->setEditorLayerId(source->editorLayerId());
+    target->setEditorRotationPivot(source->editorRotationPivot());
 }
 
 QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
@@ -2694,7 +2696,7 @@ bool ProjectManager::symmetryFitsCanvas(const BaseObject *source, const QRectF &
     return true;
 }
 
-bool ProjectManager::canEditGeometry(int index, const std::function<void(BaseObject *)> &edit) const
+bool ProjectManager::canEditGeometry(int index, const std::function<void(BaseObject *)> &edit, bool clampToCanvas) const
 {
     const auto source = getObjectAt(index);
     if (!source) return false;
@@ -2707,7 +2709,7 @@ bool ProjectManager::canEditGeometry(int index, const std::function<void(BaseObj
     const auto probe = cloneObject(source);
     if (!probe) return false;
     edit(probe.data());
-    moveObjectInsideCanvas(probe.data(), getCanvasWidth(), getCanvasHeight());
+    if (clampToCanvas) moveObjectInsideCanvas(probe.data(), getCanvasWidth(), getCanvasHeight());
     return symmetryFitsCanvas(source.data(), probe->getBoundingRect());
 }
 
@@ -2840,6 +2842,24 @@ bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QS
             if (property.first == name) return probe->setObjectProperty(name, property.second);
     }
     return false;
+}
+
+bool ProjectManager::setObjectRotationPivot(int index, const QPointF &canvasPosition)
+{
+    const auto object = getObjectAt(index);
+    if (!object || !object->supportsRotationHandle() || object->isSelectionLocked()
+        || !isObjectVisibleInEditor(object.data()) || !qIsFinite(canvasPosition.x()) || !qIsFinite(canvasPosition.y())
+        || !object->contains(canvasPosition)) return false;
+    bool invertible = false;
+    const auto inverse = object->rotationFrame().inverted(&invertible);
+    if (!invertible) return false;
+    const auto local = inverse.map(canvasPosition);
+    if (!qIsFinite(local.x()) || !qIsFinite(local.y())) return false;
+    if (object->editorRotationPivot() && QLineF(*object->editorRotationPivot(), local).length() < 1e-9) return false;
+    recordHistory();
+    object->setEditorRotationPivot(local);
+    finishObjectEdit(tr("Изменён редакторский центр вращения"));
+    return true;
 }
 
 bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects,

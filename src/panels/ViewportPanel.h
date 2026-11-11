@@ -117,6 +117,8 @@ private:
     bool m_proportionalResize = false;
     bool m_rotationSnapping = false;
     QPointF m_rotationCenter;
+    double m_rotationStartAngle = 0.0;
+    double m_rotationStartPointerAngle = 0.0;
     QList<SnapGuide> m_activeSnapGuides;
     QList<int> m_marqueeBaseSelection;
     QPointF m_marqueeStartPos;
@@ -133,6 +135,7 @@ private:
     void drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale);
     void drawSnapGuides(QPainter &painter, int canvasW, int canvasH);
     void drawSymmetryAxes(QPainter &painter, int canvasW, int canvasH);
+    void drawRotationPivot(QPainter &painter, const class BaseObject *object);
     int hitTestSymmetryAxis(const QPointF &canvasPos) const;
     QList<int> movableSelection() const;
     SnapResult snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;

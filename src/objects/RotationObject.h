@@ -51,6 +51,8 @@ public:
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
     bool supportsRotationHandle() const override { return true; }
+    QTransform rotationFrame() const override;
+    QPointF rotationCenter() const override;
 
     // Взаимодействие
     bool contains(const QPointF &point) const override;

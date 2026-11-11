@@ -7,6 +7,7 @@
 #include <QMap>
 #include <QString>
 #include <QDomElement>
+#include <optional>
 
 // ParamInfo - смещение и ширина одного поля битовой схемы.
 struct ParamInfo
@@ -79,6 +80,17 @@ public:
     // Метаданные редактора: сохраняются в <editor>, отдельно от аппаратных параметров.
     int editorLayerId() const { return m_editorLayerId; }
     void setEditorLayerId(int id) { m_editorLayerId = id; }
+    // Нормированные координаты в локальном прямоугольнике объекта. В XML
+    // сохраняется точка холста, чтобы обрезка маски при экспорте не смещала метку.
+    const std::optional<QPointF> &editorRotationPivot() const { return m_editorRotationPivot; }
+    void setEditorRotationPivot(const std::optional<QPointF> &point) { m_editorRotationPivot = point; emit changed(); }
+    virtual QTransform rotationFrame() const
+    {
+        const auto bounds = getBoundingRect();
+        QTransform frame; frame.translate(bounds.x(), bounds.y()); frame.scale(bounds.width(), bounds.height());
+        return frame;
+    }
+    virtual QPointF rotationCenter() const { return getBoundingRect().center(); }
 
     // геометрия и взаимодействие
     virtual bool contains(const QPointF &point) const { return getBoundingRect().contains(point); }
@@ -108,5 +120,6 @@ private:
     bool m_exportEnabled = true;
     QString m_customName;
     QString m_editRestrictionHint;
+    std::optional<QPointF> m_editorRotationPivot;
     mutable QString m_lastValidationMessage;
 };

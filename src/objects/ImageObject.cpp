@@ -839,6 +839,19 @@ bool ImageObject::contains(const QPointF &point) const
     return baseRect.contains(inverse.map(point));
 }
 
+QTransform ImageObject::rotationFrame() const
+{
+    const auto center = QPointF(x + width / 2, y + height / 2);
+    QTransform frame; frame.translate(center.x(), center.y()); frame.rotate(rotationDegrees);
+    frame.translate(-width / 2, -height / 2); frame.scale(width, height);
+    return frame;
+}
+
+QPointF ImageObject::rotationCenter() const
+{
+    return editorRotationPivot() ? rotationFrame().map(*editorRotationPivot()) : QPointF(x + width / 2, y + height / 2);
+}
+
 void ImageObject::moveBy(double dx, double dy)
 {
     x += dx;
@@ -880,7 +893,12 @@ void ImageObject::setRotation(double angle)
 {
     if (!isRotationObject() || !canResize())
         return;
+    const auto pivot = rotationCenter();
     rotationDegrees = angle;
+    if (editorRotationPivot()) {
+        const auto shift = pivot - rotationCenter();
+        x += shift.x(); y += shift.y();
+    }
     emit changed();
 }
 
@@ -910,7 +928,8 @@ bool ImageObject::setObjectProperty(const QString &name, const QString &value)
             setValidationMessage(QStringLiteral("Поворот изображения заблокирован после экспорта."));
             return false;
         }
-        rotationDegrees = value.toDouble(&ok);
+        const double angle = value.toDouble(&ok);
+        if (ok) { setRotation(angle); return true; }
     } else if (name == QStringLiteral("Автоцвет")) {
         const QString normalized = value.trimmed().toLower();
         if (normalized == QStringLiteral("да") || normalized == QStringLiteral("yes")

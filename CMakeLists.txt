@@ -157,6 +157,7 @@ qt_add_executable(AvionixDesigner
     src/utils/NumericExpression.h
     src/utils/ExpressionSpinBox.h
     src/utils/ApplicationLanguage.h
+    src/utils/EditorGestures.h
 
     # Ресурсы
     res/resources.qrc

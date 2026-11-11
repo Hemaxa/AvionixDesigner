@@ -77,6 +77,8 @@ public:
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
     bool supportsRotationHandle() const override { return isRotationObject() && canResize(); }
+    QTransform rotationFrame() const override;
+    QPointF rotationCenter() const override;
     bool contains(const QPointF &point) const override;
 
     void moveBy(double dx, double dy) override;

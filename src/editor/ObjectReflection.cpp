@@ -75,6 +75,10 @@ bool reflectObject(BaseObject *object, const SymmetryAxis &axis)
             v->xRot = first.xRot; v->yRot = first.yRot; v->sinVal = first.sinVal; v->cosVal = first.cosVal;
         }
     }
+    if (object->editorRotationPivot()) {
+        const auto pivot = *object->editorRotationPivot();
+        object->setEditorRotationPivot(QPointF(vertical ? 1 - pivot.x() : pivot.x(), vertical ? pivot.y() : 1 - pivot.y()));
+    }
     emit object->changed();
     return true;
 }
