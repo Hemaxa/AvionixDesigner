@@ -522,11 +522,11 @@ QImage ImageObject::renderedSourceImage() const
         QSvgRenderer renderer(m_sourceBytes);
         QPainter painter(&image);
         renderer.render(&painter, QRectF(0, 0, outW, outH));
-        return image;
+        return image.mirrored(mirrorHorizontal, mirrorVertical);
     }
 
     if (!m_sourceImage.isNull()) {
-        return m_sourceImage.scaled(outW, outH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        return m_sourceImage.scaled(outW, outH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).mirrored(mirrorHorizontal, mirrorVertical);
     }
 
     return image;
@@ -608,6 +608,9 @@ QList<ImageMaskComponent> ImageObject::maskComponents() const
             const int bottom = qBound(top + 1, qRound((c.bounds.y() + c.bounds.height()) * sy), outHeight);
             c.bounds = QRect(left, top, right - left, bottom - top);
             c.mask = c.mask.scaled(c.bounds.size(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            if (mirrorHorizontal) c.bounds.moveLeft(outWidth - c.bounds.x() - c.bounds.width());
+            if (mirrorVertical) c.bounds.moveTop(outHeight - c.bounds.y() - c.bounds.height());
+            c.mask = c.mask.mirrored(mirrorHorizontal, mirrorVertical);
             if (i < m_colorLayers.size() && !m_colorLayers[i].autoMaskColor) c.color = m_colorLayers[i].maskColor;
             for (int y = 0; y < c.mask.height(); ++y)
                 for (int x = 0; x < c.mask.width(); ++x) {
@@ -636,6 +639,8 @@ void ImageObject::restoreRasterComponents(const QList<ImageMaskComponent> &compo
 
 void ImageObject::copyRasterSource(const ImageObject &source)
 {
+    mirrorHorizontal = source.mirrorHorizontal;
+    mirrorVertical = source.mirrorVertical;
     m_sourceImage = source.m_sourceImage;
     m_sourceBytes = source.m_sourceBytes;
     m_restoredComponents = source.m_restoredComponents;

@@ -35,6 +35,7 @@
 #include "RasterGeometry.h"
 #include "BitParser.h"
 #include "NumericExpression.h"
+#include "ObjectReflection.h"
 
 #include <algorithm>
 #include <limits>
@@ -571,7 +572,9 @@ QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
 
     BaseObject *rawClone = nullptr;
 
-    if (auto rect = dynamic_cast<RectangleObject*>(source.data())) {
+    if (auto copy = dynamic_cast<SymmetryCopyObject *>(source.data())) {
+        rawClone = new SymmetryCopyObject(copy->source(), copy->axis());
+    } else if (auto rect = dynamic_cast<RectangleObject*>(source.data())) {
         auto *clone = new RectangleObject();
         clone->enabled = rect->enabled;
         clone->x = rect->x;
@@ -694,6 +697,18 @@ QList<QSharedPointer<BaseObject>> cloneObjectList(const QList<QSharedPointer<Bas
     clones.reserve(objects.size());
     for (const auto &object : objects)
         clones.append(cloneObject(object));
+    QMap<const SymmetryAxis *, QSharedPointer<SymmetryAxis>> axes;
+    for (int i = 0; i < objects.size(); ++i) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(objects[i].data());
+        if (!copy) continue;
+        const int sourceIndex = objects.indexOf(copy->source());
+        if (sourceIndex < 0) continue;
+        if (!axes.contains(copy->axis().data()))
+            axes.insert(copy->axis().data(), QSharedPointer<SymmetryAxis>::create(*copy->axis()));
+        auto cloned = QSharedPointer<SymmetryCopyObject>::create(clones[sourceIndex], axes.value(copy->axis().data()));
+        copyBaseFlags(copy, cloned.data());
+        clones[i] = cloned;
+    }
     return clones;
 }
 
@@ -1945,6 +1960,12 @@ bool ProjectManager::removeObjects(const QList<int> &indexes)
         normalized.append(index);
     }
 
+    for (int i = 0; i < m_objects.size(); ++i) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(m_objects[i].data());
+        if (copy && seen.contains(m_objects.indexOf(copy->source())) && !seen.contains(i)) {
+            seen.insert(i); normalized.append(i);
+        }
+    }
     if (normalized.isEmpty())
         return false;
 
@@ -2097,6 +2118,11 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
     // Внутри группы последний init расположен на переднем плане, как при экспорте.
     for (auto it = selected.crbegin(); it != selected.crend(); ++it) {
         const auto source = m_objects[*it];
+        for (const auto &object : m_objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+            if (copy && copy->source() == source)
+                return fail(tr("Сначала сделайте зависимые симметричные копии независимыми."));
+        }
         if (source->editorLayerId() != merged->editorLayerId())
             return fail(tr("Для объединения в staticgroup переместите объекты на один слой."));
         if (source->isSelectionLocked())
@@ -2376,7 +2402,7 @@ bool ProjectManager::setGroupExportEnabled(int groupId, bool enabled)
 
     bool hasChanges = false;
     for (int index : members) {
-        if (index >= 0 && index < m_objects.size() && m_objects[index]->isExportEnabled() != enabled) {
+        if (index >= 0 && index < m_objects.size() && !isSymmetryCopy(index) && m_objects[index]->isExportEnabled() != enabled) {
             hasChanges = true;
             break;
         }
@@ -2410,6 +2436,7 @@ bool ProjectManager::renameObject(int index, const QString &name)
 
 bool ProjectManager::copyObjects(const QList<int> &indexes)
 {
+    for (int index : indexes) if (isSymmetryCopy(index)) return false;
     m_clipboardObjects.clear();
     m_clipboardTags.clear();
     m_clipboardGroups.clear();
@@ -2527,12 +2554,170 @@ bool ProjectManager::canPasteObjects() const
     return !m_clipboardObjects.isEmpty();
 }
 
+bool ProjectManager::isSymmetryCopy(int index) const
+{
+    return dynamic_cast<SymmetryCopyObject *>(getObjectAt(index).data()) != nullptr;
+}
+
+QList<QSharedPointer<SymmetryAxis>> ProjectManager::symmetryAxes() const
+{
+    QList<QSharedPointer<SymmetryAxis>> axes;
+    for (const auto &object : m_objects) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (copy && !axes.contains(copy->axis())) axes.append(copy->axis());
+    }
+    return axes;
+}
+
+bool ProjectManager::canCreateSymmetry(const QList<int> &indexes) const
+{
+    if (indexes.isEmpty() || !m_document->hasCanvas()) return false;
+    for (int index : indexes) {
+        const auto object = getObjectAt(index);
+        if (!supportsObjectReflection(object.data()) || object->isSelectionLocked()
+            || !isObjectVisibleInEditor(object.data())) return false;
+    }
+    return true;
+}
+
+QList<int> ProjectManager::createSymmetry(const QList<int> &indexes, Qt::Orientation orientation)
+{
+    m_lastErrorMessage.clear();
+    if (!canCreateSymmetry(indexes) || (orientation != Qt::Vertical && orientation != Qt::Horizontal)) return {};
+    auto axis = QSharedPointer<SymmetryAxis>::create();
+    axis->id = 1;
+    for (const auto &existing : symmetryAxes()) axis->id = qMax(axis->id, existing->id + 1);
+    axis->orientation = orientation;
+    axis->position = (orientation == Qt::Vertical ? getCanvasWidth() : getCanvasHeight()) / 2.0;
+    const QSet<int> selected(indexes.begin(), indexes.end());
+    QList<QSharedPointer<BaseObject>> objects;
+    QStringList tags;
+    QList<int> copies;
+    QMap<int, int> remap;
+    recordHistory();
+    for (int i = 0; i < m_objects.size(); ++i) {
+        const auto source = m_objects[i];
+        remap.insert(i, objects.size());
+        objects.append(source); tags.append(m_objectTags.value(i));
+        if (!selected.contains(i)) continue;
+        auto copy = QSharedPointer<SymmetryCopyObject>::create(source, axis);
+        copy->setEditorLayerId(source->editorLayerId());
+        copy->setCustomName((source->customName().isEmpty() ? source->getDisplayName() : source->customName()) + tr(" — копия"));
+        copies.append(objects.size()); objects.append(copy); tags.append(QStringLiteral("symmetry-copy"));
+    }
+    for (auto &group : m_groups) for (int &member : group.members) member = remap.value(member);
+    m_objects = objects; m_objectTags = tags;
+    emit projectChanged();
+    emit logMessage(tr("Создана симметрия: %1 копий").arg(copies.size()));
+    return copies;
+}
+
+bool ProjectManager::detachSymmetryCopy(int index)
+{
+    const auto *copy = dynamic_cast<SymmetryCopyObject *>(getObjectAt(index).data());
+    if (!copy) return false;
+    auto object = cloneObject(copy->source());
+    if (!object || !reflectObject(object.data(), *copy->axis())) return false;
+    const int sourceIndex = m_objects.indexOf(copy->source());
+    if (sourceIndex < 0) return false;
+    object->setCustomName(copy->customName());
+    object->setEditorLayerId(copy->editorLayerId());
+    object->setViewVisible(copy->isViewVisible());
+    object->setSelectionLocked(copy->isSelectionLocked());
+    object->setExportEnabled(true);
+    recordHistory();
+    m_objectTags[index] = m_objectTags.value(sourceIndex);
+    m_objects[index] = object;
+    emit projectChanged();
+    emit logMessage(tr("Копия стала независимым объектом"));
+    return true;
+}
+
+bool ProjectManager::setSymmetryAxisPosition(int id, double position, bool recordChange)
+{
+    if (!qIsFinite(position)) return false;
+    for (const auto &axis : symmetryAxes()) {
+        if (axis->id != id) continue;
+        const bool vertical = axis->orientation == Qt::Vertical;
+        const double size = vertical ? getCanvasWidth() : getCanvasHeight();
+        double minimum = 0, maximum = size;
+        for (const auto &object : m_objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+            if (!copy || copy->axis() != axis) continue;
+            const auto bounds = copy->source()->getBoundingRect();
+            minimum = qMax(minimum, (vertical ? bounds.right() : bounds.bottom()) / 2);
+            maximum = qMin(maximum, (size + (vertical ? bounds.left() : bounds.top())) / 2);
+        }
+        if (minimum > maximum) return false;
+        position = qBound(minimum, qRound(position * 2) / 2.0, maximum);
+        if (qAbs(position - axis->position) < 1e-9) return false;
+        if (recordChange) recordHistory();
+        axis->position = position;
+        for (const auto &object : m_objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+            if (copy && copy->axis() == axis) emit object->changed();
+        }
+        emit projectChanged();
+        return true;
+    }
+    return false;
+}
+
+QPointF ProjectManager::constrainSymmetryMove(const QList<int> &indexes, const QPointF &delta) const
+{
+    double minX = -1e30, maxX = 1e30, minY = -1e30, maxY = 1e30;
+    for (const auto &object : m_objects) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (!copy || !indexes.contains(m_objects.indexOf(copy->source()))) continue;
+        const auto bounds = copy->getBoundingRect();
+        if (copy->axis()->orientation == Qt::Vertical) {
+            minX = qMax(minX, bounds.right() - getCanvasWidth()); maxX = qMin(maxX, bounds.left());
+            minY = qMax(minY, -bounds.top()); maxY = qMin(maxY, getCanvasHeight() - bounds.bottom());
+        } else {
+            minX = qMax(minX, -bounds.left()); maxX = qMin(maxX, getCanvasWidth() - bounds.right());
+            minY = qMax(minY, bounds.bottom() - getCanvasHeight()); maxY = qMin(maxY, bounds.top());
+        }
+    }
+    return {minX <= maxX ? qBound(minX, delta.x(), maxX) : 0.0,
+            minY <= maxY ? qBound(minY, delta.y(), maxY) : 0.0};
+}
+
+bool ProjectManager::symmetryFitsCanvas(const BaseObject *source, const QRectF &bounds) const
+{
+    for (const auto &object : m_objects) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (!copy || copy->source().data() != source) continue;
+        const auto reflected = copy->reflection().mapRect(bounds);
+        if (reflected.left() < -1e-6 || reflected.top() < -1e-6
+            || reflected.right() > getCanvasWidth() + 1e-6 || reflected.bottom() > getCanvasHeight() + 1e-6) return false;
+    }
+    return true;
+}
+
+bool ProjectManager::canEditGeometry(int index, const std::function<void(BaseObject *)> &edit) const
+{
+    const auto source = getObjectAt(index);
+    if (!source) return false;
+    bool linked = false;
+    for (const auto &object : m_objects) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (copy && copy->source() == source) { linked = true; break; }
+    }
+    if (!linked) return true;
+    const auto probe = cloneObject(source);
+    if (!probe) return false;
+    edit(probe.data());
+    moveObjectInsideCanvas(probe.data(), getCanvasWidth(), getCanvasHeight());
+    return symmetryFitsCanvas(source.data(), probe->getBoundingRect());
+}
+
 bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
 {
     if (index < 0 || index >= m_objects.size() || !m_document->hasCanvas())
         return false;
 
     const auto object = m_objects[index];
+    if (!object->canMove()) return false;
     const QRectF bounds = object->getBoundingRect();
     if (bounds.isEmpty())
         return false;
@@ -2560,8 +2745,10 @@ bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
         break;
     }
 
+    const auto delta = constrainSymmetryMove({index}, QPointF(dx, dy));
+    if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y())) return true;
     recordHistory();
-    object->moveBy(dx, dy);
+    object->moveBy(delta.x(), delta.y());
     emit projectChanged();
     emit logMessage(tr("Выполнено выравнивание объекта"));
     return true;
@@ -2612,6 +2799,8 @@ bool ProjectManager::setObjectExportEnabled(int index, bool enabled)
 {
     if (index < 0 || index >= m_objects.size())
         return false;
+
+    if (isSymmetryCopy(index)) return !enabled;
 
     if (m_objects[index]->isExportEnabled() == enabled)
         return true;
@@ -2685,6 +2874,11 @@ bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> 
         if (!qIsFinite(bounds.x()) || !qIsFinite(bounds.y()) || !qIsFinite(bounds.width()) || !qIsFinite(bounds.height())
             || bounds.width() < 0 || bounds.height() < 0) {
             m_lastErrorMessage = tr("Координаты должны быть конечными числами, а размеры не могут быть отрицательными.");
+            return false;
+        }
+        moveObjectInsideCanvas(probe.data(), getCanvasWidth(), getCanvasHeight());
+        if (!symmetryFitsCanvas(object.data(), probe->getBoundingRect())) {
+            m_lastErrorMessage = tr("Изменение выводит симметричную копию за границы холста. Переместите ось или уменьшите объект.");
             return false;
         }
         changed.append(object);
@@ -2816,10 +3010,17 @@ bool ProjectManager::setEditorLayerColor(int id, const QColor &color)
 bool ProjectManager::setObjectsLayer(const QList<QSharedPointer<BaseObject>> &objects, int layerId)
 {
     if (!hasEditorLayer(layerId) || objects.isEmpty()) return false;
+    for (const auto &object : objects) if (dynamic_cast<SymmetryCopyObject *>(object.data())) return false;
     for (const auto &object : objects) if (!object || !m_objects.contains(object)) return false;
     if (std::all_of(objects.cbegin(), objects.cend(), [layerId](const auto &o) { return o->editorLayerId() == layerId; })) return true;
     recordHistory();
-    for (const auto &object : objects) object->setEditorLayerId(layerId);
+    for (const auto &object : objects) {
+        object->setEditorLayerId(layerId);
+        for (const auto &candidate : m_objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(candidate.data());
+            if (copy && copy->source() == object) candidate->setEditorLayerId(layerId);
+        }
+    }
     notifyEditorLayersChanged();
     return true;
 }
@@ -2837,11 +3038,19 @@ int ProjectManager::duplicateEditorLayer(int id)
             m_lastErrorMessage = tr("Нельзя дублировать слой с 3D-видом: в проекте допустим только один 3D-вид.");
             return -1;
         }
-        const auto copy = cloneObject(m_objects[i]);
-        if (!copy) return -1;
         copiedIndexes.insert(i, copies.size());
-        copies.append(copy);
+        copies.append(m_objects[i]);
         tags.append(m_objectTags.value(i));
+    }
+    copies = cloneObjectList(copies);
+    QMap<const SymmetryAxis *, int> axisIds;
+    int nextAxisId = 1;
+    for (const auto &axis : symmetryAxes()) nextAxisId = qMax(nextAxisId, axis->id + 1);
+    for (const auto &object : copies) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (!copy) continue;
+        if (!axisIds.contains(copy->axis().data())) axisIds.insert(copy->axis().data(), nextAxisId++);
+        copy->axis()->id = axisIds.value(copy->axis().data());
     }
     recordHistory();
     const int newId = m_nextLayerId++;

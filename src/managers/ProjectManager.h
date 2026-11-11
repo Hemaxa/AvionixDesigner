@@ -9,10 +9,12 @@
 #include <QSharedPointer>
 #include <QStringList>
 #include <optional>
+#include <functional>
 
 #include "BaseObject.h"
 #include "TextObject.h"
 #include "EditorViewState.h"
+#include "SymmetryCopyObject.h"
 #include "fpga/config/FpgaPipelineConfig.h"
 
 class EditorProjectDocument;
@@ -122,6 +124,16 @@ public:
     // Проверяем весь набор до изменения, затем записываем одну операцию истории.
     bool setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects, const QString &name, const QString &value);
     bool isObjectPropertyEditable(const BaseObject *object, const QString &name) const;
+
+    bool canCreateSymmetry(const QList<int> &indexes) const;
+    QList<int> createSymmetry(const QList<int> &indexes, Qt::Orientation orientation);
+    bool isSymmetryCopy(int index) const;
+    bool detachSymmetryCopy(int index);
+    QList<QSharedPointer<SymmetryAxis>> symmetryAxes() const;
+    bool setSymmetryAxisPosition(int id, double position, bool recordChange = true);
+    QPointF constrainSymmetryMove(const QList<int> &indexes, const QPointF &delta) const;
+    bool symmetryFitsCanvas(const BaseObject *source, const QRectF &bounds) const;
+    bool canEditGeometry(int index, const std::function<void(BaseObject *)> &edit) const;
 
     // EditorLayer - имя, цвет выделения и идентификатор редакторского слоя.
     struct EditorLayer {

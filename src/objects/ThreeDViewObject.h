@@ -21,6 +21,7 @@ public:
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
     bool canResize() const override { return false; }
+    bool canMove() const override { return false; }
     bool contains(const QPointF &point) const override;
     void moveBy(double dx, double dy) override;
     void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;

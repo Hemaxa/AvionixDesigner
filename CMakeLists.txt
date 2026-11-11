@@ -35,6 +35,10 @@ qt_add_executable(AvionixDesigner
     src/editor/EditorProjectDocument.h
     src/editor/EditorProjectDocument.cpp
     src/editor/EditorViewState.h
+    src/editor/SymmetryCopyObject.h
+    src/editor/SymmetryCopyObject.cpp
+    src/editor/ObjectReflection.h
+    src/editor/ObjectReflection.cpp
     src/editor/EditorProjectXml.h
     src/editor/EditorProjectXml.cpp
 

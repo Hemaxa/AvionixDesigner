@@ -60,6 +60,17 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
     m_selectionButtons.append(ungroupButton);
     layout->addWidget(ungroupButton);
 
+    for (const auto orientation : {Qt::Vertical, Qt::Horizontal}) {
+        const bool vertical = orientation == Qt::Vertical;
+        auto *button = createActionButton(vertical ? QStringLiteral(":/icons/icons/selection/symmetry-vertical.svg")
+                                                  : QStringLiteral(":/icons/icons/selection/symmetry-horizontal.svg"),
+            vertical ? tr("Создать симметрию относительно вертикальной оси") : tr("Создать симметрию относительно горизонтальной оси"));
+        button->setObjectName(vertical ? "VerticalSymmetryButton" : "HorizontalSymmetryButton");
+        connect(button, &QToolButton::clicked, this, [this, orientation] { emit symmetryRequested(orientation); });
+        m_symmetryButtons.append(button);
+        layout->addWidget(button);
+    }
+
     auto *mergeButton = createActionButton(QStringLiteral(":/icons/icons/selection/merge-static.svg"),
         QStringLiteral("Объединить в staticgroup"), QStringLiteral("Ctrl+Alt+G"));
     mergeButton->setObjectName("MergeStaticButton");
@@ -113,6 +124,22 @@ SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
     setSelectionActive(false);
     setHistoryAvailable(false, false);
     setPasteAvailable(false);
+    setSymmetryAvailable(false);
+}
+
+void SelectionToolStrip::setSymmetryAvailable(bool available)
+{
+    for (auto *button : m_symmetryButtons) {
+        button->setEnabled(available);
+        button->setToolTip((button == m_symmetryButtons.first()
+            ? tr("Создать симметрию относительно вертикальной оси") : tr("Создать симметрию относительно горизонтальной оси"))
+            + (available ? QString() : tr("\nВыберите исходные объекты. Текст, авиагоризонт, 3D-вид и зависимые копии не поддерживаются.")));
+    }
+}
+
+void SelectionToolStrip::setCopyAvailable(bool available)
+{
+    m_copyButton->setEnabled(available);
 }
 
 void SelectionToolStrip::setSelectionActive(bool active)

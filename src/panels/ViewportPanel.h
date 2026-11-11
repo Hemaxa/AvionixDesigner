@@ -68,10 +68,12 @@ private:
     QList<int> m_selectedIndexes; // Индексы выделенных объектов
 
     // DragMode - текущее действие мыши: выделение, перемещение, размер, поворот или панорамирование.
-    enum DragMode { None, Move, Resize, Rotate, LineEndpoint, Pan, MarqueeSelect };
+    enum DragMode { None, Move, Resize, Rotate, LineEndpoint, Pan, MarqueeSelect, SymmetryAxisMove };
     DragMode m_dragMode = None;
     int m_resizeEdgeFlags = 0; // Битовая маска: 1=Left, 2=Right, 4=Top, 8=Bottom
     int m_lineEndpointIndex = -1;
+    int m_dragAxisId = -1;
+    double m_dragAxisStartPosition = 0.0;
 
     // SnapGuideKind - источник направляющей привязки: холст, сетка или объект.
     enum class SnapGuideKind { Canvas, Grid, Object };
@@ -130,6 +132,9 @@ private:
     void drawDashedLineEndpointManipulators(QPainter &painter, const class DashedLineObject *line);
     void drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale);
     void drawSnapGuides(QPainter &painter, int canvasW, int canvasH);
+    void drawSymmetryAxes(QPainter &painter, int canvasW, int canvasH);
+    int hitTestSymmetryAxis(const QPointF &canvasPos) const;
+    QList<int> movableSelection() const;
     SnapResult snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;
     SnapResult snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const;
     SnapPointResult snappedPoint(const QList<int> &excludedIndexes, const QPointF &point) const;

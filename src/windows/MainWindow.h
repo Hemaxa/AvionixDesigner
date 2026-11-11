@@ -73,6 +73,7 @@ private slots:
     // разгруппировывает выбранную редакторскую группу
     void ungroupSelectedObjects();
     void mergeSelectedStaticGroups();
+    void createSymmetry(Qt::Orientation orientation);
     void checkHardwareResources();
     void editTransparency();
     // синхронизирует панели со сменой выделения

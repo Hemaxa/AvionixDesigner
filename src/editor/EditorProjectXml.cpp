@@ -11,6 +11,7 @@
 #include "StaticGroupObject.h"
 #include "TextObject.h"
 #include "ThreeDViewObject.h"
+#include "ObjectReflection.h"
 #include "FpgaSchemaRegistry.h"
 #include "BitParser.h"
 #include "fpga/config/FpgaPipelineConfig.h"
@@ -262,6 +263,7 @@ public:
 
 QString objectType(BaseObject *object)
 {
+    if (dynamic_cast<SymmetryCopyObject *>(object)) return "symmetry-copy";
     if (dynamic_cast<TextObject *>(object)) return "text";
     if (dynamic_cast<RectangleObject *>(object)) return "rectangle";
     if (dynamic_cast<DashedLineObject *>(object)) return "dashline";
@@ -410,6 +412,8 @@ void objectFields(Fields &a, BaseObject &object, Resources &resources)
         // После установки исходника: setSourcePayload может установить исходный размер.
         a.value("x", v->x); a.value("y", v->y); a.value("width", v->width); a.value("height", v->height);
         a.value("rotation", v->rotationDegrees); a.value("mask-color", v->maskColor); a.value("auto-mask-color", v->autoMaskColor);
+        if (!a.reading || a.node.hasAttribute("mirror-x")) a.value("mirror-x", v->mirrorHorizontal);
+        if (!a.reading || a.node.hasAttribute("mirror-y")) a.value("mirror-y", v->mirrorVertical);
         auto list = a.child("color-layers");
         auto colorFields = [](Fields &f, ImageColorLayer &c) { f.value("source-color", c.sourceColor); f.value("mask-color", c.maskColor); f.value("auto-mask-color", c.autoMaskColor); };
         if (a.reading) {
@@ -611,10 +615,51 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
     if (!layerIds.contains(state.activeLayerId) || state.nextLayerId <= maxLayer || state.nextLayerId == INT_MAX) root.fail("Некорректный активный слой или счётчик слоёв.");
 
     auto resourcesNode = root.child("resources"); Resources resources(resourcesNode, reading, error);
+    QMap<int, QSharedPointer<SymmetryAxis>> axes;
+    auto symmetry = editor.firstChildElement("symmetry");
+    if (reading) {
+        if (!symmetry.nextSiblingElement("symmetry").isNull()) root.fail("Повторный раздел симметрии.");
+        for (auto n = symmetry.firstChildElement("axis"); !n.isNull(); n = n.nextSiblingElement("axis")) {
+            auto axis = QSharedPointer<SymmetryAxis>::create(); Fields a(n, true, error);
+            a.value("id", axis->id); a.value("position", axis->position);
+            const auto direction = a.attribute("orientation");
+            if (direction != "vertical" && direction != "horizontal") a.fail("Неизвестное направление оси симметрии.");
+            axis->orientation = direction == "vertical" ? Qt::Vertical : Qt::Horizontal;
+            if (axis->id <= 0 || axis->id == INT_MAX || axes.contains(axis->id) || axis->position < 0
+                || axis->position > (axis->orientation == Qt::Vertical ? width : height)) a.fail("Некорректная ось симметрии.");
+            axes.insert(axis->id, axis);
+        }
+    } else {
+        for (const auto &ptr : state.objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(ptr.data());
+            if (!copy) continue;
+            if (!copy->source() || !state.objects.contains(copy->source()) || !supportsObjectReflection(copy->source().data())) {
+                root.fail("У копии отсутствует допустимый исходный объект."); return false;
+            }
+            if (copy->source()->editorLayerId() != copy->editorLayerId() || copy->axis()->id <= 0 || copy->axis()->id == INT_MAX
+                || !qIsFinite(copy->axis()->position) || copy->axis()->position < 0
+                || copy->axis()->position > (copy->axis()->orientation == Qt::Vertical ? width : height)) {
+                root.fail("Некорректная ось или слой симметричной копии."); return false;
+            }
+            if (axes.contains(copy->axis()->id) && axes.value(copy->axis()->id) != copy->axis()) {
+                root.fail("Повторный идентификатор оси симметрии."); return false;
+            }
+            axes.insert(copy->axis()->id, copy->axis());
+        }
+        if (!axes.isEmpty()) {
+            symmetry = append(editor, "symmetry");
+            for (const auto &axis : axes) {
+                Fields a(append(symmetry, "axis"), false, error); a.value("id", axis->id); a.value("position", axis->position);
+                a.node.setAttribute("orientation", axis->orientation == Qt::Vertical ? "vertical" : "horizontal");
+            }
+        }
+    }
     auto scene = root.child("scene");
     if (reading && scene.attribute("order") != "front-to-back") root.fail("Неизвестный порядок объектов редактора.");
     if (!reading) scene.setAttribute("order", "front-to-back");
     QMap<QString, int> objectIds;
+    QMap<int, QString> copySources;
+    QSet<int> usedAxes;
     if (reading) { state.objects.clear(); state.objectTags.clear(); }
     auto object = reading ? scene.firstChildElement("object") : QDomElement();
     const int writeCount = state.objects.size(); int threeDCount = 0;
@@ -630,7 +675,14 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
         const QString id = object.attribute("id"), type = object.attribute("type"), tag = object.attribute("export-tag");
         if (id.isEmpty() || objectIds.contains(id)) root.fail("Пустой или повторный идентификатор объекта.");
         objectIds.insert(id, index);
-        const auto ptr = reading ? createObject(object) : state.objects[index];
+        QSharedPointer<BaseObject> ptr = reading ? createObject(object) : state.objects[index];
+        if (reading && type == "symmetry-copy") {
+            int axisId = 0; Fields relation(object.firstChildElement("symmetry-copy"), true, error);
+            relation.value("axis-id", axisId);
+            if (!axes.contains(axisId)) { root.fail("Копия ссылается на отсутствующую ось."); return false; }
+            copySources.insert(index, relation.attribute("source")); usedAxes.insert(axisId);
+            ptr = QSharedPointer<SymmetryCopyObject>::create(QSharedPointer<BaseObject>{}, axes.value(axisId));
+        }
         if (!ptr || type.isEmpty() || (tag != type && !(type == "rectangle" && tag == "rectangle_a"))) { root.fail("Неизвестный тип объекта редактора или неверный export-tag."); return false; }
         if (type == "layer3d" && ++threeDCount > 1) root.fail("В редакторе допускается один 3D-вид.");
         Fields meta(object, reading, error);
@@ -641,7 +693,15 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
         Fields flags(meta.child("flags"), reading, error);
         flags.value("visible", visible); flags.value("selection-locked", locked); flags.value("export-enabled", exported);
         flags.value("resize-locked", resizeLocked); flags.value("imported-hardware", imported); flags.text("restriction-hint", hint);
-        if (exported) {
+        if (type == "symmetry-copy") {
+            if (exported) { root.fail("Зависимую копию нельзя включать в аппаратный экспорт."); return false; }
+            if (!reading) {
+                const auto *copy = static_cast<SymmetryCopyObject *>(ptr.data());
+                auto relation = meta.child("symmetry-copy");
+                relation.setAttribute("axis-id", copy->axis()->id);
+                relation.setAttribute("source", QStringLiteral("object-%1").arg(state.objects.indexOf(copy->source()) + 1));
+            }
+        } else if (exported) {
             int reference = reading ? -1 : hardwareIndex.value(ptr.data(), -1);
             meta.value("hardware-index", reference);
             const QString expected = type == "image" ? (object.attribute("kind") == "rotating" ? "rotationobject" : "staticgroup") : tag;
@@ -683,6 +743,21 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
             object = object.nextSiblingElement("object");
         }
         if (!error.isEmpty()) return false;
+    }
+    if (reading) {
+        QSet<QString> pairs;
+        for (auto it = copySources.cbegin(); it != copySources.cend(); ++it) {
+            const auto *copy = static_cast<SymmetryCopyObject *>(state.objects[it.key()].data());
+            const auto key = it.value() + ":" + QString::number(copy->axis()->id);
+            if (!objectIds.contains(it.value()) || pairs.contains(key)) { root.fail("Некорректная или повторная ссылка симметричной копии."); return false; }
+            const auto source = state.objects.value(objectIds.value(it.value()));
+            if (!supportsObjectReflection(source.data()) || source->editorLayerId() != copy->editorLayerId()) {
+                root.fail("Копия ссылается на недопустимый исходник или другой слой."); return false;
+            }
+            static_cast<SymmetryCopyObject *>(state.objects[it.key()].data())->bindSource(source);
+            pairs.insert(key);
+        }
+        if (usedAxes.size() != axes.size()) { root.fail("Ось симметрии не содержит копий."); return false; }
     }
     if (referencedHardware.size() != hardware.size()) { root.fail("В аппаратной сцене есть объекты без метаданных редактора."); return false; }
     Fields groups(root.child("groups"), reading, error); groups.value("next-id", state.nextGroupId);

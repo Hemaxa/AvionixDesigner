@@ -39,6 +39,9 @@ public:
     QColor maskColor = QColor("#FFFFFF");
     bool autoMaskColor = true;
     double rotationDegrees = 0.0;
+    // Редакторские отражения исходника до штатной сборки цветовых масок.
+    bool mirrorHorizontal = false;
+    bool mirrorVertical = false;
     QString sourceName;
     QString format = QStringLiteral("raster");
 

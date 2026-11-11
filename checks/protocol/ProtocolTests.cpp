@@ -28,6 +28,7 @@
 #include "AppearanceManager.h"
 #include "ApplicationSettings.h"
 #include "ExpressionSpinBox.h"
+#include "ObjectReflection.h"
 #include <QCursor>
 #include "FlowLayout.h"
 #include "BitParser.h"
@@ -200,6 +201,189 @@ private slots:
         QVERIFY(installRussianTranslation(*qApp));
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
+    }
+    void symmetryLifecycleAndXml() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Symmetry",320,240,Qt::black);
+        p->addObject("rectangle"); p->addObject("rectangle");
+        for(int i=0;i<2;++i) { auto *r=dynamic_cast<RectangleObject *>(p->getObjectAt(i).data()); r->x=25+i*20; r->y=30+i*40; r->width=40; r->height=20; }
+        QVERIFY(p->renameObject(0,"Левый прибор"));
+        QString error; const auto before=FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)); QVERIFY2(error.isEmpty(),qPrintable(error));
+        QVERIFY(p->groupObjects({0,1})>=0);
+        QCOMPARE(p->createSymmetry({0,1},Qt::Vertical),(QList<int>{1,3}));
+        QCOMPARE(p->getObjectCount(),4); QCOMPARE(p->symmetryAxes().size(),1);
+        QCOMPARE(p->groupMembersForObject(0),(QList<int>{0,2}));
+        auto *copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QVERIFY(copy);
+        QCOMPARE(copy->customName(),QStringLiteral("Левый прибор — копия")); QCOMPARE(copy->source(),p->getObjectAt(0));
+        QCOMPARE(copy->getBoundingRect().center().x(),320-p->getObjectAt(0)->getBoundingRect().center().x());
+        QVERIFY(!copy->isExportEnabled()); QVERIFY(!copy->canMove()); QVERIFY(!copy->canResize());
+        QVERIFY(!p->setObjectExportEnabled(1,true)); copy->setExportEnabled(true); QVERIFY(!copy->isExportEnabled());
+        QVERIFY(!p->copyObjects({1})); QVERIFY(!p->canCreateSymmetry({1}));
+        QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)),before);
+        QSignalSpy changed(copy,&BaseObject::changed);
+        QVERIFY(p->setObjectProperty(p->getObjectAt(0).data(),"X","35")); QVERIFY(!changed.isEmpty());
+        const auto original=p->getObjectAt(0)->getBoundingRect();
+        const int axisId=p->symmetryAxes().first()->id;
+        QVERIFY(p->setSymmetryAxisPosition(axisId,170)); QCOMPARE(p->getObjectAt(0)->getBoundingRect(),original);
+        QCOMPARE(copy->getBoundingRect().center().x(),340-original.center().x());
+        QVERIFY(p->undo()); QCOMPARE(p->symmetryAxes().first()->position,160.);
+        copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QCOMPARE(copy->source(),p->getObjectAt(0));
+        auto *other=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(3).data()); QCOMPARE(copy->axis(),other->axis());
+        QVERIFY(p->redo()); QCOMPARE(p->symmetryAxes().first()->position,170.);
+        QVERIFY(p->reorderObjects({3,2,1,0}));
+        QTemporaryDir temp; const auto path=temp.filePath("symmetry.xml"); QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage()));
+        QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly)); QDomDocument xml; QVERIFY(xml.setContent(file.readAll())); file.close();
+        auto editor=xml.documentElement().firstChildElement("editor"); QCOMPARE(editor.firstChildElement("symmetry").elementsByTagName("axis").size(),1);
+        QCOMPARE(xml.documentElement().firstChildElement("objects").elementsByTagName("rectangle").size(),2);
+        QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+        copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(0).data()); QVERIFY(copy); QCOMPARE(copy->source(),p->getObjectAt(1));
+        QVERIFY(p->setObjectProperty(copy->source().data(),"Y","110"));
+        QCOMPARE(copy->getBoundingRect().top(),copy->source()->getBoundingRect().top());
+        const auto copyBounds=copy->getBoundingRect(); QVERIFY(p->detachSymmetryCopy(0));
+        QVERIFY(!p->isSymmetryCopy(0)); QVERIFY(p->getObjectAt(0)->isExportEnabled()); QCOMPARE(p->getObjectAt(0)->getBoundingRect(),copyBounds);
+        QCOMPARE(p->symmetryAxes().size(),1); QVERIFY(p->undo()); QVERIFY(p->isSymmetryCopy(0));
+        QVERIFY(p->redo()); QVERIFY(!p->isSymmetryCopy(0));
+        QVERIFY(p->saveToFile(path)); QVERIFY(p->loadFromFile(path));
+        QVERIFY(!p->isSymmetryCopy(0)); QVERIFY(p->isSymmetryCopy(2));
+        // Повреждённые связи отклоняются атомарно, не меняя открытый проект.
+        const int count=p->getObjectCount(); const auto current=p->getObjectAt(0);
+        for(int failure=0;failure<4;++failure) {
+            auto invalid=xml.cloneNode(true).toDocument(); auto e=invalid.documentElement().firstChildElement("editor");
+            auto relation=e.elementsByTagName("symmetry-copy").at(0).toElement();
+            if(failure==0) relation.setAttribute("source","missing");
+            if(failure==1) relation.setAttribute("axis-id",999);
+            if(failure==2) relation.parentNode().firstChildElement("flags").setAttribute("export-enabled","true");
+            if(failure==3) e.firstChildElement("symmetry").firstChildElement("axis").setAttribute("position","nan");
+            QFile bad(temp.filePath("invalid.xml")); QVERIFY(bad.open(QIODevice::WriteOnly)); bad.write(invalid.toByteArray()); bad.close();
+            QVERIFY(!p->loadFromFile(bad.fileName())); QCOMPARE(p->getObjectCount(),count); QCOMPARE(p->getObjectAt(0),current);
+        }
+        QVERIFY(p->removeObjects({3})); QVERIFY(!p->isSymmetryCopy(0)); QCOMPARE(p->symmetryAxes().size(),0);
+        QVERIFY(p->undo()); QCOMPARE(p->symmetryAxes().size(),1);
+        p->createNewProject("Excluded",320,240,Qt::black);
+        for(const auto &type:{"aviahorizont","layer3d","text"}) { QVERIFY(p->addObject(type)>=0); QVERIFY(!p->canCreateSymmetry({0})); QVERIFY(p->createSymmetry({0},Qt::Horizontal).isEmpty()); }
+    }
+    void symmetryReflectionAndDetach() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp;
+        QImage mask(3,2,QImage::Format_ARGB32); mask.fill(Qt::transparent);
+        mask.setPixelColor(0,0,QColor(255,0,0,255)); mask.setPixelColor(2,0,QColor(0,255,0,109)); mask.setPixelColor(1,1,QColor(0,0,255,255));
+        const auto png=temp.filePath("asymmetric.png"); QVERIFY(mask.save(png));
+        QFile svg(temp.filePath("asymmetric.svg")); QVERIFY(svg.open(QIODevice::WriteOnly));
+        svg.write("<svg xmlns='http://www.w3.org/2000/svg' width='30' height='20'><path fill='#ff0000' d='M0 0H30V5H5V20H0Z'/></svg>"); svg.close();
+        auto render=[](BaseObject *object) { QImage image(256,192,QImage::Format_ARGB32); image.fill(Qt::transparent); QPainter painter(&image); painter.setRenderHint(QPainter::Antialiasing); object->draw(painter); painter.end(); return image; };
+        auto difference=[](const QImage &first,const QImage &second) { const auto a=first.convertToFormat(QImage::Format_ARGB32_Premultiplied), b=second.convertToFormat(QImage::Format_ARGB32_Premultiplied); int difference=0; for(int y=0;y<a.height();++y) for(int x=0;x<a.width();++x) { const auto ca=a.pixel(x,y), cb=b.pixel(x,y); for(int d:{qAbs(qAlpha(ca)-qAlpha(cb)),qAbs(qRed(ca)-qRed(cb)),qAbs(qGreen(ca)-qGreen(cb)),qAbs(qBlue(ca)-qBlue(cb))}) difference=qMax(difference,d); } return difference; };
+        for(const auto orientation:{Qt::Vertical,Qt::Horizontal}) for(const auto &type:QStringList{"rectangle","dashline","RibonScale","staticgroup","rotationobject","rotation-layers","image","rotating-image","svg"}) {
+            p->createNewProject(type,256,192,Qt::black);
+            if(type=="image" || type=="rotating-image" || type=="svg") QVERIFY(p->importImage(type=="svg"?svg.fileName():png,type=="rotating-image")>=0);
+            else QVERIFY(p->addObject(type=="rotation-layers"?"rotationobject":type)>=0);
+            auto source=p->getObjectAt(0); source->setExportEnabled(false);
+            if(auto *v=dynamic_cast<RectangleObject *>(source.data())) { v->x=20;v->y=30;v->width=40;v->height=25;v->strokeWidth=3;v->strokeColor=Qt::green;v->fillColor=Qt::red; }
+            if(auto *v=dynamic_cast<DashedLineObject *>(source.data())) { v->x0=20;v->y0=30;v->x1=65;v->y1=47;v->lineWidth=3;v->dashPeriod=16;v->dashLength=7;v->dashPhase=5; }
+            if(auto *v=dynamic_cast<RibbonScaleObject *>(source.data())) { v->left=20;v->right=60;v->top=30;v->bottom=76;v->period=13;v->lineWidth=3;v->yStart=35; }
+            if(auto *v=dynamic_cast<StaticGroupObject *>(source.data())) { v->states={{20,30,3,2,0,Qt::red,true},{30,50,3,2,6,Qt::green,false}}; v->maskImages={mask,mask}; }
+            if(auto *v=dynamic_cast<RotationObject *>(source.data())) {
+                v->left=-2;v->right=1;v->top=-1;v->bottom=1;v->xRot=40;v->yRot=60;v->sinVal=39441;v->cosVal=52339;v->maskImage=mask;v->color=Qt::red;
+                if(type=="rotation-layers") v->restoreHardwareLayers({{-2,-1,1,1,40,60,39441,52339,Qt::red,true},{-2,-1,1,1,60,50,-39441,52339,Qt::green,true}});
+            }
+            if(auto *v=dynamic_cast<ImageObject *>(source.data())) { v->x=20;v->y=30; if(v->isRotationObject()) v->setRotation(29); }
+            const auto original=render(source.data());
+            QCOMPARE(p->createSymmetry({0},orientation),(QList<int>{1}));
+            const auto mirrored=render(p->getObjectAt(1).data());
+            QVERIFY2(difference(mirrored,original.mirrored(orientation==Qt::Vertical,orientation==Qt::Horizontal))<=4,qPrintable("Preview "+type+" difference="+QString::number(difference(mirrored,original.mirrored(orientation==Qt::Vertical,orientation==Qt::Horizontal)))));
+            const auto copyPath=temp.filePath("dependent.xml"); QVERIFY2(p->saveToFile(copyPath),qPrintable(p->lastErrorMessage()));
+            QVERIFY2(p->loadFromFile(copyPath),qPrintable(p->lastErrorMessage()));
+            QCOMPARE(render(p->getObjectAt(1).data()),mirrored);
+            QVERIFY(p->detachSymmetryCopy(1)); QVERIFY(!p->isSymmetryCopy(1));
+            const auto baked=render(p->getObjectAt(1).data());
+            QVERIFY2(difference(mirrored,baked)<=4,qPrintable("Detach "+type+" / "+QString::number(orientation)+" difference="+QString::number(difference(mirrored,baked))));
+            QVERIFY(p->getObjectAt(1)->isExportEnabled());
+            if(dynamic_cast<ImageObject *>(p->getObjectAt(1).data())) {
+                QVERIFY(p->setObjectExportEnabled(1,false));
+                const auto disabledPath=temp.filePath("disabled-mirror.xml"); QVERIFY2(p->saveToFile(disabledPath),qPrintable(p->lastErrorMessage()));
+                QVERIFY2(p->loadFromFile(disabledPath),qPrintable(p->lastErrorMessage()));
+                QCOMPARE(render(p->getObjectAt(1).data()),baked); QVERIFY(p->setObjectExportEnabled(1,true));
+            }
+            const auto detachedPath=temp.filePath("detached.xml"); QVERIFY2(p->saveToFile(detachedPath),qPrintable(type+": "+p->lastErrorMessage()));
+            QVERIFY2(p->loadFromFile(detachedPath),qPrintable(p->lastErrorMessage())); QVERIFY(!p->isSymmetryCopy(1));
+        }
+    }
+    void symmetryInterfaceAndAxisDrag() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Symmetry interface",640,480,QColor("#121922")); p->addObject("rectangle");
+        auto *r=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data()); r->x=50;r->y=60;r->width=60;r->height=40;
+        p->renameObject(0,QStringLiteral("Прибор")); p->setSnapToCanvas(false);p->setSnapToGrid(false);p->setSnapToObjects(false);p->setShowGrid(true);
+        AppearanceManager::instance()->applyAvionixTheme();
+        MainWindow window; window.resize(1400,1000); window.show(); window.activateWindow(); QTest::qWait(20);
+        window.resize(1400,1000); QTest::qWait(10);
+        auto *canvas=window.findChild<ViewportPanel *>(); auto *list=window.findChild<ObjectListPanel *>(); QVERIFY(canvas && list);
+        auto *vertical=window.findChild<QToolButton *>("VerticalSymmetryButton"); auto *horizontal=window.findChild<QToolButton *>("HorizontalSymmetryButton"); QVERIFY(vertical && horizontal);
+        QVERIFY(!vertical->isEnabled()); QVERIFY(!horizontal->isEnabled());
+        auto point=[&](double x,double y) {
+            const auto state=p->editorViewState(); const double scale=qMin(canvas->width()/640.,canvas->height()/480.)*.95*state.scale;
+            return QPoint(qRound((canvas->width()-640*scale)/2+state.offset.x()+x*scale),qRound((canvas->height()-480*scale)/2+state.offset.y()+y*scale));
+        };
+        QTest::mouseClick(canvas,Qt::LeftButton,Qt::NoModifier,point(80,80));
+        QVERIFY(vertical->isEnabled()); QVERIFY(horizontal->isEnabled()); QCOMPARE(vertical->size(),window.findChild<QToolButton *>("MergeStaticButton")->size());
+        vertical->click(); QCOMPARE(p->getObjectCount(),2); QCOMPARE(canvas->getSelectedIndexes(),QList<int>{0});
+        auto state=p->editorViewState();state.scale=1.25;state.offset=QPointF(17,-13);p->setEditorViewState(state);
+        auto drag=[&](QPoint from,const QList<QPoint> &positions) {
+            QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,from);
+            for(const auto &position:positions) { QMouseEvent move(QEvent::MouseMove,QPointF(position),QPointF(canvas->mapToGlobal(position)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier); QApplication::sendEvent(canvas,&move); }
+            QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,positions.last());
+        };
+        const auto parentBounds=p->getObjectAt(0)->getBoundingRect();
+        drag(point(320,160),{point(324,160),point(327,160),point(330,160)});
+        QVERIFY(qAbs(p->symmetryAxes().first()->position-330)<1.); QCOMPARE(p->getObjectAt(0)->getBoundingRect(),parentBounds);
+        QVERIFY(p->undo()); QCOMPARE(p->symmetryAxes().first()->position,320.); // Весь жест — одна отмена.
+        canvas->setSelectedIndex(0); list->selectRows({0});
+        const auto press=point(80,80), target=point(95,80);
+        const double totalScale=qMin(canvas->width()/640.,canvas->height()/480.)*.95*p->editorViewState().scale;
+        drag(press,{point(85,80),point(90,80),target});
+        r=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data()); QVERIFY(qAbs(r->x-(50+(target.x()-press.x())/totalScale))<.01);
+        auto *copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QVERIFY(copy);
+        QCOMPARE(copy->getBoundingRect().center().x()+r->getBoundingRect().center().x(),640.);
+        // После сдвига оси ограничение применяется и к зеркальной стороне.
+        const int axis=p->symmetryAxes().first()->id; QVERIFY(p->setSymmetryAxisPosition(axis,340));
+        canvas->setSelectedIndex(0); QTest::keyClick(canvas,Qt::Key_Left,Qt::ShiftModifier);
+        QVERIFY(copy->getBoundingRect().right()<=640.00001);
+        const double x=r->x; canvas->setSelectedIndex(1); QTest::keyClick(canvas,Qt::Key_Left); QCOMPARE(r->x,x);
+        ObjectPropertiesPanel properties; properties.showObjectProperties(1);
+        auto *layer=properties.findChild<QComboBox *>("ObjectLayerCombo"); QVERIFY(layer && !layer->isEnabled());
+        auto *rows=list->findChild<QListWidget *>(); QVERIFY(rows); QWidget *copyRow=nullptr; QToolButton *detach=nullptr;
+        for(int i=0;i<rows->count();++i) {
+            auto *row=rows->itemWidget(rows->item(i));
+            for(auto *button:row->findChildren<QToolButton *>()) if(button->property("symmetryDetach").toBool()) { copyRow=row;detach=button; }
+        }
+        QVERIFY(copyRow && detach); QVERIFY(!detach->isCheckable()); QCOMPARE(detach->size(),QSize(30,30)); QCOMPARE(detach->iconSize(),QSize(24,24));
+        auto *check=copyRow->findChild<QCheckBox *>("ObjectExportCheck"); QVERIFY(check && !check->isEnabled() && !check->isChecked());
+        canvas->resetView(); list->selectRows({1}); list->selectionChanged({1}); QTest::qWait(1);
+        window.grab().save(QCoreApplication::applicationDirPath()+"/symmetry-interface.png");
+        window.findChild<EditorWorkspacePanel *>()->grab().save(QCoreApplication::applicationDirPath()+"/symmetry-workspace.png");
+        detach->click(); QVERIFY(!p->isSymmetryCopy(1)); QVERIFY(p->getObjectAt(1)->isExportEnabled()); QVERIFY(p->symmetryAxes().isEmpty());
+        QTest::qWait(1);
+        for(auto *button:list->findChildren<QToolButton *>()) QVERIFY(!button->property("symmetryDetach").toBool());
+        QVERIFY(p->undo()); QVERIFY(p->isSymmetryCopy(1)); QCOMPARE(p->symmetryAxes().size(),1);
+        const auto bounds=p->getObjectAt(0)->getBoundingRect(); QTest::mouseClick(canvas,Qt::LeftButton,Qt::NoModifier,point(bounds.center().x(),bounds.center().y()));
+        QVERIFY(horizontal->isEnabled()); horizontal->click(); QCOMPARE(p->symmetryAxes().size(),2);
+        QSharedPointer<SymmetryAxis> hAxis;
+        for(const auto &axis:p->symmetryAxes()) if(axis->orientation==Qt::Horizontal) hAxis=axis;
+        QVERIFY(hAxis); drag(point(200,240),{point(200,245),point(200,250)}); QVERIFY(qAbs(hAxis->position-250)<1.);
+    }
+    void symmetryLayersAndClipboard() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Symmetry layers",640,480,Qt::black); p->addObject("rectangle");
+        QCOMPARE(p->createSymmetry({0},Qt::Vertical),(QList<int>{1}));
+        const int group=p->groupObjects({0,1}); QVERIFY(group>=0);
+        QVERIFY(p->setGroupExportEnabled(group,false)); QVERIFY(!p->getObjectAt(0)->isExportEnabled());
+        QVERIFY(p->setGroupExportEnabled(group,true)); QVERIFY(p->getObjectAt(0)->isExportEnabled()); QVERIFY(!p->getObjectAt(1)->isExportEnabled());
+        const int duplicated=p->duplicateEditorLayer(1); QVERIFY(duplicated>1); QCOMPARE(p->getObjectCount(),4); QCOMPARE(p->symmetryAxes().size(),2);
+        auto *copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QVERIFY(copy); QCOMPARE(copy->source(),p->getObjectAt(0));
+        auto *old=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(3).data()); QVERIFY(old); QCOMPARE(old->source(),p->getObjectAt(2));
+        QVERIFY(copy->axis()->id!=old->axis()->id);
+        const int layer=p->addEditorLayer(); QVERIFY(p->setObjectsLayer({p->getObjectAt(0)},layer)); QCOMPARE(p->getObjectAt(1)->editorLayerId(),layer);
+        QVERIFY(!p->setObjectsLayer({p->getObjectAt(1)},1));
+        QVERIFY(p->removeEditorLayer(layer)); QCOMPARE(p->getObjectCount(),2); QCOMPARE(p->symmetryAxes().size(),1);
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(),4); QCOMPARE(p->symmetryAxes().size(),2);
+        QTemporaryDir temp; QVERIFY2(p->saveToFile(temp.filePath("layers.xml")),qPrintable(p->lastErrorMessage()));
+        QVERIFY2(p->loadFromFile(temp.filePath("layers.xml")),qPrintable(p->lastErrorMessage()));
+        p->setShowAllLayers(true); QVERIFY(p->removeObjects({0})); QCOMPARE(p->getObjectCount(),2); QCOMPARE(p->symmetryAxes().size(),1);
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(),4);
     }
     void numericExpressions() {
         double result = 123;

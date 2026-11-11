@@ -32,6 +32,7 @@ public:
     QRectF getBoundingRect() const override;
     bool supportsRotationHandle() const override { return false; }
     bool canResize() const override { return false; }
+    bool canMove() const override { return false; }
 
     void moveBy(double dx, double dy) override;
     void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;

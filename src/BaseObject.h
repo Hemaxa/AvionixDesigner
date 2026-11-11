@@ -56,6 +56,7 @@ public:
     }
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
     virtual bool supportsRotationHandle() const { return false; }
+    virtual bool canMove() const { return true; }
     virtual bool canResize() const { return !m_resizeLocked; }
     virtual bool isImportedHardwareObject() const { return m_importedHardwareObject; }
     virtual void setImportedHardwareObject(bool imported) { m_importedHardwareObject = imported; }
