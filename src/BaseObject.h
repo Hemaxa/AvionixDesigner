@@ -43,6 +43,17 @@ public:
     virtual QString getTypeName() const = 0; //возвращает тип объекта
     virtual QString getDisplayName() const { return getTypeName(); } //отображаемое имя для UI
     virtual QList<QPair<QString, QString>> getProperties() const = 0; //возвращает список свойств объекта
+    // Числовые свойства допускают арифметические выражения в редакторе.
+    virtual bool isNumericProperty(const QString &name) const
+    {
+        for (const auto &property : getProperties()) {
+            if (property.first != name) continue;
+            bool numeric = false;
+            property.second.toDouble(&numeric);
+            return numeric;
+        }
+        return false;
+    }
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
     virtual bool supportsRotationHandle() const { return false; }
     virtual bool canResize() const { return !m_resizeLocked; }

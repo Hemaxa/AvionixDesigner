@@ -5,6 +5,7 @@
 #include "BaseObject.h"
 #include "ProjectManager.h"
 #include "ThreeDViewObject.h"
+#include "ExpressionSpinBox.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 
 #include <QColorDialog>
@@ -372,6 +373,10 @@ void ObjectPropertiesPanel::updateValueItem(int row, const QString &name, const 
     item->setData(Qt::UserRole, mixed);
     item->setIcon(QIcon());
     const bool readOnly = isReadOnlyProperty(name);
+    const bool numeric = !m_currentObjects.isEmpty() && std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [&name](const auto &object) {
+        return object->isNumericProperty(name);
+    });
+    item->setToolTip(!readOnly && numeric ? NumericExpression::helpText() : QString());
     item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
     if (!readOnly && !isColorProperty(name) && name != tr("Слой") && name != QStringLiteral("Прозрачность"))
         item->setFlags(item->flags() | Qt::ItemIsEditable);
@@ -431,7 +436,7 @@ QWidget *ObjectPropertiesPanel::createTransparencyEditor(double value)
     auto *layout = new QHBoxLayout(editor);
     layout->setContentsMargins(10, 3, 10, 3);
     layout->setSpacing(8);
-    auto *spin = new QSpinBox(editor);
+    auto *spin = new ExpressionSpinBox(editor);
     spin->setObjectName("TransparencySpin");
     spin->setRange(value < 0 ? -1 : 0, 100);
     spin->setSpecialValueText(value < 0 ? tr("Разные") : QString());

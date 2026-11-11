@@ -952,13 +952,14 @@ void MainWindow::copySelectedObjects() {
 }
 
 void MainWindow::pasteObjects() {
-  const QList<int> pastedIndexes = ProjectManager::instance()->pasteObjects();
+  const QList<int> pastedIndexes = ProjectManager::instance()->pasteObjects(m_viewport->pastePosition());
   if (pastedIndexes.isEmpty())
     return;
 
   m_objectList->refreshList();
   m_objectList->selectRows(pastedIndexes);
   m_viewport->setSelectedIndexes(pastedIndexes);
+  m_viewport->setFocus(Qt::ShortcutFocusReason);
   handleSelectionChanged(pastedIndexes);
   m_viewport->update();
   updateCommandState();

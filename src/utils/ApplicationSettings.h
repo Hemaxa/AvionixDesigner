@@ -14,6 +14,11 @@ inline QSettings create()
     return QSettings(path, QSettings::IniFormat);
 }
 
+inline int fastMoveStep()
+{
+    return qBound(1, create().value("editor/fastMoveStep", 10).toInt(), 10000);
+}
+
 // Возможности целевой ПЛИС. Значения общие для всех проектов; адрес маски
 // в текущем протоколе имеет 16 бит независимо от настроенной ёмкости банка.
 inline int staticGroupPixels()

@@ -47,6 +47,7 @@ private:
     QListWidget *m_listWidget;
     QStackedWidget *m_stackedWidget;
     QCheckBox *m_autoLoadCheck;
+    QSpinBox *m_fastMoveStepSpin;
     QSpinBox *m_staticGroupPixelsSpin;
     QSpinBox *m_staticGroupElementsSpin;
 

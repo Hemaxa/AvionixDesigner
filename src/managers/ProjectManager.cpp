@@ -34,6 +34,7 @@
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include "RasterGeometry.h"
 #include "BitParser.h"
+#include "NumericExpression.h"
 
 #include <algorithm>
 #include <limits>
@@ -2457,11 +2458,32 @@ void ProjectManager::syncNextGroupId()
     m_nextGroupId = qMax(m_nextGroupId, nextId);
 }
 
-QList<int> ProjectManager::pasteObjects()
+QList<int> ProjectManager::pasteObjects(std::optional<QPointF> position)
 {
     QList<int> pastedIndexes;
     if (m_clipboardObjects.isEmpty())
         return pastedIndexes;
+
+    QList<QSharedPointer<BaseObject>> clones;
+    QRectF bounds;
+    for (const auto &source : m_clipboardObjects) {
+        const auto clone = cloneObject(source);
+        if (!clone) return {};
+        bounds = clones.isEmpty() ? clone->getBoundingRect() : bounds.united(clone->getBoundingRect());
+        clone->setEditorLayerId(m_activeLayerId);
+        clones.append(clone);
+    }
+    if (position && (!qIsFinite(position->x()) || !qIsFinite(position->y()))) return {};
+    // Центр общего габарита оказывается под курсором. Коррекция у границ
+    // применяется ко всему набору, чтобы расстояния внутри группы не менялись.
+    QPointF delta = position ? *position - bounds.center() : QPointF(24.0, 24.0);
+    const QRectF moved = bounds.translated(delta);
+    const double canvasW = m_document->canvasWidth(), canvasH = m_document->canvasHeight();
+    delta.rx() += moved.width() > canvasW ? -moved.left()
+        : qBound(-moved.left(), 0.0, canvasW - moved.right());
+    delta.ry() += moved.height() > canvasH ? -moved.top()
+        : qBound(-moved.top(), 0.0, canvasH - moved.bottom());
+    for (const auto &clone : clones) clone->moveBy(delta.x(), delta.y());
 
     recordHistory();
     const int pasteCount = m_clipboardObjects.size();
@@ -2471,13 +2493,7 @@ QList<int> ProjectManager::pasteObjects()
     }
 
     for (int i = m_clipboardObjects.size() - 1; i >= 0; --i) {
-        const auto clone = cloneObject(m_clipboardObjects[i]);
-        if (!clone)
-            continue;
-        clone->setEditorLayerId(m_activeLayerId);
-        clone->moveBy(24.0, 24.0);
-        moveObjectInsideCanvas(clone.data(), m_document->canvasWidth(), m_document->canvasHeight());
-        m_objects.prepend(clone);
+        m_objects.prepend(clones[i]);
         m_objectTags.prepend(i < m_clipboardTags.size() ? m_clipboardTags[i] : QString());
     }
 
@@ -2641,15 +2657,26 @@ bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> 
                                        const QString &name, const QString &value)
 {
     m_lastErrorMessage.clear();
+    QString resolvedValue = value;
+    if (!objects.isEmpty() && std::all_of(objects.cbegin(), objects.cend(), [&name](const auto &object) {
+        return object && object->isNumericProperty(name);
+    })) {
+        double result = 0.0;
+        if (!NumericExpression::evaluate(value, &result)) {
+            m_lastErrorMessage = tr("Некорректное выражение. Используйте числа, +, −, *, / и скобки. Деление на ноль недопустимо.");
+            return false;
+        }
+        resolvedValue = QString::number(result, 'g', std::numeric_limits<double>::digits10);
+    }
     QList<QSharedPointer<BaseObject>> changed;
     for (const auto &object : objects) {
         if (!object || !m_objects.contains(object)) return false;
         const auto properties = object->getProperties();
         const auto it = std::find_if(properties.cbegin(), properties.cend(), [&name](const auto &p) { return p.first == name; });
         if (it == properties.cend()) return false;
-        if (it->second == value || changed.contains(object)) continue;
+        if (it->second == resolvedValue || changed.contains(object)) continue;
         const auto probe = cloneObject(object);
-        if (!probe || !probe->setObjectProperty(name, value)) {
+        if (!probe || !probe->setObjectProperty(name, resolvedValue)) {
             m_lastErrorMessage = probe ? probe->lastValidationMessage() : QString();
             if (m_lastErrorMessage.isEmpty()) m_lastErrorMessage = tr("Значение параметра «%1» недопустимо для одного из выбранных объектов.").arg(name);
             return false;
@@ -2665,7 +2692,7 @@ bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> 
     if (changed.isEmpty()) return !objects.isEmpty();
     recordHistory();
     for (const auto &object : changed) {
-        object->setObjectProperty(name, value);
+        object->setObjectProperty(name, resolvedValue);
         moveObjectInsideCanvas(object.data(), m_document->canvasWidth(), m_document->canvasHeight());
     }
     emit projectChanged();

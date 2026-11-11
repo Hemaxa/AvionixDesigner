@@ -150,6 +150,8 @@ qt_add_executable(AvionixDesigner
     src/utils/FlowLayout.h
     src/utils/ElidedLabel.h
     src/utils/ApplicationSettings.h
+    src/utils/NumericExpression.h
+    src/utils/ExpressionSpinBox.h
     src/utils/ApplicationLanguage.h
 
     # Ресурсы

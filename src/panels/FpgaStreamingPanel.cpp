@@ -26,6 +26,7 @@
 #include <QSerialPortInfo>
 #include "ApplicationSettings.h"
 #include <QSpinBox>
+#include "ExpressionSpinBox.h"
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -163,17 +164,17 @@ public:
         portLayout->addWidget(m_portCombo, 1);
         portLayout->addWidget(refreshButton, 0);
 
-        m_loadBaudRateSpin = new QSpinBox(this);
+        m_loadBaudRateSpin = new ExpressionSpinBox(this);
         m_loadBaudRateSpin->setObjectName(QStringLiteral("UartLoadBaudRateSpin"));
         m_loadBaudRateSpin->setRange(1200, 4000000);
         m_loadBaudRateSpin->setSingleStep(9600);
 
-        m_baudRateSpin = new QSpinBox(this);
+        m_baudRateSpin = new ExpressionSpinBox(this);
         m_baudRateSpin->setObjectName(QStringLiteral("UartBaudRateSpin"));
         m_baudRateSpin->setRange(1200, 4000000);
         m_baudRateSpin->setSingleStep(9600);
 
-        m_intervalSpin = new QSpinBox(this);
+        m_intervalSpin = new ExpressionSpinBox(this);
         m_intervalSpin->setObjectName(QStringLiteral("UartIntervalSpin"));
         m_intervalSpin->setRange(kMinimumUartIntervalMs, kMaximumUartIntervalMs);
         m_intervalSpin->setSingleStep(1);

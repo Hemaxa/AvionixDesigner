@@ -13,6 +13,7 @@
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QSpinBox>
+#include "ExpressionSpinBox.h"
 #include <QToolButton>
 
 namespace {
@@ -54,7 +55,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
 
     auto *flow = createFlowPanel(this);
 
-    m_widthSpin = new QSpinBox(this);
+    m_widthSpin = new ExpressionSpinBox(this);
     m_widthSpin->setRange(1, 8192);
     m_widthSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_widthSpin->setMinimumWidth(56);
@@ -66,7 +67,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     multiplyLabel->setObjectName("SettingsFieldLabel");
     flow->addWidget(multiplyLabel);
 
-    m_heightSpin = new QSpinBox(this);
+    m_heightSpin = new ExpressionSpinBox(this);
     m_heightSpin->setRange(1, 8192);
     m_heightSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_heightSpin->setMinimumWidth(56);

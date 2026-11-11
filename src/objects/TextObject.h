@@ -25,6 +25,11 @@ public:
     QString getTypeName() const override;
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
+    bool isNumericProperty(const QString &name) const override
+    {
+        return name != QStringLiteral("Текст") && name != QStringLiteral("Символы")
+            && name != QStringLiteral("Шрифт") && BaseObject::isNumericProperty(name);
+    }
     bool setObjectProperty(const QString &name, const QString &value) override;
     void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     QRectF getBoundingRect() const override;

@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QSharedPointer>
 #include <QStringList>
+#include <optional>
 
 #include "BaseObject.h"
 #include "TextObject.h"
@@ -94,7 +95,7 @@ public:
     // копирует объекты во внутренний буфер обмена редактора
     bool copyObjects(const QList<int> &indexes);
     // вставляет объекты из внутреннего буфера и возвращает индексы новых объектов
-    QList<int> pasteObjects();
+    QList<int> pasteObjects(std::optional<QPointF> position = std::nullopt);
     // проверяет, есть ли объекты для вставки
     bool canPasteObjects() const;
     // отменяет последнее изменение проекта

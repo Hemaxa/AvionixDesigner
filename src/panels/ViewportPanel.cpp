@@ -6,10 +6,13 @@
 #include "DashedLineObject.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
+#include "ApplicationSettings.h"
 #include <algorithm>
 #include <QPainter>
 #include <QWheelEvent>
 #include <QMouseEvent>
+#include <QKeyEvent>
+#include <QCursor>
 #include <QDragEnterEvent>
 #include <QFileInfo>
 #include <QLineF>
@@ -97,6 +100,7 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     setMinimumSize(200, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setAcceptDrops(true);
+    setFocusPolicy(Qt::StrongFocus);
     setToolTip(tr("Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°."));
 
     // подключаемся к сигналу загрузки проекта
@@ -151,6 +155,48 @@ void ViewportPanel::resetView()
     m_offsetX = 0;
     m_offsetY = 0;
     storeViewState();
+    update();
+}
+
+QPointF ViewportPanel::pastePosition() const
+{
+    const QPoint local = mapFromGlobal(QCursor::pos());
+    const auto *project = ProjectManager::instance();
+    const QPointF center(project->getCanvasWidth() / 2.0, project->getCanvasHeight() / 2.0);
+    return rect().contains(local)
+        ? clampedPointToCanvas(mapToCanvas(local), project->getCanvasWidth(), project->getCanvasHeight())
+        : center;
+}
+
+void ViewportPanel::keyPressEvent(QKeyEvent *event)
+{
+    if (m_dragMode != None || m_selectedIndexes.isEmpty()
+        || (event->modifiers() & ~Qt::ShiftModifier)) {
+        BasePanel::keyPressEvent(event);
+        return;
+    }
+    const int step = event->modifiers().testFlag(Qt::ShiftModifier) ? ApplicationSettings::fastMoveStep() : 1;
+    QPointF delta;
+    switch (event->key()) {
+    case Qt::Key_Left: delta.setX(-step); break;
+    case Qt::Key_Right: delta.setX(step); break;
+    case Qt::Key_Up: delta.setY(-step); break;
+    case Qt::Key_Down: delta.setY(step); break;
+    default: BasePanel::keyPressEvent(event); return;
+    }
+    auto *project = ProjectManager::instance();
+    delta = constrainedMoveDeltaToCanvas(selectedObjectsRect(), delta,
+        project->getCanvasWidth(), project->getCanvasHeight());
+    event->accept();
+    if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y())) return;
+    project->recordObjectEdit();
+    for (int index : m_selectedIndexes) {
+        const auto object = project->getObjectAt(index);
+        if (object) object->moveBy(delta.x(), delta.y());
+    }
+    project->finishObjectEdit();
+    m_activeSnapGuides.clear();
+    emit objectChanged();
     update();
 }
 
@@ -860,8 +906,6 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
 
     // рисуем холст
     painter.fillRect(0, 0, canvasW, canvasH, pm->getBackgroundColor());
-    if (pm->showGrid())
-        drawGrid(painter, canvasW, canvasH, totalScale);
 
     // рисуем все объекты
     painter.setRenderHint(QPainter::Antialiasing);
@@ -871,8 +915,17 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         if (!ProjectManager::instance()->isObjectVisibleInEditor(objects[i].data()))
             continue;
 
+        painter.save();
         objects[i]->draw(painter);
+        painter.restore();
+    }
 
+    // Сетка — редакторский слой поверх всей сцены; ручки остаются над сеткой.
+    if (pm->showGrid())
+        drawGrid(painter, canvasW, canvasH, totalScale);
+
+    for (int i = objects.size() - 1; i >= 0; --i) {
+        if (!pm->isObjectVisibleInEditor(objects[i].data())) continue;
         // Рисуем выделение
         if (m_selectedIndexes.contains(i)) {
             m_selectionColor = pm->editorLayerColor(objects[i]->editorLayerId());
@@ -945,6 +998,7 @@ void ViewportPanel::wheelEvent(QWheelEvent *event)
 
 void ViewportPanel::mousePressEvent(QMouseEvent *event)
 {
+    setFocus(Qt::MouseFocusReason);
     m_dragHistoryRecorded = false;
     m_dragEditedObjects = false;
 

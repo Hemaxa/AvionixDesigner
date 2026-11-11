@@ -24,10 +24,13 @@ public:
 
     // сбрасывает вид к начальному состоянию
     void resetView();
+    // Позиция вставки в координатах холста с учётом масштаба и панорамирования.
+    QPointF pastePosition() const;
 
 protected:
     // отрисовка панели
     void paintEvent(QPaintEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
     // обработка мыши для выделения и изменения объектов
     void mousePressEvent(QMouseEvent *event) override;

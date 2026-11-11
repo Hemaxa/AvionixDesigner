@@ -27,6 +27,8 @@
 #include "fpga/config/FpgaPipelineConfig.h"
 #include "AppearanceManager.h"
 #include "ApplicationSettings.h"
+#include "ExpressionSpinBox.h"
+#include <QCursor>
 #include "FlowLayout.h"
 #include "BitParser.h"
 #include "FpgaSchemaRegistry.h"
@@ -198,6 +200,132 @@ private slots:
         QVERIFY(installRussianTranslation(*qApp));
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
+    }
+    void numericExpressions() {
+        double result = 123;
+        const QList<QPair<QString,double>> examples{
+            {"2+3*4",14}, {"(1920-80)/2",920}, {"-(-5)+2",7},
+            {" 1,5 + .25 ",1.75}, {"=1e2 / 4",25}, {"8/2/2",2},
+            {QStringLiteral("6 × 3 − 2 ÷ 4"),17.5}
+        };
+        for (const auto &example : examples) {
+            QVERIFY2(NumericExpression::evaluate(example.first,&result),qPrintable(example.first));
+            QCOMPARE(result,example.second);
+        }
+        for (const auto &invalid : QStringList{"", "(2+3", "2+", "1/0", "0/0", "1e309", "2**3", "1 2", "abc", "1e308*10", QString(70,'(')+"1"+QString(70,')')}) {
+            result=123; QVERIFY2(!NumericExpression::evaluate(invalid,&result),qPrintable(invalid)); QCOMPARE(result,123.);
+        }
+        ExpressionSpinBox spin; spin.setRange(0,1000); spin.setSuffix(" px"); spin.setValue(42); spin.show();
+        auto enter=[&](QAbstractSpinBox *field,const QString &text) {
+            field->setFocus(); field->selectAll(); QTest::keyClicks(field,text); QTest::keyClick(field,Qt::Key_Return);
+        };
+        enter(&spin,"(80-20)/2"); QCOMPARE(spin.value(),30); QCOMPARE(spin.text(),QString("30 px"));
+        enter(&spin,"10/4"); QCOMPARE(spin.value(),3);
+        enter(&spin,"10/0"); QCOMPARE(spin.value(),3);
+        enter(&spin,"2000+1"); QCOMPARE(spin.value(),3);
+        ExpressionDoubleSpinBox fraction; fraction.setRange(-1000,1000); fraction.setDecimals(3);
+        fraction.setPrefix("X: "); fraction.show(); enter(&fraction,"1,5/2"); QCOMPARE(fraction.value(),.75);
+
+        auto *p=ProjectManager::instance(); p->createNewProject("Expressions",640,480,Qt::black); p->addObject("rectangle");
+        auto rectangle=p->getObjectAt(0);
+        QVERIFY(p->setObjectProperty(rectangle.data(),"X","(100+20)/2"));
+        QCOMPARE(dynamic_cast<RectangleObject *>(rectangle.data())->x,60.);
+        QVERIFY(!p->setObjectProperty(rectangle.data(),"X","100/0"));
+        QCOMPARE(dynamic_cast<RectangleObject *>(rectangle.data())->x,60.);
+        QVERIFY(p->undo()); QVERIFY(p->redo());
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(0).data())->x,60.);
+        ObjectPropertiesPanel properties; properties.showObjectProperties(0);
+        auto *table=properties.findChild<QTableWidget *>(); QVERIFY(table);
+        for(int row=0;row<table->rowCount();++row) if(table->item(row,0)->text()=="X") table->item(row,1)->setText("200/2+5");
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(0).data())->x,105.);
+        p->addObject("text"); auto text=p->getObjectAt(0);
+        QVERIFY(p->setObjectProperty(text.data(),"Текст","123"));
+        QVERIFY(p->setObjectProperty(text.data(),"Текст","2+3"));
+        QCOMPARE(dynamic_cast<TextObject *>(text.data())->text,QString("2+3"));
+        SettingsWindow settings;
+        auto *fast=settings.findChild<QSpinBox *>("FastMoveStepSpin"); QVERIFY(fast);
+        fast->setValue(37); QVERIFY(QMetaObject::invokeMethod(&settings,"saveSettings")); QCOMPARE(ApplicationSettings::fastMoveStep(),37);
+        ApplicationSettings::create().remove("editor/fastMoveStep");
+    }
+    void pixelNudgingAndRectangleOutline() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Nudge",640,480,Qt::black);
+        p->addObject("rectangle"); p->addObject("rectangle");
+        auto rectangle=[&](int index) { return dynamic_cast<RectangleObject *>(p->getObjectAt(index).data()); };
+        auto *a=rectangle(0); auto *b=rectangle(1);
+        a->x=50; a->y=60; a->width=100; a->height=50; a->strokeWidth=5; a->strokeColor=Qt::red;
+        b->x=200; b->y=80; b->width=30; b->height=40; b->strokeColor=Qt::transparent;
+        QCOMPARE(a->getBoundingRect(),QRectF(45,55,110,60));
+        const auto params=a->serializeParams(); QCOMPARE(params.value("x0"),50u); QCOMPARE(params.value("w"),100u);
+        p->setSnapToGrid(true); p->setSnapToCanvas(true); p->setSnapToObjects(true);
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); viewport.setSelectedIndexes({0,1}); viewport.setFocus();
+        QTest::keyClick(&viewport,Qt::Key_Right); QCOMPARE(a->x,51.); QCOMPARE(b->x,201.);
+        ApplicationSettings::create().setValue("editor/fastMoveStep",37);
+        QTest::keyClick(&viewport,Qt::Key_Down,Qt::ShiftModifier); QCOMPARE(a->y,97.); QCOMPARE(b->y,117.);
+        QVERIFY(p->undo()); a=rectangle(0); b=rectangle(1); QCOMPARE(a->y,60.); QCOMPARE(b->y,80.);
+        QVERIFY(p->redo()); a=rectangle(0); QCOMPARE(a->y,97.);
+        viewport.setSelectedIndex(0);
+        QTest::keyClick(&viewport,Qt::Key_Left,Qt::ShiftModifier); QCOMPARE(a->x,14.);
+        QTest::keyClick(&viewport,Qt::Key_Left,Qt::ShiftModifier); QCOMPARE(a->getBoundingRect().left(),0.);
+        QTest::keyClick(&viewport,Qt::Key_Down,Qt::ShiftModifier);
+        QTest::keyClick(&viewport,Qt::Key_Right,Qt::ControlModifier); QCOMPARE(a->x,5.);
+        QVERIFY(p->setObjectSelectionLocked(0,true)); QTest::keyClick(&viewport,Qt::Key_Right); QCOMPARE(a->x,5.);
+        QVERIFY(p->setObjectSelectionLocked(0,false)); viewport.setSelectedIndex(0);
+        const double ratio=a->width/a->height; a->resizeBy(2|8,55,30,true);
+        QVERIFY(qAbs(a->width/a->height-ratio)<1e-9);
+        const auto grown=a->getBoundingRect(); a->resizeBy(2|8,0,0,true); QCOMPARE(a->getBoundingRect(),grown);
+        a->x=50; a->y=60; a->width=100; a->height=50;
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,QPoint(111,93));
+        QMouseEvent move(QEvent::MouseMove,QPointF(-40,700),QPointF(viewport.mapToGlobal(QPoint(-40,700))),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(&viewport,&move); QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,QPoint(-40,700));
+        QCOMPARE(a->getBoundingRect().left(),0.); QCOMPARE(a->getBoundingRect().bottom(),480.);
+        ApplicationSettings::create().remove("editor/fastMoveStep");
+    }
+    void pasteAtCursorPreservesGroup() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Paste",640,480,Qt::black);
+        p->addObject("rectangle"); p->addObject("rectangle");
+        for(int i=0;i<2;++i) {
+            auto *r=dynamic_cast<RectangleObject *>(p->getObjectAt(i).data());
+            r->x=50+i*100; r->y=60+i*20; r->width=40; r->height=30; r->strokeColor=Qt::transparent;
+        }
+        QVERIFY(p->groupObjects({0,1})>=0); QVERIFY(p->copyObjects({0,1}));
+        const auto pasted=p->pasteObjects(QPointF(400,300)); QCOMPARE(pasted,(QList<int>{0,1}));
+        auto a=p->getObjectAt(0)->getBoundingRect(), b=p->getObjectAt(1)->getBoundingRect();
+        QCOMPARE(b.topLeft()-a.topLeft(),QPointF(100,20)); QCOMPARE(a.united(b).center(),QPointF(400,300));
+        QCOMPARE(p->groupMembersForObject(0),(QList<int>{0,1}));
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(),2); QVERIFY(p->redo()); QCOMPARE(p->getObjectCount(),4);
+        p->pasteObjects(QPointF(0,480)); a=p->getObjectAt(0)->getBoundingRect(); b=p->getObjectAt(1)->getBoundingRect();
+        QCOMPARE(b.topLeft()-a.topLeft(),QPointF(100,20)); QCOMPARE(a.united(b).left(),0.); QCOMPARE(a.united(b).bottom(),480.);
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); QTest::qWait(5);
+        const QPoint oldCursor=QCursor::pos(); const auto cursorGuard=qScopeGuard([&] { QCursor::setPos(oldCursor); });
+        auto state=p->editorViewState(); state.scale=2; state.offset=QPointF(30,-20); p->setEditorViewState(state);
+        const QPoint target(350,220); QCursor::setPos(viewport.mapToGlobal(target));
+        const auto position=viewport.pastePosition(); QVERIFY(QLineF(position,QPointF(320,240)).length()<1.);
+        p->pasteObjects(position); a=p->getObjectAt(0)->getBoundingRect(); b=p->getObjectAt(1)->getBoundingRect();
+        QVERIFY(QLineF(a.united(b).center(),position).length()<1.);
+        MainWindow window; window.show(); window.activateWindow(); QTest::qWait(10);
+        auto *canvas=window.findChild<ViewportPanel *>(); QVERIFY(canvas); canvas->setFocus();
+        QCursor::setPos(canvas->mapToGlobal(canvas->rect().center()));
+        const auto expectedCenter=canvas->pastePosition(); const int count=p->getObjectCount();
+        QTest::keySequence(canvas,QKeySequence::Paste); QCOMPARE(p->getObjectCount(),count+2);
+        a=p->getObjectAt(0)->getBoundingRect(); b=p->getObjectAt(1)->getBoundingRect();
+        QVERIFY(QLineF(a.united(b).center(),expectedCenter).length()<1.);
+    }
+    void gridAboveScene() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Grid overlay",640,480,Qt::black);
+        p->addObject("aviahorizont"); p->addObject("rectangle");
+        auto *r=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data());
+        r->x=50; r->y=50; r->width=120; r->height=100; r->fillColor=Qt::green;
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); QTest::qWait(5);
+        auto capture=[&]() { QImage image(viewport.size(),QImage::Format_ARGB32); image.fill(Qt::transparent); viewport.render(&image); return image; };
+        p->setShowGrid(false); const auto plain=capture();
+        p->setShowGrid(true); const auto gridded=capture();
+        // Вертикальные линии X=100 и X=300: поверх прямоугольника и авиагоризонта.
+        for(int x:{111,301}) {
+            bool changed=false;
+            for(int dx=-1;dx<=1;++dx) if(plain.pixel(x+dx,120)!=gridded.pixel(x+dx,120)) changed=true;
+            QVERIFY(changed);
+        }
+        gridded.save(QCoreApplication::applicationDirPath()+"/grid-overlay.png");
     }
     void editorProjectRoundTrip() {
         auto *p = ProjectManager::instance();
@@ -571,13 +699,15 @@ private slots:
         properties.showSelectedObjects({0, 1});
         QCOMPARE(table->item(rowFor("Ширина"), 1)->text(), QString("Разные значения"));
         table->item(rowFor("Ширина"), 1)->setText("90");
-        QCOMPARE(first->getBoundingRect().width(), 90.); QCOMPARE(second->getBoundingRect().width(), 90.);
+        QCOMPARE(dynamic_cast<RectangleObject *>(first.data())->width, 90.);
+        QCOMPARE(dynamic_cast<RectangleObject *>(second.data())->width, 90.);
+        QCOMPARE(first->getBoundingRect().width(), 94.); QCOMPARE(second->getBoundingRect().width(), 94.);
         QVERIFY(p->undo());
-        QCOMPARE(p->getObjectAt(0)->getBoundingRect().width(), 120.);
-        QCOMPARE(p->getObjectAt(1)->getBoundingRect().width(), 75.);
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(0).data())->width, 120.);
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(1).data())->width, 75.);
         first = p->getObjectAt(1); second = p->getObjectAt(0);
         QVERIFY(!p->setObjectsProperty({first, second}, "Ширина", "ошибка"));
-        QCOMPARE(first->getBoundingRect().width(), 75.); QCOMPARE(second->getBoundingRect().width(), 120.);
+        QCOMPARE(first->getBoundingRect().width(), 79.); QCOMPARE(second->getBoundingRect().width(), 124.);
         QVERIFY(p->setObjectsProperty({first, second}, "Заливка", "#ff5c7a"));
         QCOMPARE(dynamic_cast<RectangleObject *>(first.data())->fillColor.name(), QString("#ff5c7a"));
         properties.showSelectedObjects({0, 1});

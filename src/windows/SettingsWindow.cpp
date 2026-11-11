@@ -4,6 +4,7 @@
 #include "AppearanceManager.h"
 #include "ProjectManager.h"
 #include "FpgaSchemaRegistry.h"
+#include "ExpressionSpinBox.h"
 
 #include <QKeySequence>
 #include <QHBoxLayout>
@@ -69,17 +70,22 @@ void SettingsWindow::createWidgets()
 
     m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
     generalLayout->addRow(m_autoLoadCheck);
+    m_fastMoveStepSpin = new ExpressionSpinBox(this);
+    m_fastMoveStepSpin->setObjectName("FastMoveStepSpin");
+    m_fastMoveStepSpin->setRange(1, 10000);
+    m_fastMoveStepSpin->setSuffix(QStringLiteral(" пикселей"));
+    generalLayout->addRow(QStringLiteral("Шаг Shift + стрелки:"), m_fastMoveStepSpin);
     settingsLayout->addWidget(generalGroup);
 
     auto *fpgaGroup = new QGroupBox(QStringLiteral("ПЛИС — STATICGROUP"), this);
     auto *fpgaLayout = new QFormLayout(fpgaGroup);
     fpgaLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
-    m_staticGroupPixelsSpin = new QSpinBox(this);
+    m_staticGroupPixelsSpin = new ExpressionSpinBox(this);
     m_staticGroupPixelsSpin->setObjectName("StaticGroupPixelsSpin");
     m_staticGroupPixelsSpin->setRange(1, 65536);
     m_staticGroupPixelsSpin->setSuffix(QStringLiteral(" пикселей"));
     fpgaLayout->addRow(QStringLiteral("Ёмкость памяти:"), m_staticGroupPixelsSpin);
-    m_staticGroupElementsSpin = new QSpinBox(this);
+    m_staticGroupElementsSpin = new ExpressionSpinBox(this);
     m_staticGroupElementsSpin->setObjectName("StaticGroupElementsSpin");
     m_staticGroupElementsSpin->setRange(1, 65536);
     fpgaLayout->addRow(QStringLiteral("Количество элементов:"), m_staticGroupElementsSpin);
@@ -95,7 +101,7 @@ void SettingsWindow::createWidgets()
     formLayout->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
     formLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
-    m_gridStepSpin = new QSpinBox(this);
+    m_gridStepSpin = new ExpressionSpinBox(this);
     m_gridStepSpin->setObjectName(QStringLiteral("GridStepSpin"));
     m_gridStepSpin->setRange(1, 1000);
     m_gridStepSpin->setMinimumWidth(160);
@@ -172,6 +178,8 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Повторить:", new QLabel(QKeySequence(QKeySequence::Redo).toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Копировать:", new QLabel(QKeySequence(QKeySequence::Copy).toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Вставить:", new QLabel(QKeySequence(QKeySequence::Paste).toString(QKeySequence::NativeText), this));
+    hotkeysLayout->addRow("Сдвинуть выделение на 1 пиксель:", new QLabel("← / ↑ / → / ↓", this));
+    hotkeysLayout->addRow("Сдвинуть с настраиваемым шагом:", new QLabel("Shift + ← / ↑ / → / ↓", this));
     hotkeysLayout->addRow("Удалить объект:", new QLabel(QKeySequence(QKeySequence::Delete).toString(QKeySequence::NativeText)
         + " / " + QKeySequence(Qt::Key_Backspace).toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Сгруппировать:", new QLabel(QKeySequence("Ctrl+G").toString(QKeySequence::NativeText), this));
@@ -335,6 +343,7 @@ void SettingsWindow::loadSettings()
 {
     auto settings = ApplicationSettings::create();
     m_autoLoadCheck->setChecked(settings.value("autoLoad", false).toBool());
+    m_fastMoveStepSpin->setValue(ApplicationSettings::fastMoveStep());
     m_staticGroupPixelsSpin->setValue(ApplicationSettings::staticGroupPixels());
     m_staticGroupElementsSpin->setValue(ApplicationSettings::staticGroupElements());
 
@@ -361,6 +370,7 @@ void SettingsWindow::saveSettings()
 {
     auto settings = ApplicationSettings::create();
     settings.setValue("autoLoad", m_autoLoadCheck->isChecked());
+    settings.setValue("editor/fastMoveStep", m_fastMoveStepSpin->value());
     settings.setValue("fpga/staticGroupPixels", m_staticGroupPixelsSpin->value());
     settings.setValue("fpga/staticGroupElements", m_staticGroupElementsSpin->value());
     settings.setValue("gridStep", m_gridStepSpin->value());
