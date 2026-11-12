@@ -13,6 +13,7 @@
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QSpinBox>
+#include "ExpressionSpinBox.h"
 #include <QToolButton>
 
 namespace {
@@ -54,7 +55,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
 
     auto *flow = createFlowPanel(this);
 
-    m_widthSpin = new QSpinBox(this);
+    m_widthSpin = new ExpressionSpinBox(this);
     m_widthSpin->setRange(1, 8192);
     m_widthSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_widthSpin->setMinimumWidth(56);
@@ -66,7 +67,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     multiplyLabel->setObjectName("SettingsFieldLabel");
     flow->addWidget(multiplyLabel);
 
-    m_heightSpin = new QSpinBox(this);
+    m_heightSpin = new ExpressionSpinBox(this);
     m_heightSpin->setRange(1, 8192);
     m_heightSpin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_heightSpin->setMinimumWidth(56);
@@ -83,7 +84,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_gridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/grid.svg"), QStringLiteral("Показать сетку"), this, QStringLiteral("Shift+V"));
     m_snapCanvasButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-screen.svg"), QStringLiteral("Привязка к границам экрана"), this, QStringLiteral("Shift+C"));
     m_snapGridButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-grid.svg"), QStringLiteral("Привязка к сетке"), this, QStringLiteral("Shift+G"));
-    m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к другим объектам"), this, QStringLiteral("Shift+O"));
+    m_snapObjectsButton = createSettingsToggle(QStringLiteral(":/icons/icons/settings/snap-objects.svg"), QStringLiteral("Привязка к краям, центрам и равным промежуткам между объектами"), this, QStringLiteral("Shift+O"));
 
     flow->addWidget(m_gridButton);
     flow->addWidget(m_snapCanvasButton);
@@ -138,7 +139,6 @@ void ViewportSettingsPanel::onChangeBgColor()
 
     project->setBackgroundColor(selected);
     refreshInfo();
-    emit bgColorChanged(selected);
 }
 
 void ViewportSettingsPanel::onCanvasSizeEdited()
@@ -149,7 +149,6 @@ void ViewportSettingsPanel::onCanvasSizeEdited()
     const int width = m_widthSpin ? m_widthSpin->value() : 1;
     const int height = m_heightSpin ? m_heightSpin->value() : 1;
     ProjectManager::instance()->setCanvasSize(width, height);
-    emit canvasSizeChanged(width, height);
 }
 
 void ViewportSettingsPanel::onToggleGrid(bool enabled)

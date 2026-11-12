@@ -232,3 +232,12 @@ QRectF ThreeDViewObject::viewRect() const
     const double side = qMin(canvasW, canvasH);
     return QRectF(m_leftAnchored ? 0.0 : canvasW - side, 0.0, side, canvasH);
 }
+
+QSharedPointer<BaseObject> ThreeDViewObject::clone() const
+{
+    auto *clone = new ThreeDViewObject();
+    clone->parse(serializeInit(), FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d")));
+    clone->setLeftAnchored(isLeftAnchored());
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}

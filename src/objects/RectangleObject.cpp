@@ -96,7 +96,8 @@ QList<QPair<QString, QString>> RectangleObject::getProperties() const
 
 QRectF RectangleObject::getBoundingRect() const
 {
-    return QRectF(x, y, width, height);
+    const double border = strokeColor.alpha() > 0 && strokeWidth > 0.05 ? strokeWidth : 0.0;
+    return QRectF(x, y, width, height).adjusted(-border, -border, border, border);
 }
 
 void RectangleObject::moveBy(double dx, double dy)
@@ -109,7 +110,9 @@ void RectangleObject::moveBy(double dx, double dy)
 void RectangleObject::resizeBy(int edgeFlags, double dx, double dy, bool proportional)
 {
     if (proportional) {
-        const auto result = proportionalResizeRect(getBoundingRect(), edgeFlags, dx, dy).rect;
+        // Пропорции относятся к w/h; постоянная толщина внешнего абриса
+        // участвует в привязках и ручках, но не меняет соотношение заливки.
+        const auto result = proportionalResizeRect(QRectF(x, y, width, height), edgeFlags, dx, dy).rect;
         x = result.x(); y = result.y(); width = result.width(); height = result.height();
         emit changed();
         return;
@@ -139,6 +142,12 @@ void RectangleObject::resizeBy(int edgeFlags, double dx, double dy, bool proport
 bool RectangleObject::setObjectProperty(const QString &name, const QString &value)
 {
     bool ok = false;
+    if (name == "X" || name == "Y" || name == "Ширина" || name == "Высота" || name == "Толщина") {
+        const double number = value.toDouble(&ok);
+        if (!ok || !qIsFinite(number)
+            || ((name == "Ширина" || name == "Высота") && number < 1.0)
+            || (name == "Толщина" && number < 0.0)) return false;
+    }
 
     if (name == "X") {
         x = value.toDouble(&ok);
@@ -198,4 +207,21 @@ QMap<QString, quint32> RectangleObject::serializeParams() const
 bool RectangleObject::usesAlpha() const
 {
     return explicitAlpha || alpha < 255 || fillColor.alpha() < 255;
+}
+
+QSharedPointer<BaseObject> RectangleObject::clone() const
+{
+    auto *clone = new RectangleObject();
+    clone->enabled = enabled;
+    clone->x = x;
+    clone->y = y;
+    clone->width = width;
+    clone->height = height;
+    clone->fillColor = fillColor;
+    clone->strokeColor = strokeColor;
+    clone->strokeWidth = strokeWidth;
+    clone->alpha = alpha;
+    clone->explicitAlpha = explicitAlpha;
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
 }

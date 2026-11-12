@@ -18,10 +18,6 @@ class ViewportSettingsPanel : public BasePanel
 public:
     explicit ViewportSettingsPanel(QWidget *parent = nullptr);
 
-signals:
-    void bgColorChanged(const QColor &color);
-    void canvasSizeChanged(int width, int height);
-
 public slots:
     void refreshInfo();
 

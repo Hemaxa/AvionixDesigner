@@ -1,15 +1,22 @@
 // ViewportPanel - панель рабочей области приложения.
 
 #include "ViewportPanel.h"
+#include "CanvasGeometry.h"
+#include "SpacingGuidePainter.h"
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
 #include "DashedLineObject.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
+#include "ApplicationSettings.h"
+#include "EditorGestures.h"
+#include <cmath>
 #include <algorithm>
 #include <QPainter>
 #include <QWheelEvent>
 #include <QMouseEvent>
+#include <QKeyEvent>
+#include <QCursor>
 #include <QDragEnterEvent>
 #include <QFileInfo>
 #include <QLineF>
@@ -22,33 +29,6 @@
 #include <QtMath>
 
 namespace {
-QPointF constrainedMoveDeltaToCanvas(const QRectF &bounds, const QPointF &delta, int canvasW, int canvasH)
-{
-    QRectF moved = bounds.translated(delta);
-    QPointF constrained = delta;
-
-    if (moved.width() <= canvasW) {
-        if (moved.left() < 0.0)
-            constrained.rx() -= moved.left();
-        else if (moved.right() > canvasW)
-            constrained.rx() -= moved.right() - canvasW;
-    } else if (!qFuzzyIsNull(moved.left())) {
-        constrained.rx() -= moved.left();
-    }
-
-    moved = bounds.translated(constrained);
-    if (moved.height() <= canvasH) {
-        if (moved.top() < 0.0)
-            constrained.ry() -= moved.top();
-        else if (moved.bottom() > canvasH)
-            constrained.ry() -= moved.bottom() - canvasH;
-    } else if (!qFuzzyIsNull(moved.top())) {
-        constrained.ry() -= moved.top();
-    }
-
-    return constrained;
-}
-
 QPointF constrainedResizeDeltaToCanvas(const QRectF &bounds, int edgeFlags, const QPointF &delta, int canvasW, int canvasH)
 {
     QPointF constrained = delta;
@@ -73,16 +53,6 @@ QPointF clampedPointToCanvas(const QPointF &point, int canvasW, int canvasH)
     );
 }
 
-void moveObjectInsideCanvas(BaseObject *object, int canvasW, int canvasH)
-{
-    if (!object)
-        return;
-
-    const QRectF bounds = object->getBoundingRect();
-    const QPointF correction = constrainedMoveDeltaToCanvas(bounds, QPointF(0.0, 0.0), canvasW, canvasH);
-    if (!qFuzzyIsNull(correction.x()) || !qFuzzyIsNull(correction.y()))
-        object->moveBy(correction.x(), correction.y());
-}
 }
 
 ViewportPanel::ViewportPanel(QWidget *parent)
@@ -97,7 +67,9 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     setMinimumSize(200, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setAcceptDrops(true);
-    setToolTip(tr("Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°."));
+    setFocusPolicy(Qt::StrongFocus);
+    setMouseTracking(true);
+    setToolTip(tr("При перетаскивании: Shift — движение по одной оси, Alt — временно отключить привязки. Равные промежутки показываются автоматически при привязке к объектам. Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°. %1 внутри выделенного вращающегося объекта — поставить центр вращения.").arg(EditorGestures::rotationPivotShortcut()));
 
     // подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, QOverload<>::of(&QWidget::update));
@@ -114,7 +86,7 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     connect(ProjectManager::instance(), &ProjectManager::editorLayerViewChanged, this, [this]() {
         const auto previous = m_selectedIndexes;
         setSelectedIndexes(previous);
-        m_activeSnapGuides.clear();
+        clearSnapGuides();
         if (previous != m_selectedIndexes) {
             m_dragMode = None;
             emit objectSelected(m_selectedIndex);
@@ -126,7 +98,7 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     connect(ProjectManager::instance(), &ProjectManager::editorLayerObjectsChanged, this, [this]() {
         setSelectedIndexes({});
         m_dragMode = None;
-        m_activeSnapGuides.clear();
+        clearSnapGuides();
         emit objectSelected(-1);
         emit selectionChanged({});
         update();
@@ -152,6 +124,74 @@ void ViewportPanel::resetView()
     m_offsetY = 0;
     storeViewState();
     update();
+}
+
+QPointF ViewportPanel::pastePosition() const
+{
+    const QPoint local = mapFromGlobal(QCursor::pos());
+    const auto *project = ProjectManager::instance();
+    const QPointF center(project->getCanvasWidth() / 2.0, project->getCanvasHeight() / 2.0);
+    return rect().contains(local)
+        ? clampedPointToCanvas(mapToCanvas(local), project->getCanvasWidth(), project->getCanvasHeight())
+        : center;
+}
+
+void ViewportPanel::keyPressEvent(QKeyEvent *event)
+{
+    if (m_dragMode == Move && (event->key() == Qt::Key_Shift || event->key() == Qt::Key_Alt)) {
+        updateMoveDrag(event->modifiers() | (event->key() == Qt::Key_Shift ? Qt::ShiftModifier : Qt::AltModifier));
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_Escape && m_dragMode == SymmetryAxisMove) {
+        const bool edited = m_dragHistoryRecorded;
+        m_dragMode = None; m_dragAxisId = -1; m_dragHistoryRecorded = m_dragEditedObjects = false;
+        if (edited) ProjectManager::instance()->undo();
+        update(); event->accept(); return;
+    }
+    if (m_dragMode != None || m_selectedIndexes.isEmpty()
+        || (event->modifiers() & ~Qt::ShiftModifier)) {
+        BasePanel::keyPressEvent(event);
+        return;
+    }
+    const int step = event->modifiers().testFlag(Qt::ShiftModifier) ? ApplicationSettings::fastMoveStep() : 1;
+    QPointF delta;
+    switch (event->key()) {
+    case Qt::Key_Left: delta.setX(-step); break;
+    case Qt::Key_Right: delta.setX(step); break;
+    case Qt::Key_Up: delta.setY(-step); break;
+    case Qt::Key_Down: delta.setY(step); break;
+    default: BasePanel::keyPressEvent(event); return;
+    }
+    auto *project = ProjectManager::instance();
+    const auto movable = movableSelection();
+    if (movable.isEmpty()) { event->accept(); return; }
+    QRectF bounds;
+    for (int index : movable) bounds = bounds.isNull() ? project->getObjectAt(index)->getBoundingRect() : bounds.united(project->getObjectAt(index)->getBoundingRect());
+    delta = CanvasGeometry::constrainMove(bounds, delta,
+        project->getCanvasWidth(), project->getCanvasHeight());
+    delta = project->constrainSymmetryMove(movable, delta);
+    event->accept();
+    if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y())) return;
+    project->recordObjectEdit();
+    for (int index : movable) {
+        const auto object = project->getObjectAt(index);
+        if (object) object->moveBy(delta.x(), delta.y());
+    }
+    project->finishObjectEdit();
+    clearSnapGuides();
+    emit objectChanged();
+    update();
+}
+
+void ViewportPanel::keyReleaseEvent(QKeyEvent *event)
+{
+    if (m_dragMode == Move && (event->key() == Qt::Key_Shift || event->key() == Qt::Key_Alt)) {
+        updateMoveDrag(event->modifiers() & ~(event->key() == Qt::Key_Shift ? Qt::ShiftModifier : Qt::AltModifier));
+        event->accept();
+        return;
+    }
+    BasePanel::keyReleaseEvent(event);
 }
 
 void ViewportPanel::setSelectedIndex(int index)
@@ -261,6 +301,20 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     painter.restore();
 }
 
+void ViewportPanel::drawRotationPivot(QPainter &painter, const BaseObject *object)
+{
+    const auto center = object->rotationCenter();
+    if (!qIsFinite(center.x()) || !qIsFinite(center.y())) return;
+    const double scale = currentTotalScale(), radius = 4.0 / scale, arm = 8.0 / scale;
+    painter.save();
+    QPen pen(m_selectionColor, 1.5); pen.setCosmetic(true); painter.setPen(pen);
+    painter.setBrush(palette().color(QPalette::Window));
+    painter.drawEllipse(center, radius, radius);
+    painter.drawLine(center + QPointF(-arm, 0), center + QPointF(arm, 0));
+    painter.drawLine(center + QPointF(0, -arm), center + QPointF(0, arm));
+    painter.restore();
+}
+
 void ViewportPanel::drawDashedLineEndpointManipulators(QPainter &painter, const DashedLineObject *line)
 {
     if (!line)
@@ -335,9 +389,54 @@ void ViewportPanel::drawSnapGuides(QPainter &painter, int canvasW, int canvasH)
     painter.restore();
 }
 
-ViewportPanel::SnapResult ViewportPanel::snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const
+QList<int> ViewportPanel::movableSelection() const
 {
-    return snappedMoveDeltaForSelection(QList<int>{objectIndex}, originalRect, delta);
+    QList<int> indexes;
+    for (int index : m_selectedIndexes) {
+        const auto object = ProjectManager::instance()->getObjectAt(index);
+        if (object && object->canMove()) indexes.append(index);
+    }
+    return indexes;
+}
+
+void ViewportPanel::drawSymmetryAxes(QPainter &painter, int canvasW, int canvasH)
+{
+    auto *project = ProjectManager::instance();
+    painter.save();
+    const double half = 4.0 / currentTotalScale();
+    for (const auto &axis : project->symmetryAxes()) {
+        bool visible = false;
+        for (const auto &object : project->getObjects()) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+            if (copy && copy->axis() == axis && project->isObjectOnVisibleLayer(copy)) { visible = true; break; }
+        }
+        if (!visible) continue;
+        QColor color = project->snapObjectGuideColor();
+        QPen pen(color, m_dragMode == SymmetryAxisMove && m_dragAxisId == axis->id ? 2.0 : 1.25, Qt::DashDotLine);
+        pen.setCosmetic(true); painter.setPen(pen); painter.setBrush(palette().color(QPalette::Window));
+        const bool vertical = axis->orientation == Qt::Vertical;
+        if (vertical) painter.drawLine(QPointF(axis->position, 0), QPointF(axis->position, canvasH));
+        else painter.drawLine(QPointF(0, axis->position), QPointF(canvasW, axis->position));
+        const QPointF center = vertical ? QPointF(axis->position, canvasH / 2.0) : QPointF(canvasW / 2.0, axis->position);
+        painter.drawRect(QRectF(center.x() - half, center.y() - half, half * 2, half * 2));
+    }
+    painter.restore();
+}
+
+int ViewportPanel::hitTestSymmetryAxis(const QPointF &canvasPos) const
+{
+    auto *project = ProjectManager::instance();
+    if (!QRectF(0, 0, project->getCanvasWidth(), project->getCanvasHeight()).contains(canvasPos)) return -1;
+    double distance = 6.0 / currentTotalScale();
+    int id = -1;
+    for (const auto &object : project->getObjects()) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (!copy || !project->isObjectOnVisibleLayer(copy)) continue;
+        const auto &axis = copy->axis();
+        const double d = qAbs((axis->orientation == Qt::Vertical ? canvasPos.x() : canvasPos.y()) - axis->position);
+        if (d <= distance) { distance = d; id = axis->id; }
+    }
+    return id;
 }
 
 QRectF visibleBoundsForIndexes(const QList<int> &indexes)
@@ -386,6 +485,7 @@ QList<QRectF> snapTargetRectsForSelection(const QSet<int> &selectedSet)
         const auto object = project->getObjectAt(i);
         if (!object || !ProjectManager::instance()->isObjectVisibleInEditor(object.data()))
             continue;
+        if (const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data()); copy && selectedSet.contains(project->getObjects().indexOf(copy->source()))) continue;
 
         const QRectF bounds = object->getBoundingRect();
         if (!bounds.isEmpty())
@@ -395,110 +495,32 @@ QList<QRectF> snapTargetRectsForSelection(const QSet<int> &selectedSet)
     return targets;
 }
 
-ViewportPanel::SnapResult ViewportPanel::snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const
+ViewportPanel::SnapResult ViewportPanel::snappedMoveDeltaForSelection(
+    const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta,
+    Qt::KeyboardModifiers modifiers) const
 {
     auto *project = ProjectManager::instance();
-    SnapResult result;
-    result.delta = delta;
-    const double snapDistance = qMax(1.0, 8.0 / currentTotalScale());
-    const double gridStep = qMax(1, project->gridStep());
-    QSet<int> selectedSet;
-    for (int index : objectIndexes)
-        selectedSet.insert(index);
-
-    auto movedRect = [&originalRect, &result]() {
-        return originalRect.translated(result.delta);
-    };
-
-    auto applyX = [&result](double target, double source, SnapGuideKind kind) {
-        result.delta.setX(result.delta.x() + target - source);
-        result.guides.append({kind, Qt::Vertical, target});
-    };
-    auto applyY = [&result](double target, double source, SnapGuideKind kind) {
-        result.delta.setY(result.delta.y() + target - source);
-        result.guides.append({kind, Qt::Horizontal, target});
-    };
-
-    if (project->snapToGrid()) {
-        QRectF moved = movedRect();
-        const double targetX = qRound(moved.left() / gridStep) * gridStep;
-        applyX(targetX, moved.left(), SnapGuideKind::Grid);
-
-        moved = movedRect();
-        const double targetY = qRound(moved.top() / gridStep) * gridStep;
-        applyY(targetY, moved.top(), SnapGuideKind::Grid);
+    ObjectSnapper::Options options;
+    options.canvas = QSizeF(project->getCanvasWidth(), project->getCanvasHeight());
+    options.tolerance = 8.0 / currentTotalScale();
+    options.gridStep = project->gridStep();
+    const bool enabled = !modifiers.testFlag(Qt::AltModifier);
+    options.canvasEnabled = enabled && project->snapToCanvas();
+    options.gridEnabled = enabled && project->snapToGrid();
+    options.objectsEnabled = enabled && project->snapToObjects();
+    if (modifiers.testFlag(Qt::ShiftModifier)) {
+        // Ограничиваем и перемещение, и привязки: другая ось не должна дрейфовать.
+        options.horizontalEnabled = qAbs(delta.x()) >= qAbs(delta.y());
+        options.verticalEnabled = !options.horizontalEnabled;
     }
-
-    QRectF moved = movedRect();
-    if (project->snapToCanvas()) {
-        if (qAbs(moved.left()) <= snapDistance)
-            applyX(0.0, moved.left(), SnapGuideKind::Canvas);
-        else if (qAbs(moved.right() - project->getCanvasWidth()) <= snapDistance)
-            applyX(project->getCanvasWidth(), moved.right(), SnapGuideKind::Canvas);
-        else if (qAbs(moved.center().x() - project->getCanvasWidth() / 2.0) <= snapDistance)
-            applyX(project->getCanvasWidth() / 2.0, moved.center().x(), SnapGuideKind::Canvas);
-
-        moved = movedRect();
-        if (qAbs(moved.top()) <= snapDistance)
-            applyY(0.0, moved.top(), SnapGuideKind::Canvas);
-        else if (qAbs(moved.bottom() - project->getCanvasHeight()) <= snapDistance)
-            applyY(project->getCanvasHeight(), moved.bottom(), SnapGuideKind::Canvas);
-        else if (qAbs(moved.center().y() - project->getCanvasHeight() / 2.0) <= snapDistance)
-            applyY(project->getCanvasHeight() / 2.0, moved.center().y(), SnapGuideKind::Canvas);
-    }
-
-    if (project->snapToObjects()) {
-        moved = movedRect();
-        const QVector<double> sourceX = {moved.left(), moved.center().x(), moved.right()};
-        const QList<QRectF> targetRects = snapTargetRectsForSelection(selectedSet);
-
-        double bestDistanceX = snapDistance + 1.0;
-        double bestSourceX = 0.0;
-        double bestTargetX = 0.0;
-        for (const QRectF &other : targetRects) {
-            const QVector<double> targetX = {other.left(), other.center().x(), other.right()};
-            for (double sx : sourceX) {
-                for (double tx : targetX) {
-                    const double distance = qAbs(sx - tx);
-                    if (distance <= snapDistance && distance < bestDistanceX) {
-                        bestDistanceX = distance;
-                        bestSourceX = sx;
-                        bestTargetX = tx;
-                    }
-                }
-            }
-        }
-        if (bestDistanceX <= snapDistance)
-            applyX(bestTargetX, bestSourceX, SnapGuideKind::Object);
-
-        moved = movedRect();
-        const QVector<double> sourceY = {moved.top(), moved.center().y(), moved.bottom()};
-        double bestDistanceY = snapDistance + 1.0;
-        double bestSourceY = 0.0;
-        double bestTargetY = 0.0;
-        for (const QRectF &other : targetRects) {
-            const QVector<double> targetY = {other.top(), other.center().y(), other.bottom()};
-            for (double sy : sourceY) {
-                for (double ty : targetY) {
-                    const double distance = qAbs(sy - ty);
-                    if (distance <= snapDistance && distance < bestDistanceY) {
-                        bestDistanceY = distance;
-                        bestSourceY = sy;
-                        bestTargetY = ty;
-                    }
-                }
-            }
-        }
-        if (bestDistanceY <= snapDistance)
-            applyY(bestTargetY, bestSourceY, SnapGuideKind::Object);
-    }
-
-    result.delta = constrainedMoveDeltaToCanvas(
-        originalRect,
-        result.delta,
-        project->getCanvasWidth(),
-        project->getCanvasHeight()
-    );
+    const QSet<int> selectedSet(m_selectedIndexes.begin(), m_selectedIndexes.end());
+    const auto targets = options.objectsEnabled ? snapTargetRectsForSelection(selectedSet) : QList<QRectF>{};
+    auto result = ObjectSnapper::snapMove(originalRect, delta, targets, options);
+    result.delta = CanvasGeometry::constrainMove(originalRect, result.delta,
+        project->getCanvasWidth(), project->getCanvasHeight());
+    result.delta = m_dragLastAppliedDelta + project->constrainSymmetryMove(
+        objectIndexes, result.delta - m_dragLastAppliedDelta);
+    ObjectSnapper::validateGuides(result, originalRect.translated(result.delta), targets, options);
     return result;
 }
 
@@ -743,12 +765,20 @@ bool ViewportPanel::selectedObjectContains(const QPointF &canvasPos) const
 
 void ViewportPanel::beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds)
 {
+    Q_UNUSED(bounds);
+    const auto movable = movableSelection();
+    if (movable.isEmpty()) { m_dragMode = None; return; }
     m_dragMode = Move;
     m_dragStartCanvasPos = canvasPos;
-    m_dragStartBounds = bounds;
+    m_dragPointerCanvasPos = canvasPos;
+    m_dragStartBounds = QRectF();
+    for (int index : movable) {
+        const auto rect = ProjectManager::instance()->getObjectAt(index)->getBoundingRect();
+        m_dragStartBounds = m_dragStartBounds.isNull() ? rect : m_dragStartBounds.united(rect);
+    }
     m_dragLastAppliedDelta = QPointF(0.0, 0.0);
     m_dragStartObjectBounds.clear();
-    m_activeSnapGuides.clear();
+    clearSnapGuides();
 
     auto *project = ProjectManager::instance();
     const QList<int> dragIndexes = m_selectedIndexes.isEmpty() && m_selectedIndex >= 0
@@ -757,7 +787,7 @@ void ViewportPanel::beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds
 
     for (int index : dragIndexes) {
         const auto object = project->getObjectAt(index);
-        if (object)
+        if (object && object->canMove())
             m_dragStartObjectBounds.insert(index, object->getBoundingRect());
     }
 }
@@ -765,7 +795,7 @@ void ViewportPanel::beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds
 void ViewportPanel::moveObjectToDragDelta(int index, const QPointF &delta)
 {
     const auto object = ProjectManager::instance()->getObjectAt(index);
-    if (!object || !m_dragStartObjectBounds.contains(index))
+    if (!object || !object->canMove() || !m_dragStartObjectBounds.contains(index))
         return;
 
     const QRectF startRect = m_dragStartObjectBounds.value(index);
@@ -774,6 +804,30 @@ void ViewportPanel::moveObjectToDragDelta(int index, const QPointF &delta)
 
     if (!qFuzzyIsNull(correction.x()) || !qFuzzyIsNull(correction.y()))
         object->moveBy(correction.x(), correction.y());
+}
+
+void ViewportPanel::clearSnapGuides()
+{
+    m_activeSnapGuides.clear();
+    m_activeSpacingGuides.clear();
+}
+
+void ViewportPanel::updateMoveDrag(Qt::KeyboardModifiers modifiers)
+{
+    const auto movable = movableSelection();
+    if (movable.isEmpty()) return;
+    const auto snap = snappedMoveDeltaForSelection(movable, m_dragStartBounds,
+        m_dragPointerCanvasPos - m_dragStartCanvasPos, modifiers);
+    m_activeSnapGuides = snap.guides;
+    m_activeSpacingGuides = snap.spacingGuides;
+    const QPointF applied = snap.delta - m_dragLastAppliedDelta;
+    if (!qFuzzyIsNull(applied.x()) || !qFuzzyIsNull(applied.y())) {
+        ensureDragHistoryRecorded();
+        for (int index : movable) moveObjectToDragDelta(index, snap.delta);
+        m_dragLastAppliedDelta = snap.delta;
+        emit objectChanged();
+    }
+    update();
 }
 
 void ViewportPanel::ensureDragHistoryRecorded()
@@ -860,8 +914,6 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
 
     // рисуем холст
     painter.fillRect(0, 0, canvasW, canvasH, pm->getBackgroundColor());
-    if (pm->showGrid())
-        drawGrid(painter, canvasW, canvasH, totalScale);
 
     // рисуем все объекты
     painter.setRenderHint(QPainter::Antialiasing);
@@ -871,8 +923,18 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         if (!ProjectManager::instance()->isObjectVisibleInEditor(objects[i].data()))
             continue;
 
+        painter.save();
         objects[i]->draw(painter);
+        painter.restore();
+    }
 
+    // Сетка — редакторский слой поверх всей сцены; ручки остаются над сеткой.
+    if (pm->showGrid())
+        drawGrid(painter, canvasW, canvasH, totalScale);
+    drawSymmetryAxes(painter, canvasW, canvasH);
+
+    for (int i = objects.size() - 1; i >= 0; --i) {
+        if (!pm->isObjectVisibleInEditor(objects[i].data())) continue;
         // Рисуем выделение
         if (m_selectedIndexes.contains(i)) {
             m_selectionColor = pm->editorLayerColor(objects[i]->editorLayerId());
@@ -887,6 +949,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
             QRectF rect = objects[i]->getBoundingRect();
             bool canRotate = objects[i]->supportsRotationHandle();
             drawManipulators(painter, rect, singleSelection && objects[i]->canResize(), singleSelection && canRotate);
+            if (singleSelection && canRotate) drawRotationPivot(painter, objects[i].data());
         }
     }
 
@@ -903,6 +966,8 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     }
 
     drawSnapGuides(painter, canvasW, canvasH);
+    SpacingGuidePainter::draw(painter, m_activeSpacingGuides,
+        pm->snapObjectGuideColor(), palette().color(QPalette::Window));
 
     // Рисуем рамку выделения
     if (m_dragMode == MarqueeSelect) {
@@ -945,6 +1010,7 @@ void ViewportPanel::wheelEvent(QWheelEvent *event)
 
 void ViewportPanel::mousePressEvent(QMouseEvent *event)
 {
+    setFocus(Qt::MouseFocusReason);
     m_dragHistoryRecorded = false;
     m_dragEditedObjects = false;
 
@@ -952,6 +1018,21 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
         QPointF canvasPos = mapToCanvas(event->pos());
         m_lastMousePos = canvasPos;
         auto pm = ProjectManager::instance();
+        if (event->modifiers() == EditorGestures::rotationPivotModifiers) {
+            m_dragMode = None;
+            if (m_selectedIndex >= 0 && pm->setObjectRotationPivot(m_selectedIndex, canvasPos)) {
+                emit objectChanged(); update();
+            }
+            event->accept(); return;
+        }
+        if (event->modifiers() == Qt::NoModifier) {
+            const int axisId = hitTestSymmetryAxis(canvasPos);
+            if (axisId >= 0) {
+                for (const auto &axis : pm->symmetryAxes()) if (axis->id == axisId) m_dragAxisStartPosition = axis->position;
+                m_dragAxisId = axisId; m_dragMode = SymmetryAxisMove; m_dragStartCanvasPos = canvasPos;
+                event->accept(); return;
+            }
+        }
 
         // Модификаторы манипуляторов проверяются до добавления к выделению:
         // Shift/Ctrl на ручке меняют преобразование, а на объекте — выделение.
@@ -970,9 +1051,12 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                 const int handle = hitTestManipulators(canvasPos, object->getBoundingRect(), object->canResize(), object->supportsRotationHandle());
                 if (handle == 100) {
                     m_dragMode = Rotate;
-                    m_rotationCenter = object->getBoundingRect().center();
-                    if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data()))
-                        m_rotationCenter = QPointF(rotation->xRot, rotation->yRot);
+                    m_rotationCenter = object->rotationCenter();
+                    // При совпадении ручки с центром направление поворота не определено.
+                    if (QLineF(canvasPos, m_rotationCenter).length() < 1e-9) { m_dragMode = None; return; }
+                    if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data())) m_rotationStartAngle = rotation->getAngleDegrees();
+                    else if (const auto *image = dynamic_cast<const ImageObject *>(object.data())) m_rotationStartAngle = image->rotationDegrees;
+                    m_rotationStartPointerAngle = qRadiansToDegrees(qAtan2(canvasPos.y() - m_rotationCenter.y(), canvasPos.x() - m_rotationCenter.x()));
                     return;
                 }
                 if (handle > 0) {
@@ -1111,8 +1195,25 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
 
 void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
 {
+    if (m_dragMode == SymmetryAxisMove) {
+        const auto position = mapToCanvas(event->pos());
+        auto *project = ProjectManager::instance();
+        for (const auto &axis : project->symmetryAxes()) if (axis->id == m_dragAxisId) {
+            const double delta = axis->orientation == Qt::Vertical ? position.x() - m_dragStartCanvasPos.x() : position.y() - m_dragStartCanvasPos.y();
+            if (project->setSymmetryAxisPosition(m_dragAxisId, m_dragAxisStartPosition + delta, !m_dragHistoryRecorded)) {
+                m_dragHistoryRecorded = m_dragEditedObjects = true;
+                emit objectChanged();
+            }
+            update(); event->accept(); return;
+        }
+        m_dragMode = None;
+    }
     if (m_dragMode == None) {
-        // Перемещение без активного жеста не изменяет геометрию объектов.
+        const int axisId = hitTestSymmetryAxis(mapToCanvas(event->pos()));
+        if (axisId >= 0) {
+            for (const auto &axis : ProjectManager::instance()->symmetryAxes()) if (axis->id == axisId)
+                setCursor(axis->orientation == Qt::Vertical ? Qt::SizeHorCursor : Qt::SizeVerCursor);
+        } else unsetCursor();
         return;
     }
 
@@ -1136,40 +1237,14 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
     double dx = canvasPos.x() - m_lastMousePos.x();
     double dy = canvasPos.y() - m_lastMousePos.y();
 
-    if (m_dragMode == Move && m_selectedIndexes.size() > 1) {
-        const QPointF desiredDelta = canvasPos - m_dragStartCanvasPos;
-        const SnapResult snap = snappedMoveDeltaForSelection(m_selectedIndexes, m_dragStartBounds, desiredDelta);
-        const QPointF applyDelta = snap.delta - m_dragLastAppliedDelta;
-        if (qFuzzyIsNull(applyDelta.x()) && qFuzzyIsNull(applyDelta.y())) {
-            m_activeSnapGuides = snap.guides;
-            update();
-            return;
-        }
-        ensureDragHistoryRecorded();
-        for (int index : m_selectedIndexes)
-            moveObjectToDragDelta(index, snap.delta);
-        m_dragLastAppliedDelta = snap.delta;
-        m_activeSnapGuides = snap.guides;
-        emit objectChanged();
-        update();
-    } else if (m_selectedIndex >= 0) {
+    if (m_dragMode == Move) {
+        m_dragPointerCanvasPos = canvasPos;
+        updateMoveDrag(event->modifiers());
+        return;
+    }
+    if (m_selectedIndex >= 0) {
         auto obj = ProjectManager::instance()->getObjectAt(m_selectedIndex);
-        if (m_dragMode == Move) {
-            const QPointF desiredDelta = canvasPos - m_dragStartCanvasPos;
-            const SnapResult snap = snappedMoveDelta(m_selectedIndex, m_dragStartBounds, desiredDelta);
-            const QPointF applyDelta = snap.delta - m_dragLastAppliedDelta;
-            if (qFuzzyIsNull(applyDelta.x()) && qFuzzyIsNull(applyDelta.y())) {
-                m_activeSnapGuides = snap.guides;
-                update();
-                return;
-            }
-            ensureDragHistoryRecorded();
-            moveObjectToDragDelta(m_selectedIndex, snap.delta);
-            m_dragLastAppliedDelta = snap.delta;
-            m_activeSnapGuides = snap.guides;
-            emit objectChanged();
-            update();
-        } else if (m_dragMode == Resize) {
+        if (m_dragMode == Resize) {
             if (qFuzzyIsNull(dx) && qFuzzyIsNull(dy))
                 return;
             const QPointF constrainedDelta = constrainedResizeDeltaToCanvas(
@@ -1191,10 +1266,13 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
                 update();
                 return;
             }
+            const bool proportional = m_proportionalResize || event->modifiers().testFlag(Qt::ShiftModifier);
+            if (!ProjectManager::instance()->canEditGeometry(m_selectedIndex, [&](BaseObject *probe) {
+                probe->resizeBy(m_resizeEdgeFlags, resizeDelta.x(), resizeDelta.y(), proportional);
+            })) return;
             ensureDragHistoryRecorded();
-            obj->resizeBy(m_resizeEdgeFlags, resizeDelta.x(), resizeDelta.y(),
-                m_proportionalResize || event->modifiers().testFlag(Qt::ShiftModifier));
-            moveObjectInsideCanvas(
+            obj->resizeBy(m_resizeEdgeFlags, resizeDelta.x(), resizeDelta.y(), proportional);
+            CanvasGeometry::keepInside(
                 obj.data(),
                 ProjectManager::instance()->getCanvasWidth(),
                 ProjectManager::instance()->getCanvasHeight()
@@ -1205,22 +1283,29 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         } else if (m_dragMode == LineEndpoint) {
             if (auto dashedLine = dynamic_cast<DashedLineObject*>(obj.data())) {
                 const SnapPointResult snap = snappedPoint(QList<int>{m_selectedIndex}, canvasPos);
+                if (!ProjectManager::instance()->canEditGeometry(m_selectedIndex, [&](BaseObject *probe) {
+                    static_cast<DashedLineObject *>(probe)->setEndpoint(m_lineEndpointIndex, snap.point);
+                })) return;
                 ensureDragHistoryRecorded();
                 dashedLine->setEndpoint(m_lineEndpointIndex, snap.point);
+                CanvasGeometry::keepInside(dashedLine, ProjectManager::instance()->getCanvasWidth(), ProjectManager::instance()->getCanvasHeight());
                 m_activeSnapGuides = snap.guides;
                 emit objectChanged();
                 update();
             }
         } else if (m_dragMode == Rotate && obj->supportsRotationHandle()) {
-            m_activeSnapGuides.clear();
+            clearSnapGuides();
             const QPointF center = m_rotationCenter;
+            if (QLineF(canvasPos, center).length() < 1e-9) return;
             double angleRad = qAtan2(canvasPos.y() - center.y(), canvasPos.x() - center.x());
-            // Добавляем 90 градусов так как 0 градусов указывает направо, а ручка смотрит вверх
-            double angleDeg = qRadiansToDegrees(angleRad) + 90.0;
+            // Отсчёт от положения ручки в начале жеста исключает скачок угла
+            // при произвольном центре и уже повёрнутом объекте.
+            double angleDeg = m_rotationStartAngle + std::remainder(qRadiansToDegrees(angleRad) - m_rotationStartPointerAngle, 360.0);
             if (event->modifiers() & Qt::ControlModifier)
                 angleDeg = qRound(angleDeg / 90.0) * 90.0;
             else if (m_rotationSnapping || event->modifiers().testFlag(Qt::ShiftModifier))
                 angleDeg = qRound(angleDeg / 15.0) * 15.0;
+            if (!ProjectManager::instance()->canEditGeometry(m_selectedIndex, [&](BaseObject *probe) { probe->setRotation(angleDeg); }, false)) return;
             ensureDragHistoryRecorded();
             obj->setRotation(angleDeg);
             emit objectChanged();
@@ -1270,7 +1355,8 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
 
     m_dragMode = None;
     m_lineEndpointIndex = -1;
-    m_activeSnapGuides.clear();
+    m_dragAxisId = -1;
+    clearSnapGuides();
     m_dragLastAppliedDelta = QPointF(0.0, 0.0);
     m_dragStartObjectBounds.clear();
     m_dragHistoryRecorded = false;

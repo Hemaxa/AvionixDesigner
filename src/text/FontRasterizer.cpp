@@ -26,22 +26,34 @@ FpgaGlyph rasterizeGlyph(const QFont &font, QChar character)
     FpgaGlyph glyph;
     glyph.literal = character;
     glyph.code = character.unicode();
-    glyph.width = image.width();
-    glyph.height = image.height();
     glyph.advance = metrics.horizontalAdvance(character);
-    // Bearing указывает начало сохранённой маски, включая прозрачную рамку.
-    glyph.bearingX = tight.left() - padding;
-    glyph.bearingY = tight.top() - padding;
     glyph.ascent = metrics.ascent();
     glyph.descent = metrics.descent();
     glyph.size = font.pixelSize();
-    QStringList rows;
+
+    // Поля нужны при рисовании Qt. В атлас кладём только прямоугольник полезных
+    // пикселей, чтобы прозрачная рамка не перекрывала соседей в SYMBOLs.
+    QRect bounds;
+    QList<QString> pixels;
     for (int y = 0; y < image.height(); ++y) {
         QString row;
-        for (int x = 0; x < image.width(); ++x)
-            row.append(QChar('0' + qBound(0, qRound(image.pixelColor(x, y).alpha() * 7.0 / 255.0), 7)));
-        rows.append(row);
+        for (int x = 0; x < image.width(); ++x) {
+            const int level = qRound(image.pixelColor(x, y).alpha() * 7.0 / 255.0);
+            row.append(QChar('0' + level));
+            if (level)
+                bounds = bounds.united(QRect(x, y, 1, 1));
+        }
+        pixels.append(row);
     }
+    if (bounds.isEmpty())
+        bounds = QRect(0, 0, 1, 1);
+    glyph.width = bounds.width();
+    glyph.height = bounds.height();
+    glyph.bearingX = tight.left() - padding + bounds.x();
+    glyph.bearingY = tight.top() - padding + bounds.y();
+    QStringList rows;
+    for (int y = bounds.top(); y <= bounds.bottom(); ++y)
+        rows.append(pixels[y].sliced(bounds.x(), bounds.width()));
     glyph.maskRows = rows.join('\n');
     return glyph;
 }

@@ -182,7 +182,7 @@ void renderRectangle(QImage *frame, const QString &paramHex, const ParamSchema &
     ), color, border, extractField(paramHex, schema, QStringLiteral("a")));
 }
 
-void renderStaticGroup(QImage *frame,
+void renderMaskStage(QImage *frame,
                        const FpgaHardwareObject &object,
                        const QMap<int, QByteArray> &parameters,
                        const QByteArray &memory,
@@ -191,7 +191,7 @@ void renderStaticGroup(QImage *frame,
     if (!frame || schema.isEmpty())
         return;
 
-    // Element - декодированный прямоугольник и адрес маски одного элемента STATICGROUP.
+    // Element - декодированный прямоугольник и адрес маски одного слова параметров.
     struct Element { QRect rect; QColor color; int address; };
     QList<Element> elements;
     QRect bounds;
@@ -206,10 +206,9 @@ void renderStaticGroup(QImage *frame,
     bounds = bounds.intersected(frame->rect());
     for (int y = bounds.top(); y <= bounds.bottom(); ++y) {
         for (int x = bounds.left(); x <= bounds.right(); ++x) {
-            // RTL выбирает последний совпавший прямоугольник до чтения маски.
-            // Его нулевой пиксель не открывает другие элементы этой же группы.
-            for (int i = elements.size() - 1; i >= 0; --i) {
-                const auto &e = elements[i];
+            // tube_graph кладёт первое слово в старший слот. RTL выбирает
+            // последний совпавший слот, то есть первый прямоугольник в порядке пакетов.
+            for (const auto &e : elements) {
                 if (!e.rect.contains(x, y)) continue;
                 const qint64 address = qint64(e.address) + (y - e.rect.y()) * qint64(e.rect.width()) + x - e.rect.x();
                 if (address >= 0 && address < memory.size()) blendPixel(frame, x, y, e.color, byteAt(memory, address));
@@ -386,8 +385,11 @@ void FpgaSimulator::decodePackets()
                 m_warnings.append(QStringLiteral("Неверная длина памяти в пакете.")); continue;
             }
             const QByteArray payload = bytes.mid(12, length);
+            const bool font = memId < m_bundle.document.memories.size()
+                && m_bundle.document.memories[memId].kind == FpgaMemoryKind::FontAtlas;
+            const int capacity = font ? FpgaResourceLimits::fontPixels : FpgaResourceLimits::staticPixels();
             if (type == static_cast<quint8>(FpgaPacketType::StaticMemory)
-                && (address + length > FpgaResourceLimits::staticPixels()
+                && (address + length > capacity
                     || std::any_of(payload.cbegin(), payload.cend(), [](char v) { return quint8(v) > 7; }))) {
                 m_warnings.append(QStringLiteral("Пакет выходит за границы статической памяти или содержит неверную маску.")); continue;
             }
@@ -419,8 +421,8 @@ QImage FpgaSimulator::renderFrame() const
             renderRectangle(&frame, paramHex, document.schemas.value(QStringLiteral("rectangle")), false);
         } else if (object.type == QStringLiteral("rectangle_a")) {
             renderRectangle(&frame, paramHex, document.schemas.value(QStringLiteral("rectangle_a")), true);
-        } else if (object.type == QStringLiteral("staticgroup")) {
-            renderStaticGroup(&frame, object, m_parameters, m_staticMemory.value(object.memId), document.schemas.value(QStringLiteral("staticgroup")));
+        } else if (object.type == "staticgroup" || object.type == "symbols") {
+            renderMaskStage(&frame, object, m_parameters, m_staticMemory.value(object.memId), document.schemas.value(object.type));
         } else if (object.type == QStringLiteral("rotationobject")) {
             const ParamSchema schema = document.schemas.value(QStringLiteral("rotationobject"));
             for (int i = 0; i < object.iparams.size(); ++i) {

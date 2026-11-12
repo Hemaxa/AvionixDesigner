@@ -1,21 +1,23 @@
 // ProjectManager - менеджер проекта, связывающий внутреннюю модель редактора с экспортом в XML.
 
-#include <QFile>
+#include <QLineF>
 #include <QDomDocument>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
-#include <QPainter>
-#include <QRegularExpression>
 #include <QSet>
-#include <QStringDecoder>
 #include <QImageReader>
 #include <QSvgRenderer>
 #include "ApplicationSettings.h"
 #include <QtMath>
 
 #include "ProjectManager.h"
+#include "ObjectCloner.h"
+#include "CanvasGeometry.h"
+#include "ProjectXmlFile.h"
+#include "fpga/compiler/FpgaXmlExporter.h"
+#include "fpga/compiler/ImageResourceBuilder.h"
 #include "EditorProjectXml.h"
-#include <QSaveFile>
 #include "EditorProjectDocument.h"
 #include "FpgaSchemaRegistry.h"
 #include "ObjectsManager.h"
@@ -29,1529 +31,14 @@
 #include "ThreeDViewObject.h"
 #include <QScopedValueRollback>
 #include "TextObject.h"
-#include "text/FontRasterizer.h"
 #include "fpga/model/FpgaCompiledDocument.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
-#include "RasterGeometry.h"
-#include "BitParser.h"
+#include "NumericExpression.h"
+#include "ObjectReflection.h"
 
 #include <algorithm>
-#include <limits>
 
-namespace {
-constexpr int kFallbackStaticGroupMaxDimension = 4095;
-constexpr int kFallbackStaticGroupAddressablePixels = 65536;
-constexpr int kFallbackRotationObjectAddressableTiles = 2048;
-
-void moveObjectInsideCanvas(BaseObject *object, int canvasW, int canvasH)
-{
-    if (!object || canvasW <= 0 || canvasH <= 0)
-        return;
-
-    const QRectF bounds = object->getBoundingRect();
-    double dx = 0.0;
-    double dy = 0.0;
-
-    if (bounds.width() <= canvasW) {
-        if (bounds.left() < 0.0)
-            dx = -bounds.left();
-        else if (bounds.right() > canvasW)
-            dx = canvasW - bounds.right();
-    } else {
-        dx = -bounds.left();
-    }
-
-    if (bounds.height() <= canvasH) {
-        if (bounds.top() < 0.0)
-            dy = -bounds.top();
-        else if (bounds.bottom() > canvasH)
-            dy = canvasH - bounds.bottom();
-    } else {
-        dy = -bounds.top();
-    }
-
-    if (!qFuzzyIsNull(dx) || !qFuzzyIsNull(dy))
-        object->moveBy(dx, dy);
-}
-
-QString compactEncodingName(const QString &encoding)
-{
-    QString result = encoding.trimmed().toLower();
-    result.remove(QLatin1Char('-'));
-    result.remove(QLatin1Char('_'));
-    result.remove(QLatin1Char(' '));
-    return result;
-}
-
-bool isWindows1251Encoding(const QString &encoding)
-{
-    const QString compact = compactEncodingName(encoding);
-    return compact == QStringLiteral("windows1251")
-        || compact == QStringLiteral("cp1251")
-        || compact == QStringLiteral("mscp1251")
-        || compact == QStringLiteral("microsoftcp1251")
-        || compact == QStringLiteral("xcp1251");
-}
-
-QString declaredXmlEncoding(const QByteArray &bytes)
-{
-    const QString header = QString::fromLatin1(bytes.left(1024));
-    const QRegularExpression encodingRe(
-        QStringLiteral("<\\?xml[^>]*\\bencoding\\s*=\\s*(['\\\"])([^'\\\"]+)\\1"),
-        QRegularExpression::CaseInsensitiveOption
-    );
-    const QRegularExpressionMatch match = encodingRe.match(header);
-    return match.hasMatch() ? match.captured(2).trimmed() : QString();
-}
-
-QString normalizeXmlDeclarationEncoding(QString text)
-{
-    const int declStart = text.indexOf(QStringLiteral("<?xml"), 0, Qt::CaseInsensitive);
-    if (declStart < 0)
-        return text;
-    if (!text.left(declStart).trimmed().isEmpty())
-        return text;
-
-    const int declEnd = text.indexOf(QStringLiteral("?>"), declStart);
-    if (declEnd < 0)
-        return text;
-
-    QString declaration = text.mid(declStart, declEnd + 2 - declStart);
-    const QRegularExpression encodingRe(
-        QStringLiteral("\\s+encoding\\s*=\\s*['\\\"][^'\\\"]+['\\\"]"),
-        QRegularExpression::CaseInsensitiveOption
-    );
-    declaration.replace(encodingRe, QStringLiteral(" encoding=\"UTF-8\""));
-    text.replace(declStart, declEnd + 2 - declStart, declaration);
-    return text;
-}
-
-QString decodeWindows1251(const QByteArray &bytes)
-{
-    static constexpr ushort table80ToBF[] = {
-        0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021,
-        0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F,
-        0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
-        0xFFFD, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F,
-        0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7,
-        0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407,
-        0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7,
-        0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457
-    };
-
-    QString text;
-    text.reserve(bytes.size());
-    for (const char rawByte : bytes) {
-        const uchar byte = static_cast<uchar>(rawByte);
-        if (byte < 0x80) {
-            text.append(QChar(byte));
-        } else if (byte >= 0xC0) {
-            text.append(QChar(static_cast<ushort>(byte < 0xE0
-                ? 0x0410 + byte - 0xC0
-                : 0x0430 + byte - 0xE0)));
-        } else {
-            text.append(QChar(table80ToBF[byte - 0x80]));
-        }
-    }
-    return text;
-}
-
-QString decodeXmlWithQt(const QByteArray &bytes, QStringConverter::Encoding encoding, const QString &encodingName, QString *errorMessage)
-{
-    QStringDecoder decoder(encoding, QStringConverter::Flag::ConvertInitialBom);
-    const QString text = decoder.decode(bytes);
-    if (decoder.hasError()) {
-        if (errorMessage)
-            *errorMessage = QStringLiteral("Не удалось декодировать XML как %1").arg(encodingName);
-        return QString();
-    }
-    return text;
-}
-
-QString decodeXmlWithNamedQtCodec(const QByteArray &bytes, const QString &encodingName, QString *errorMessage)
-{
-    const QByteArray codecName = encodingName.toLatin1();
-    QStringDecoder decoder(codecName.constData(), QStringConverter::Flag::ConvertInitialBom);
-    if (!decoder.isValid()) {
-        if (errorMessage)
-            *errorMessage = QStringLiteral("Кодировка XML \"%1\" не поддерживается этой сборкой Qt").arg(encodingName);
-        return QString();
-    }
-
-    const QString text = decoder.decode(bytes);
-    if (decoder.hasError()) {
-        if (errorMessage)
-            *errorMessage = QStringLiteral("Не удалось декодировать XML как %1").arg(encodingName);
-        return QString();
-    }
-    return text;
-}
-
-QString decodeXmlBytes(const QByteArray &bytes, QString *errorMessage)
-{
-    if (errorMessage)
-        errorMessage->clear();
-
-    const QString declaredEncoding = declaredXmlEncoding(bytes);
-    if (isWindows1251Encoding(declaredEncoding))
-        return decodeWindows1251(bytes);
-
-    if (!declaredEncoding.isEmpty())
-        return decodeXmlWithNamedQtCodec(bytes, declaredEncoding, errorMessage);
-
-    const auto detectedEncoding = QStringConverter::encodingForData(bytes);
-    if (detectedEncoding)
-        return decodeXmlWithQt(bytes, *detectedEncoding, QString::fromLatin1(QStringConverter::nameForEncoding(*detectedEncoding)), errorMessage);
-
-    return decodeXmlWithQt(bytes, QStringConverter::Utf8, QStringLiteral("UTF-8"), errorMessage);
-}
-
-bool readXmlDocument(const QString &fileName, QDomDocument *doc, QString *errorMessage)
-{
-    if (errorMessage)
-        errorMessage->clear();
-
-    QFile file(fileName);
-    if (!file.open(QIODevice::ReadOnly)) {
-        if (errorMessage)
-            *errorMessage = QStringLiteral("Не удалось открыть файл: %1").arg(file.errorString());
-        return false;
-    }
-
-    const QByteArray bytes = file.readAll();
-    if (file.error() != QFileDevice::NoError) {
-        if (errorMessage)
-            *errorMessage = QStringLiteral("Не удалось прочитать файл: %1").arg(file.errorString());
-        return false;
-    }
-
-    QString decodeError;
-    QString text = decodeXmlBytes(bytes, &decodeError);
-    if (!decodeError.isEmpty()) {
-        if (errorMessage)
-            *errorMessage = decodeError;
-        return false;
-    }
-
-    text = normalizeXmlDeclarationEncoding(text);
-    const QDomDocument::ParseResult result = doc->setContent(text, QDomDocument::ParseOption::PreserveSpacingOnlyNodes);
-    if (!result) {
-        if (errorMessage) {
-            *errorMessage = QStringLiteral("Ошибка XML: %1 (строка %2, столбец %3)")
-                .arg(result.errorMessage)
-                .arg(result.errorLine)
-                .arg(result.errorColumn);
-        }
-        return false;
-    }
-
-    return true;
-}
-
-int windows1251ByteForCodePoint(uint codePoint)
-{
-    if (codePoint <= 0x7F)
-        return static_cast<int>(codePoint);
-    if (codePoint >= 0x0410 && codePoint <= 0x042F)
-        return 0xC0 + static_cast<int>(codePoint - 0x0410);
-    if (codePoint >= 0x0430 && codePoint <= 0x044F)
-        return 0xE0 + static_cast<int>(codePoint - 0x0430);
-
-    switch (codePoint) {
-    case 0x0402: return 0x80;
-    case 0x0403: return 0x81;
-    case 0x201A: return 0x82;
-    case 0x0453: return 0x83;
-    case 0x201E: return 0x84;
-    case 0x2026: return 0x85;
-    case 0x2020: return 0x86;
-    case 0x2021: return 0x87;
-    case 0x20AC: return 0x88;
-    case 0x2030: return 0x89;
-    case 0x0409: return 0x8A;
-    case 0x2039: return 0x8B;
-    case 0x040A: return 0x8C;
-    case 0x040C: return 0x8D;
-    case 0x040B: return 0x8E;
-    case 0x040F: return 0x8F;
-    case 0x0452: return 0x90;
-    case 0x2018: return 0x91;
-    case 0x2019: return 0x92;
-    case 0x201C: return 0x93;
-    case 0x201D: return 0x94;
-    case 0x2022: return 0x95;
-    case 0x2013: return 0x96;
-    case 0x2014: return 0x97;
-    case 0x2122: return 0x99;
-    case 0x0459: return 0x9A;
-    case 0x203A: return 0x9B;
-    case 0x045A: return 0x9C;
-    case 0x045C: return 0x9D;
-    case 0x045B: return 0x9E;
-    case 0x045F: return 0x9F;
-    case 0x00A0: return 0xA0;
-    case 0x040E: return 0xA1;
-    case 0x045E: return 0xA2;
-    case 0x0408: return 0xA3;
-    case 0x00A4: return 0xA4;
-    case 0x0490: return 0xA5;
-    case 0x00A6: return 0xA6;
-    case 0x00A7: return 0xA7;
-    case 0x0401: return 0xA8;
-    case 0x00A9: return 0xA9;
-    case 0x0404: return 0xAA;
-    case 0x00AB: return 0xAB;
-    case 0x00AC: return 0xAC;
-    case 0x00AD: return 0xAD;
-    case 0x00AE: return 0xAE;
-    case 0x0407: return 0xAF;
-    case 0x00B0: return 0xB0;
-    case 0x00B1: return 0xB1;
-    case 0x0406: return 0xB2;
-    case 0x0456: return 0xB3;
-    case 0x0491: return 0xB4;
-    case 0x00B5: return 0xB5;
-    case 0x00B6: return 0xB6;
-    case 0x00B7: return 0xB7;
-    case 0x0451: return 0xB8;
-    case 0x2116: return 0xB9;
-    case 0x0454: return 0xBA;
-    case 0x00BB: return 0xBB;
-    case 0x0458: return 0xBC;
-    case 0x0405: return 0xBD;
-    case 0x0455: return 0xBE;
-    case 0x0457: return 0xBF;
-    default: return -1;
-    }
-}
-
-QByteArray encodeXmlAsWindows1251(const QString &text)
-{
-    QByteArray encoded;
-    encoded.reserve(text.size());
-
-    for (int i = 0; i < text.size(); ++i) {
-        uint codePoint = text.at(i).unicode();
-        if (text.at(i).isHighSurrogate() && i + 1 < text.size() && text.at(i + 1).isLowSurrogate()) {
-            codePoint = QChar::surrogateToUcs4(text.at(i), text.at(i + 1));
-            ++i;
-        }
-
-        const int byte = windows1251ByteForCodePoint(codePoint);
-        if (byte >= 0) {
-            encoded.append(static_cast<char>(byte));
-        } else {
-            encoded.append("&#");
-            encoded.append(QByteArray::number(codePoint));
-            encoded.append(';');
-        }
-    }
-
-    return encoded;
-}
-
-int schemaBitLength(const ParamSchema &schema)
-{
-    int maxBit = 0;
-    for (auto it = schema.constBegin(); it != schema.constEnd(); ++it) {
-        maxBit = qMax(maxBit, it.value().offset + it.value().size);
-    }
-    return maxBit;
-}
-
-QString buildInitHex(const ParamSchema &schema, const QMap<QString, quint32> &params)
-{
-    const int hexLength = (schemaBitLength(schema) + 3) / 4;
-    QString hexStr(hexLength, QLatin1Char('0'));
-
-    for (auto it = params.constBegin(); it != params.constEnd(); ++it) {
-        if (schema.contains(it.key())) {
-            const auto &info = schema[it.key()];
-            BitParser::inject(hexStr, info.offset, info.size, it.value());
-        }
-    }
-
-    return hexStr;
-}
-
-int maxUnsignedFieldValue(const ParamSchema &schema, const QString &fieldName, int fallback)
-{
-    if (!schema.contains(fieldName))
-        return fallback;
-
-    const int size = schema[fieldName].size;
-    if (size <= 0)
-        return fallback;
-
-    const qint64 value = size >= 31
-        ? static_cast<qint64>(std::numeric_limits<int>::max())
-        : ((static_cast<qint64>(1) << size) - 1);
-    return static_cast<int>(qMin<qint64>(value, std::numeric_limits<int>::max()));
-}
-
-int staticGroupAddressablePixels(const ParamSchema &schema)
-{
-    const int maxAddr = maxUnsignedFieldValue(schema, QStringLiteral("addr"), kFallbackStaticGroupAddressablePixels - 1);
-    return qMin(FpgaResourceLimits::staticPixels(), qMax(1, maxAddr + 1));
-}
-
-QSizeF fitSizeToStaticGroupLimits(const QSizeF &size, const ParamSchema &schema)
-{
-    if (size.width() <= 0.0 || size.height() <= 0.0)
-        return QSizeF(1.0, 1.0);
-
-    const int maxWidth = maxUnsignedFieldValue(schema, QStringLiteral("w"), kFallbackStaticGroupMaxDimension);
-    const int maxHeight = maxUnsignedFieldValue(schema, QStringLiteral("h"), kFallbackStaticGroupMaxDimension);
-    const int maxPixels = staticGroupAddressablePixels(schema);
-
-    double scale = 1.0;
-    if (size.width() > maxWidth)
-        scale = qMin(scale, static_cast<double>(maxWidth) / size.width());
-    if (size.height() > maxHeight)
-        scale = qMin(scale, static_cast<double>(maxHeight) / size.height());
-    if (size.width() * size.height() > maxPixels)
-        scale = qMin(scale, qSqrt(static_cast<double>(maxPixels) / (size.width() * size.height())));
-
-    return QSizeF(qMax(1.0, static_cast<double>(qFloor(size.width() * scale))),
-                  qMax(1.0, static_cast<double>(qFloor(size.height() * scale))));
-}
-
-qint64 staticGroupPixelCost(const QList<ImageMaskComponent> &components)
-{
-    qint64 pixels = 0;
-    for (const ImageMaskComponent &component : components)
-        pixels += qMax<qint64>(1, static_cast<qint64>(component.bounds.width()) * component.bounds.height());
-    return pixels;
-}
-
-QList<ImageMaskComponent> scaledStaticGroupComponents(const QList<ImageMaskComponent> &components,
-                                                      double scale)
-{
-    QList<ImageMaskComponent> scaled;
-    scaled.reserve(components.size());
-
-    for (const ImageMaskComponent &component : components) {
-        if (component.mask.isNull() || component.bounds.isEmpty())
-            continue;
-
-        ImageMaskComponent out;
-        out.layerIndex = component.layerIndex;
-        out.color = component.color;
-        const int width = qMax(1, static_cast<int>(qFloor(component.bounds.width() * scale)));
-        const int height = qMax(1, static_cast<int>(qFloor(component.bounds.height() * scale)));
-        out.bounds = QRect(qRound(component.bounds.left() * scale),
-                           qRound(component.bounds.top() * scale),
-                           width,
-                           height);
-        out.mask = component.mask.scaled(width, height, Qt::IgnoreAspectRatio, Qt::FastTransformation);
-        scaled.append(out);
-    }
-
-    return scaled;
-}
-
-QList<ImageMaskComponent> simplifyComponentsForStaticGroup(const ParamSchema &schema,
-                                                           const QList<ImageMaskComponent> &components)
-{
-    const int maxWidth = maxUnsignedFieldValue(schema, QStringLiteral("w"), kFallbackStaticGroupMaxDimension);
-    const int maxHeight = maxUnsignedFieldValue(schema, QStringLiteral("h"), kFallbackStaticGroupMaxDimension);
-    const int maxPixels = staticGroupAddressablePixels(schema);
-    if (components.isEmpty())
-        return {};
-
-    double scale = 1.0;
-    for (const ImageMaskComponent &component : components) {
-        if (component.bounds.width() > maxWidth)
-            scale = qMin(scale, static_cast<double>(maxWidth) / component.bounds.width());
-        if (component.bounds.height() > maxHeight)
-            scale = qMin(scale, static_cast<double>(maxHeight) / component.bounds.height());
-    }
-
-    const qint64 initialPixels = staticGroupPixelCost(components);
-    if (initialPixels > maxPixels)
-        scale = qMin(scale, qSqrt(static_cast<double>(maxPixels) / initialPixels));
-
-    if (scale >= 0.999)
-        return components;
-
-    QList<ImageMaskComponent> simplified = scaledStaticGroupComponents(components, scale);
-    for (int attempt = 0; attempt < 8 && staticGroupPixelCost(simplified) > maxPixels; ++attempt) {
-        const qint64 currentPixels = staticGroupPixelCost(simplified);
-        scale *= qSqrt(static_cast<double>(maxPixels) / currentPixels) * 0.98;
-        simplified = scaledStaticGroupComponents(components, scale);
-    }
-
-    return simplified;
-}
-
-QRect alphaBounds(const QImage &image)
-{
-    return rasterAlphaBounds(image);
-}
-
-int rotationTileCost(const QSize &size)
-{
-    if (size.width() <= 0 || size.height() <= 0)
-        return 0;
-    return ((size.width() + 7) / 8) * ((size.height() + 7) / 8);
-}
-
-ImageMaskComponent singleComponentForRotationObject(const ImageObject *image)
-{
-    ImageMaskComponent component;
-    if (!image)
-        return component;
-
-    const QImage source = image->renderedSourceImage().convertToFormat(QImage::Format_ARGB32);
-    if (source.isNull())
-        return component;
-
-    QRect bounds = alphaBounds(source);
-    if (bounds.isEmpty())
-        bounds = QRect(0, 0, qMax(1, source.width()), qMax(1, source.height()));
-
-    component.bounds = bounds;
-    component.color = image->effectiveMaskColor();
-    component.mask = source.copy(bounds);
-    return component;
-}
-
-ImageMaskComponent simplifyComponentForRotationObject(const ImageMaskComponent &component)
-{
-    if (component.mask.isNull() || component.bounds.isEmpty())
-        return component;
-
-    double scale = 1.0;
-    if ((component.bounds.width() + 7) / 8 > 255)
-        scale = qMin(scale, (255.0 * 8.0) / component.bounds.width());
-
-    const int initialTiles = rotationTileCost(component.bounds.size());
-    if (initialTiles > kFallbackRotationObjectAddressableTiles)
-        scale = qMin(scale, qSqrt(static_cast<double>(kFallbackRotationObjectAddressableTiles) / initialTiles));
-
-    if (scale >= 0.999)
-        return component;
-
-    ImageMaskComponent simplified = component;
-    for (int attempt = 0; attempt < 8; ++attempt) {
-        const int width = qMax(1, static_cast<int>(qFloor(component.bounds.width() * scale)));
-        const int height = qMax(1, static_cast<int>(qFloor(component.bounds.height() * scale)));
-        simplified.bounds = QRect(qRound(component.bounds.left() * scale),
-                                  qRound(component.bounds.top() * scale),
-                                  width,
-                                  height);
-        simplified.mask = component.mask.scaled(width, height, Qt::IgnoreAspectRatio, Qt::FastTransformation);
-        if (rotationTileCost(simplified.bounds.size()) <= kFallbackRotationObjectAddressableTiles
-            && (simplified.bounds.width() + 7) / 8 <= 255) {
-            break;
-        }
-        scale *= 0.96;
-    }
-
-    return simplified;
-}
-
-void copyBaseFlags(const BaseObject *source, BaseObject *target)
-{
-    target->setViewVisible(source->isViewVisible());
-    target->setSelectionLocked(source->isSelectionLocked());
-    target->setExportEnabled(source->isExportEnabled());
-    target->setImportedHardwareObject(source->isImportedHardwareObject());
-    target->setResizeLocked(source->isResizeLocked());
-    target->setEditRestrictionHint(source->editRestrictionHint());
-    target->setCustomName(source->customName());
-    target->setEditorLayerId(source->editorLayerId());
-}
-
-QSharedPointer<BaseObject> cloneObject(const QSharedPointer<BaseObject> &source)
-{
-    if (!source)
-        return {};
-
-    BaseObject *rawClone = nullptr;
-
-    if (auto rect = dynamic_cast<RectangleObject*>(source.data())) {
-        auto *clone = new RectangleObject();
-        clone->enabled = rect->enabled;
-        clone->x = rect->x;
-        clone->y = rect->y;
-        clone->width = rect->width;
-        clone->height = rect->height;
-        clone->fillColor = rect->fillColor;
-        clone->strokeColor = rect->strokeColor;
-        clone->strokeWidth = rect->strokeWidth;
-        clone->alpha = rect->alpha;
-        clone->explicitAlpha = rect->explicitAlpha;
-        rawClone = clone;
-    } else if (auto dashed = dynamic_cast<DashedLineObject*>(source.data())) {
-        auto *clone = new DashedLineObject();
-        clone->enabled = dashed->enabled;
-        clone->color = dashed->color;
-        clone->x0 = dashed->x0;
-        clone->y0 = dashed->y0;
-        clone->x1 = dashed->x1;
-        clone->y1 = dashed->y1;
-        clone->dashPeriod = dashed->dashPeriod;
-        clone->dashLength = dashed->dashLength;
-        clone->dashPhase = dashed->dashPhase;
-        clone->lineWidth = dashed->lineWidth;
-        rawClone = clone;
-    } else if (auto ribbon = dynamic_cast<RibbonScaleObject*>(source.data())) {
-        auto *clone = new RibbonScaleObject();
-        clone->enabled = ribbon->enabled;
-        clone->color = ribbon->color;
-        clone->left = ribbon->left;
-        clone->right = ribbon->right;
-        clone->top = ribbon->top;
-        clone->bottom = ribbon->bottom;
-        clone->lineWidth = ribbon->lineWidth;
-        clone->period = ribbon->period;
-        clone->yStart = ribbon->yStart;
-        rawClone = clone;
-    } else if (auto horizon = dynamic_cast<AviaHorizonObject*>(source.data())) {
-        auto *clone = new AviaHorizonObject();
-        clone->enabled = horizon->enabled;
-        clone->earthColor = horizon->earthColor;
-        clone->skyColor = horizon->skyColor;
-        clone->horizonLineColor = horizon->horizonLineColor;
-        clone->lineWidth = horizon->lineWidth;
-        clone->xCenter = horizon->xCenter;
-        clone->yCenter = horizon->yCenter;
-        clone->areaWidth = horizon->areaWidth;
-        clone->areaHeight = horizon->areaHeight;
-        clone->sinVal = horizon->sinVal;
-        clone->cosVal = horizon->cosVal;
-        rawClone = clone;
-    } else if (auto threeDView = dynamic_cast<ThreeDViewObject*>(source.data())) {
-        auto *clone = new ThreeDViewObject();
-        clone->parse(threeDView->serializeInit(), FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("layer3d")));
-        clone->setLeftAnchored(threeDView->isLeftAnchored());
-        rawClone = clone;
-    } else if (auto text = dynamic_cast<TextObject*>(source.data())) {
-        auto *clone = new TextObject();
-        clone->states = text->states;
-        clone->groupNumber = text->groupNumber;
-        clone->maskImages = text->maskImages;
-        clone->text = text->text;
-        clone->fontFamily = text->fontFamily;
-        clone->pixelSize = text->pixelSize;
-        clone->fontIndex = text->fontIndex;
-        clone->restrictedAtlasEditing = text->restrictedAtlasEditing;
-        clone->exportAlphabetGroups = text->exportAlphabetGroups;
-        if (text->hasFontAtlas())
-            clone->setFontAtlas(text->fontAtlas(), text->restrictedAtlasEditing);
-        clone->extraCharacters = text->extraCharacters;
-        rawClone = clone;
-    } else if (auto group = dynamic_cast<StaticGroupObject*>(source.data())) {
-        auto *clone = new StaticGroupObject();
-        clone->states = group->states;
-        clone->groupNumber = group->groupNumber;
-        clone->maskImages = group->maskImages;
-        rawClone = clone;
-    } else if (auto rotation = dynamic_cast<RotationObject*>(source.data())) {
-        auto *clone = new RotationObject();
-        clone->enabled = rotation->enabled;
-        clone->left = rotation->left;
-        clone->top = rotation->top;
-        clone->right = rotation->right;
-        clone->bottom = rotation->bottom;
-        clone->xRot = rotation->xRot;
-        clone->yRot = rotation->yRot;
-        clone->sinVal = rotation->sinVal;
-        clone->cosVal = rotation->cosVal;
-        clone->color = rotation->color;
-        clone->maskImage = rotation->maskImage;
-        clone->restoreHardwareLayers(rotation->hardwareLayers());
-        rawClone = clone;
-    } else if (auto image = dynamic_cast<ImageObject*>(source.data())) {
-        auto *clone = new ImageObject(image->isRotationObject() ? ImageObject::Kind::Rotating : ImageObject::Kind::Static);
-        clone->x = image->x;
-        clone->y = image->y;
-        clone->width = image->width;
-        clone->height = image->height;
-        clone->maskColor = image->maskColor;
-        clone->autoMaskColor = image->autoMaskColor;
-        clone->rotationDegrees = image->rotationDegrees;
-        clone->sourceName = image->sourceName;
-        clone->format = image->format;
-        clone->copyRasterSource(*image);
-        clone->setColorLayers(image->colorLayers());
-        rawClone = clone;
-    }
-
-    if (!rawClone)
-        return {};
-
-    copyBaseFlags(source.data(), rawClone);
-    return QSharedPointer<BaseObject>(rawClone);
-}
-
-QList<QSharedPointer<BaseObject>> cloneObjectList(const QList<QSharedPointer<BaseObject>> &objects)
-{
-    QList<QSharedPointer<BaseObject>> clones;
-    clones.reserve(objects.size());
-    for (const auto &object : objects)
-        clones.append(cloneObject(object));
-    return clones;
-}
-
-QString serializeMaskData(const QImage &image)
-{
-    QStringList values;
-    values.reserve(image.width() * image.height());
-
-    for (int y = 0; y < image.height(); ++y) {
-        for (int x = 0; x < image.width(); ++x) {
-            const int alpha = image.pixelColor(x, y).alpha();
-            const int level = qBound(0, qRound(alpha * 7.0 / 255.0), 7);
-            values.append(QString::number(level));
-        }
-    }
-
-    return values.join(", ");
-}
-
-QString formatProjectColor(const QColor &color)
-{
-    const uint bgVal = (color.blue() << 16) | (color.green() << 8) | color.red();
-    return QString("#%1").arg(bgVal, 0, 16);
-}
-
-QString serializeStaticGroupData(const StaticGroupObject *group)
-{
-    if (!group || group->states.isEmpty()) {
-        return QStringLiteral("7");
-    }
-
-    int totalSize = 1;
-    for (int i = 0; i < group->states.size(); ++i) {
-        const GroupState &state = group->states[i];
-        totalSize = qMax(totalSize, state.addr + qMax(1, state.w * state.h));
-    }
-
-    QVector<int> values(totalSize, 0);
-
-    for (int i = 0; i < group->states.size(); ++i) {
-        const GroupState &state = group->states[i];
-        QImage image;
-        if (i < group->maskImages.size() && !group->maskImages[i].isNull()) {
-            image = group->maskImages[i];
-        } else {
-            image = QImage(qMax(1, state.w), qMax(1, state.h), QImage::Format_ARGB32);
-            image.fill(QColor(255, 255, 255, 255));
-        }
-
-        const int width = qMin(image.width(), qMax(1, state.w));
-        const int height = qMin(image.height(), qMax(1, state.h));
-        const int startAddr = qMax(0, state.addr);
-
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                const int idx = startAddr + y * qMax(1, state.w) + x;
-                if (idx >= values.size())
-                    break;
-
-                const int alpha = image.pixelColor(x, y).alpha();
-                values[idx] = qBound(0, qRound(alpha * 7.0 / 255.0), 7);
-            }
-        }
-    }
-
-    QStringList parts;
-    parts.reserve(values.size());
-    for (int value : values) {
-        parts.append(QString::number(value));
-    }
-    return parts.join(", ");
-}
-
-QDomElement createObjectElement(QDomDocument &doc, const QString &tagName, const ParamSchema &schema, const QSharedPointer<BaseObject> &obj)
-{
-    QDomElement objEl = doc.createElement(tagName);
-
-    if (auto threeDView = dynamic_cast<ThreeDViewObject*>(obj.data())) {
-        QDomElement initEl = doc.createElement("init");
-        initEl.appendChild(doc.createTextNode(threeDView->serializeInit()));
-        objEl.appendChild(initEl);
-        return objEl;
-    }
-
-    if (auto staticGroup = dynamic_cast<StaticGroupObject*>(obj.data())) {
-        objEl.setAttribute("nomber", staticGroup->groupNumber > 0 ? staticGroup->groupNumber : staticGroup->states.size());
-
-        const int stateCount = qMax(1, staticGroup->states.size());
-        for (int stateIndex = 0; stateIndex < stateCount; ++stateIndex) {
-            QDomElement initEl = doc.createElement("init");
-            initEl.setAttribute("index", stateIndex + 1);
-            initEl.appendChild(doc.createTextNode(buildInitHex(schema, staticGroup->serializeState(stateIndex))));
-            objEl.appendChild(initEl);
-        }
-
-        QDomElement dataEl = doc.createElement("data");
-        dataEl.appendChild(doc.createTextNode(serializeStaticGroupData(staticGroup)));
-        objEl.appendChild(dataEl);
-        return objEl;
-    }
-
-    if (auto rotation = dynamic_cast<RotationObject*>(obj.data())) {
-        const QList<QMap<QString, quint32>> layerParams = rotation->serializeLayerParams();
-        for (int layerIndex = 0; layerIndex < layerParams.size(); ++layerIndex) {
-            QDomElement initEl = doc.createElement("init");
-            initEl.setAttribute("index", layerIndex + 1);
-            initEl.appendChild(doc.createTextNode(buildInitHex(schema, layerParams[layerIndex])));
-            objEl.appendChild(initEl);
-        }
-
-        QDomElement dataEl = doc.createElement("data");
-        QImage image = rotation->maskImage;
-        if (image.isNull()) {
-            image = QImage(1, 1, QImage::Format_ARGB32);
-            image.fill(QColor(255, 255, 255, 255));
-        }
-        dataEl.setAttribute("width", image.width());
-        dataEl.setAttribute("height", image.height());
-        dataEl.appendChild(doc.createTextNode(serializeMaskData(image)));
-        objEl.appendChild(dataEl);
-        return objEl;
-    }
-
-    QDomElement initEl = doc.createElement("init");
-    initEl.appendChild(doc.createTextNode(buildInitHex(schema, obj->serializeParams())));
-    objEl.appendChild(initEl);
-
-    return objEl;
-}
-
-QString alphabetCharacters(const QSet<QString> &groups)
-{
-    QString characters;
-    auto appendUnique = [&characters](const QString &value) {
-        for (const QChar ch : value) {
-            if (!characters.contains(ch))
-                characters.append(ch);
-        }
-    };
-
-    if (groups.contains(QStringLiteral("digits")))
-        appendUnique(QStringLiteral("0123456789"));
-    if (groups.contains(QStringLiteral("latin_upper")))
-        appendUnique(QStringLiteral("ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
-    if (groups.contains(QStringLiteral("latin_lower")))
-        appendUnique(QStringLiteral("abcdefghijklmnopqrstuvwxyz"));
-    if (groups.contains(QStringLiteral("cyrillic_upper")))
-        appendUnique(QStringLiteral("АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"));
-    if (groups.contains(QStringLiteral("cyrillic_lower")))
-        appendUnique(QStringLiteral("абвгдеёжзийклмнопрстуфхцчшщъыьэюя"));
-    if (groups.contains(QStringLiteral("symbols")))
-        appendUnique(QStringLiteral("α°+-/"));
-
-    return characters;
-}
-
-QSet<QString> detectAlphabetCategories(const QString &characters)
-{
-    QSet<QString> groups;
-    for (const QChar ch : characters) {
-        const ushort u = ch.unicode();
-        if (ch.isDigit()) {
-            groups.insert(QStringLiteral("digits"));
-        } else if (u >= 'A' && u <= 'Z') {
-            groups.insert(QStringLiteral("latin_upper"));
-        } else if (u >= 'a' && u <= 'z') {
-            groups.insert(QStringLiteral("latin_lower"));
-        } else if ((u >= 0x0410 && u <= 0x042F) || u == 0x0401) {
-            groups.insert(QStringLiteral("cyrillic_upper"));
-        } else if ((u >= 0x0430 && u <= 0x044F) || u == 0x0451) {
-            groups.insert(QStringLiteral("cyrillic_lower"));
-        } else if (QStringLiteral("α°+-/").contains(ch)) {
-            groups.insert(QStringLiteral("symbols"));
-        }
-    }
-    return groups;
-}
-
-QString completeAlphabetForTextObjects(const QList<TextObject*> &texts)
-{
-    QSet<QString> groups;
-    QString explicitCharacters;
-
-    auto appendUniqueCharacter = [&explicitCharacters](const QChar ch) {
-        if (!explicitCharacters.contains(ch))
-            explicitCharacters.append(ch);
-    };
-
-    for (const TextObject *text : texts) {
-        if (!text)
-            continue;
-
-        const QString characters = text->exportCharacters();
-        if (text->exportAlphabetGroups.isEmpty()) {
-            groups.unite(detectAlphabetCategories(characters));
-        } else {
-            for (const QString &group : text->exportAlphabetGroups)
-                groups.insert(group);
-        }
-        for (const QChar ch : characters) {
-            if (ch.isSpace()) {
-                appendUniqueCharacter(ch);
-                continue;
-            }
-            if (detectAlphabetCategories(QString(ch)).isEmpty())
-                appendUniqueCharacter(ch);
-        }
-    }
-
-    QString characters = alphabetCharacters(groups);
-    for (const QChar ch : explicitCharacters) {
-        if (!characters.contains(ch))
-            characters.append(ch);
-    }
-    return characters;
-}
-
-QStringList maskRowsToValues(const QString &rows)
-{
-    QStringList values;
-    const QStringList lines = rows.split('\n', Qt::SkipEmptyParts);
-    for (const QString &line : lines) {
-        const QString trimmed = line.trimmed();
-        for (const QChar ch : trimmed) {
-            if (ch.isDigit())
-                values.append(QString(ch));
-        }
-    }
-    return values;
-}
-
-QStringList normalizedGlyphValues(const FpgaGlyph &glyph)
-{
-    QStringList values = maskRowsToValues(glyph.maskRows);
-    const int expectedSize = qMax(1, glyph.width) * qMax(1, glyph.height);
-    while (values.size() < expectedSize)
-        values.append(QStringLiteral("0"));
-    while (values.size() > expectedSize)
-        values.removeLast();
-    return values;
-}
-
-void insertGlyph(FpgaFont *font, const FpgaGlyph &glyph)
-{
-    if (!font)
-        return;
-
-    font->glyphs.insert(glyph.literal, glyph);
-    if (!font->glyphOrder.contains(glyph.literal))
-        font->glyphOrder.append(glyph.literal);
-}
-
-QString orderedFontCharacters(const FpgaFont &font)
-{
-    QString characters;
-    for (const QChar ch : font.glyphOrder) {
-        if (font.glyphs.contains(ch) && !characters.contains(ch))
-            characters.append(ch);
-    }
-    for (auto it = font.glyphs.constBegin(); it != font.glyphs.constEnd(); ++it) {
-        if (!characters.contains(it.key()))
-            characters.append(it.key());
-    }
-    return characters;
-}
-
-FpgaGlyph normalizedGlyph(FpgaGlyph glyph, const QChar literal, int fontSize)
-{
-    glyph.literal = literal;
-    if (glyph.code == 0)
-        glyph.code = literal.unicode();
-
-    const QStringList rows = glyph.maskRows.split('\n', Qt::SkipEmptyParts);
-    if (glyph.height <= 0)
-        glyph.height = qMax(1, rows.size());
-    if (glyph.width <= 0) {
-        int maxWidth = 0;
-        for (const QString &row : rows)
-            maxWidth = qMax(maxWidth, row.trimmed().size());
-        glyph.width = qMax(1, maxWidth);
-    }
-
-    if (glyph.advance < 0)
-        glyph.advance = glyph.width;
-    if (glyph.ascent <= 0 && glyph.descent <= 0)
-        glyph.ascent = glyph.height;
-    if (glyph.size <= 0)
-        glyph.size = fontSize;
-
-    if (glyph.maskRows.trimmed().isEmpty()) {
-        QStringList zeroRows;
-        for (int y = 0; y < glyph.height; ++y)
-            zeroRows.append(QString(glyph.width, QLatin1Char('0')));
-        glyph.maskRows = zeroRows.join('\n');
-    }
-
-    return glyph;
-}
-
-FpgaGlyph transparentSpaceGlyph(int fontSize)
-{
-    const int advance = qMax(4, fontSize / 2);
-    FpgaGlyph glyph;
-    glyph.literal = QLatin1Char(' ');
-    glyph.code = QLatin1Char(' ').unicode();
-    glyph.width = advance;
-    glyph.height = 1;
-    glyph.advance = advance;
-    glyph.size = fontSize;
-    glyph.maskRows = QString(advance, QLatin1Char('0'));
-    return glyph;
-}
-
-QString objectTagForSerialization(int objIdx,
-                                  const QList<QSharedPointer<BaseObject>> &objects,
-                                  const QStringList &objectTags)
-{
-    if (objIdx >= 0 && objIdx < objects.size()) {
-        if (auto rectangle = dynamic_cast<RectangleObject*>(objects[objIdx].data()))
-            return rectangle->usesAlpha() ? QStringLiteral("rectangle_a") : QStringLiteral("rectangle");
-    }
-
-    return objIdx >= 0 && objIdx < objectTags.size() ? objectTags[objIdx] : QString();
-}
-
-QDomElement createSchemaElement(QDomDocument &doc, const QString &schemaName)
-{
-    QDomElement schemaEl = doc.createElement(schemaName);
-    const auto fields = FpgaSchemaRegistry::instance()->fieldsForSchema(schemaName);
-    for (const auto &field : fields) {
-        QDomElement fieldEl = doc.createElement(field.name);
-        fieldEl.setAttribute("offset", field.offset);
-        fieldEl.setAttribute("size", field.size);
-        schemaEl.appendChild(fieldEl);
-    }
-    return schemaEl;
-}
-
-void appendParameterSchemas(QDomDocument &doc, QDomElement &root, const QSet<QString> &schemaNames)
-{
-    QDomElement paramsEl = doc.createElement("parameters");
-    root.appendChild(paramsEl);
-
-    const QStringList orderedSchemas = FpgaSchemaRegistry::instance()->orderedSchemaNames();
-    for (const QString &schemaName : orderedSchemas) {
-        if (schemaNames.contains(schemaName))
-            paramsEl.appendChild(createSchemaElement(doc, schemaName));
-    }
-}
-
-QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>> &objects,
-                                         const QStringList &objectTags)
-{
-    QSet<QString> schemaNames;
-
-    for (int objIdx = objects.size() - 1; objIdx >= 0; --objIdx) {
-        const auto &obj = objects[objIdx];
-        if (!obj->isExportEnabled())
-            continue;
-
-        if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
-            schemaNames.insert(image->isRotationObject() ? QStringLiteral("rotationobject") : QStringLiteral("staticgroup"));
-            continue;
-        }
-
-        if (dynamic_cast<TextObject*>(obj.data())) {
-            schemaNames.insert(QStringLiteral("font"));
-            schemaNames.insert(QStringLiteral("text"));
-            continue;
-        }
-
-        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
-        if (tagName.isEmpty())
-            continue;
-
-        schemaNames.insert(tagName);
-    }
-
-    return schemaNames;
-}
-
-QDomElement createStaticGroupElementFromImageLayers(QDomDocument &doc,
-                                                   const ParamSchema &schema,
-                                                   const ImageObject *image,
-                                                   const QList<ImageMaskComponent> &components)
-{
-    StaticGroupObject group;
-    int nextAddr = 0;
-
-    if (components.isEmpty()) {
-        GroupState state;
-        state.x = qRound(image->x);
-        state.y = qRound(image->y);
-        state.w = qMax(1, qRound(image->width));
-        state.h = qMax(1, qRound(image->height));
-        state.addr = 0;
-        state.color = image->effectiveMaskColor();
-        state.enabled = true;
-        group.states = {state};
-        group.maskImages = {image->renderedImage()};
-    } else {
-        for (const ImageMaskComponent &component : components) {
-            GroupState state;
-            state.x = qRound(image->x + component.bounds.left());
-            state.y = qRound(image->y + component.bounds.top());
-            state.w = qMax(1, component.bounds.width());
-            state.h = qMax(1, component.bounds.height());
-            state.addr = nextAddr;
-            state.color = component.color;
-            state.enabled = true;
-            group.states.append(state);
-            group.maskImages.append(component.mask);
-            nextAddr += state.w * state.h;
-        }
-    }
-
-    group.groupNumber = qMax(1, group.states.size());
-    return createObjectElement(doc, QStringLiteral("staticgroup"), schema, QSharedPointer<BaseObject>(&group, [](BaseObject*){}));
-}
-
-void appendStaticGroupElementsFromImageLayers(QDomDocument &doc,
-                                              QDomElement &objectsEl,
-                                              const ParamSchema &schema,
-                                              const ImageObject *image)
-{
-    QList<ImageMaskComponent> components = image->maskComponents();
-    if (components.isEmpty()) {
-        ImageMaskComponent component;
-        component.bounds = QRect(0, 0, qMax(1, qRound(image->width)), qMax(1, qRound(image->height)));
-        component.color = image->effectiveMaskColor();
-        component.mask = image->renderedImage();
-        components.append(component);
-    }
-
-    const QList<ImageMaskComponent> simplifiedComponents = simplifyComponentsForStaticGroup(schema, components);
-    if (simplifiedComponents.isEmpty()) {
-        objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, {}));
-        return;
-    }
-
-    objectsEl.appendChild(createStaticGroupElementFromImageLayers(doc, schema, image, simplifiedComponents));
-}
-
-QDomElement createRotationObjectElementFromImageComponent(QDomDocument &doc,
-                                                         const ParamSchema &schema,
-                                                         const ImageObject *image,
-                                                         const ImageMaskComponent &component)
-{
-    RotationObject rotation;
-    rotation.xRot = qRound(image->x + image->width / 2.0);
-    rotation.yRot = qRound(image->y + image->height / 2.0);
-
-    const double componentLeft = image->x + component.bounds.left();
-    const double componentTop = image->y + component.bounds.top();
-    rotation.left = qRound(componentLeft - rotation.xRot);
-    rotation.top = qRound(componentTop - rotation.yRot);
-    rotation.right = rotation.left + qMax(1, component.bounds.width());
-    rotation.bottom = rotation.top + qMax(1, component.bounds.height());
-    rotation.color = component.color;
-    rotation.maskImage = component.mask;
-    rotation.sinVal = image->rotationCoefficients().x();
-    rotation.cosVal = image->rotationCoefficients().y();
-
-    return createObjectElement(doc, QStringLiteral("rotationobject"), schema, QSharedPointer<BaseObject>(&rotation, [](BaseObject*){}));
-}
-
-void appendCompiledImageElements(QDomDocument &doc,
-                                 QDomElement &objectsEl,
-                                 const ParamSchema &staticSchema,
-                                 const ParamSchema &rotationSchema,
-    const ImageObject *image)
-{
-    if (!image->isRotationObject()) {
-        appendStaticGroupElementsFromImageLayers(doc, objectsEl, staticSchema, image);
-        return;
-    }
-
-    ImageMaskComponent component = singleComponentForRotationObject(image);
-    if (component.mask.isNull() || component.bounds.isEmpty()) {
-        component.bounds = QRect(0, 0, qMax(1, qRound(image->width)), qMax(1, qRound(image->height)));
-        component.color = image->effectiveMaskColor();
-        component.mask = image->renderedImage();
-    }
-
-    objectsEl.appendChild(createRotationObjectElementFromImageComponent(doc,
-                                                                        rotationSchema,
-                                                                        image,
-                                                                        simplifyComponentForRotationObject(component)));
-}
-
-// ExportFontKey - ключ объединения текстовых объектов в один ресурс шрифта.
-struct ExportFontKey
-{
-    QString family;
-    int size = 14;
-    bool existingAtlas = false;
-    int sourceFontIndex = -1;
-
-    bool operator<(const ExportFontKey &other) const
-    {
-        if (existingAtlas != other.existingAtlas)
-            return existingAtlas < other.existingAtlas;
-        if (sourceFontIndex != other.sourceFontIndex)
-            return sourceFontIndex < other.sourceFontIndex;
-        if (family != other.family)
-            return family < other.family;
-        return size < other.size;
-    }
-};
-
-ExportFontKey exportFontKeyForText(const TextObject *text)
-{
-    if (!text)
-        return {};
-
-    if (text->hasFontAtlas()) {
-        return {
-            text->fontFamily,
-            text->pixelSize,
-            true,
-            text->fontAtlas().index
-        };
-    }
-
-    return {text->fontFamily, text->pixelSize, false, -1};
-}
-
-QDomElement createFontResourceElement(QDomDocument &doc,
-                                      const ExportFontKey &key,
-                                      int fontIndex,
-                                      const QString &characters,
-                                      const ParamSchema &fontSchema,
-                                      FpgaFont *fontOut)
-{
-    FpgaFont font;
-    font.index = fontIndex;
-    font.name = key.family;
-    font.size = key.size;
-
-    QDomElement fontEl = doc.createElement("font");
-    fontEl.setAttribute("index", fontIndex);
-    fontEl.setAttribute("name", key.family);
-    fontEl.setAttribute("size", key.size);
-
-    QFont qfont(key.family);
-    qfont.setPixelSize(key.size);
-
-    QStringList dataValues;
-    int offset = 0;
-    int glyphIndex = 0;
-    for (const QChar ch : characters) {
-        FpgaGlyph glyph = rasterizeGlyph(qfont, ch);
-        glyph.offset = offset;
-        glyph.size = key.size;
-        glyphIndex++;
-
-        const QStringList glyphValues = normalizedGlyphValues(glyph);
-        offset += glyphValues.size();
-        dataValues.append(glyphValues);
-        insertGlyph(&font, glyph);
-
-        QDomElement initEl = doc.createElement("init");
-        initEl.setAttribute("index", glyphIndex);
-        initEl.setAttribute("literal", QString(ch));
-        initEl.setAttribute("code", glyph.code);
-        initEl.appendChild(doc.createTextNode(buildInitHex(fontSchema, {
-            {"enb", 1},
-            {"code", static_cast<quint32>(glyph.code)},
-            {"w", static_cast<quint32>(glyph.width)},
-            {"h", static_cast<quint32>(glyph.height)},
-            {"advance", static_cast<quint32>(glyph.advance)},
-            {"bearing_x", static_cast<quint32>(static_cast<qint32>(glyph.bearingX))},
-            {"bearing_y", static_cast<quint32>(static_cast<qint32>(glyph.bearingY))},
-            {"ascent", static_cast<quint32>(glyph.ascent)},
-            {"descent", static_cast<quint32>(glyph.descent)},
-            {"offset", static_cast<quint32>(glyph.offset)},
-            {"mask_size", static_cast<quint32>(glyphValues.size())},
-            {"font_index", static_cast<quint32>(fontIndex)}
-        })));
-        fontEl.appendChild(initEl);
-    }
-
-    font.volume = dataValues.size() * 3;
-    fontEl.setAttribute("volume", font.volume);
-    fontEl.setAttribute("count", glyphIndex);
-
-    QFontMetrics metrics(qfont);
-    for (const QChar left : characters) {
-        for (const QChar right : characters) {
-            const QString pair = QString(left) + QString(right);
-            const int delta = metrics.horizontalAdvance(pair)
-                - metrics.horizontalAdvance(left)
-                - metrics.horizontalAdvance(right);
-            if (delta == 0)
-                continue;
-
-            font.kerningPairs.insert(pair, delta);
-        }
-    }
-    // Один порядок пар для системного шрифта и восстановленного XML-атласа.
-    for (auto it = font.kerningPairs.cbegin(); it != font.kerningPairs.cend(); ++it) {
-        auto kerningEl = doc.createElement("kerning");
-        kerningEl.setAttribute("left", QString(it.key()[0]));
-        kerningEl.setAttribute("right", QString(it.key()[1]));
-        kerningEl.setAttribute("delta", it.value());
-        fontEl.appendChild(kerningEl);
-    }
-
-    QDomElement dataEl = doc.createElement("data");
-    dataEl.appendChild(doc.createTextNode(dataValues.join(", ")));
-    fontEl.appendChild(dataEl);
-
-    if (fontOut)
-        *fontOut = font;
-
-    return fontEl;
-}
-
-QDomElement createFontResourceElementFromAtlas(QDomDocument &doc,
-                                               const FpgaFont &sourceFont,
-                                               int fontIndex,
-                                               const QString &characters,
-                                               const ParamSchema &fontSchema,
-                                               FpgaFont *fontOut)
-{
-    FpgaFont font;
-    font.index = fontIndex;
-    font.name = sourceFont.name;
-    font.size = sourceFont.size;
-
-    QDomElement fontEl = doc.createElement("font");
-    fontEl.setAttribute("index", fontIndex);
-    fontEl.setAttribute("name", sourceFont.name);
-    fontEl.setAttribute("size", sourceFont.size);
-
-    QStringList dataValues;
-    int offset = 0;
-    int glyphIndex = 0;
-    for (const QChar ch : characters) {
-        if (!sourceFont.glyphs.contains(ch) && !ch.isSpace())
-            continue;
-
-        FpgaGlyph glyph = ch.isSpace() && !sourceFont.glyphs.contains(ch)
-            ? transparentSpaceGlyph(sourceFont.size)
-            : sourceFont.glyphs.value(ch);
-        glyph = normalizedGlyph(glyph, ch, sourceFont.size);
-        glyph.offset = offset;
-        glyph.size = sourceFont.size;
-        glyphIndex++;
-
-        const QStringList glyphValues = normalizedGlyphValues(glyph);
-        offset += glyphValues.size();
-        dataValues.append(glyphValues);
-        insertGlyph(&font, glyph);
-
-        QDomElement initEl = doc.createElement("init");
-        initEl.setAttribute("index", glyphIndex);
-        initEl.setAttribute("literal", QString(ch));
-        initEl.setAttribute("code", glyph.code);
-        initEl.appendChild(doc.createTextNode(buildInitHex(fontSchema, {
-            {"enb", glyph.enabled ? 1u : 0u},
-            {"code", static_cast<quint32>(glyph.code)},
-            {"w", static_cast<quint32>(glyph.width)},
-            {"h", static_cast<quint32>(glyph.height)},
-            {"advance", static_cast<quint32>(glyph.advance)},
-            {"bearing_x", static_cast<quint32>(static_cast<qint32>(glyph.bearingX))},
-            {"bearing_y", static_cast<quint32>(static_cast<qint32>(glyph.bearingY))},
-            {"ascent", static_cast<quint32>(glyph.ascent)},
-            {"descent", static_cast<quint32>(glyph.descent)},
-            {"offset", static_cast<quint32>(glyph.offset)},
-            {"mask_size", static_cast<quint32>(glyphValues.size())},
-            {"font_index", static_cast<quint32>(fontIndex)}
-        })));
-        fontEl.appendChild(initEl);
-    }
-
-    font.volume = dataValues.size() * 3;
-    fontEl.setAttribute("volume", font.volume);
-    fontEl.setAttribute("count", glyphIndex);
-
-    for (auto it = sourceFont.kerningPairs.constBegin(); it != sourceFont.kerningPairs.constEnd(); ++it) {
-        if (it.key().size() < 2)
-            continue;
-
-        const QChar left = it.key().at(0);
-        const QChar right = it.key().at(1);
-        if (!characters.contains(left) || !characters.contains(right))
-            continue;
-
-        font.kerningPairs.insert(it.key(), it.value());
-        QDomElement kerningEl = doc.createElement("kerning");
-        kerningEl.setAttribute("left", QString(left));
-        kerningEl.setAttribute("right", QString(right));
-        kerningEl.setAttribute("delta", it.value());
-        fontEl.appendChild(kerningEl);
-    }
-
-    QDomElement dataEl = doc.createElement("data");
-    dataEl.appendChild(doc.createTextNode(dataValues.join(", ")));
-    fontEl.appendChild(dataEl);
-
-    if (fontOut)
-        *fontOut = font;
-
-    return fontEl;
-}
-
-QDomDocument buildCompiledXmlDocument(const QString &projectName,
-                                      int canvasWidth,
-                                      int canvasHeight,
-                                      const QColor &backgroundColor,
-                                      const QList<QSharedPointer<BaseObject>> &objects,
-                                      const QStringList &objectTags,
-                                      QMap<int, FpgaFont> *fontsOut)
-{
-    QDomDocument doc;
-
-    QDomElement root = doc.createElement("project");
-    root.setAttribute("name", projectName.isEmpty() ? QStringLiteral("Untitled") : projectName);
-    root.setAttribute("width", canvasWidth);
-    root.setAttribute("height", canvasHeight);
-    root.setAttribute("bgcolor", formatProjectColor(backgroundColor));
-    doc.appendChild(root);
-
-    appendParameterSchemas(doc, root, collectCompiledSchemaNames(objects, objectTags));
-
-    QDomElement objectsEl = doc.createElement("objects");
-    root.appendChild(objectsEl);
-
-    auto *registry = FpgaSchemaRegistry::instance();
-    // Экспорт использует ту же актуальную раскладку init, что записывается в <parameters>.
-    // Импортированная схема нужна только для разбора исходного документа.
-    const ParamSchema staticSchema = registry->buildSchema(QStringLiteral("staticgroup"));
-    const ParamSchema rotationSchema = registry->buildSchema(QStringLiteral("rotationobject"));
-    const ParamSchema fontSchema = registry->buildSchema(QStringLiteral("font"));
-    const ParamSchema textSchema = registry->buildSchema(QStringLiteral("text"));
-
-    const ParamSchema layer3dSchema = registry->buildSchema(QStringLiteral("layer3d"));
-    for (const auto &obj : objects) {
-        if (dynamic_cast<ThreeDViewObject*>(obj.data()) && obj->isExportEnabled()) {
-            objectsEl.appendChild(createObjectElement(
-                doc, QStringLiteral("layer3d"), layer3dSchema, obj));
-            break;
-        }
-    }
-
-    QMap<ExportFontKey, QList<TextObject*>> textByFont;
-    for (const auto &obj : objects) {
-        if (auto text = dynamic_cast<TextObject*>(obj.data())) {
-            if (text->isExportEnabled())
-                textByFont[exportFontKeyForText(text)].append(text);
-        }
-    }
-
-    QMap<ExportFontKey, int> fontIndexByKey;
-    QMap<int, FpgaFont> generatedFonts;
-    int nextFontIndex = 0;
-    for (auto it = textByFont.constBegin(); it != textByFont.constEnd(); ++it) {
-        FpgaFont font;
-        if (it.key().existingAtlas) {
-            const FpgaFont *sourceFont = nullptr;
-            for (TextObject *text : it.value()) {
-                if (text && text->hasFontAtlas()) {
-                    sourceFont = &text->fontAtlas();
-                    break;
-                }
-            }
-            if (!sourceFont)
-                continue;
-
-            QString characters = orderedFontCharacters(*sourceFont);
-            for (TextObject *text : it.value()) {
-                for (const QChar ch : text->text) {
-                    if (ch.isSpace() && !characters.contains(ch))
-                        characters.append(ch);
-                }
-            }
-            if (characters.isEmpty())
-                continue;
-
-            objectsEl.appendChild(createFontResourceElementFromAtlas(doc, *sourceFont, nextFontIndex, characters, fontSchema, &font));
-        } else {
-            QString characters = completeAlphabetForTextObjects(it.value());
-            for (TextObject *text : it.value()) {
-                for (const QChar ch : text->exportCharacters()) {
-                    if (!characters.contains(ch))
-                        characters.append(ch);
-                }
-            }
-            if (characters.isEmpty())
-                continue;
-
-            objectsEl.appendChild(createFontResourceElement(doc, it.key(), nextFontIndex, characters, fontSchema, &font));
-        }
-        fontIndexByKey.insert(it.key(), nextFontIndex);
-        generatedFonts.insert(nextFontIndex, font);
-        ++nextFontIndex;
-    }
-
-    for (int objIdx = objects.size() - 1; objIdx >= 0; --objIdx) {
-        const auto &obj = objects[objIdx];
-        if (!obj->isExportEnabled())
-            continue;
-
-        if (dynamic_cast<ThreeDViewObject*>(obj.data()))
-            continue;
-
-        if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
-            appendCompiledImageElements(doc, objectsEl, staticSchema, rotationSchema, image);
-            continue;
-        }
-
-        if (auto text = dynamic_cast<TextObject*>(obj.data())) {
-            const ExportFontKey key = exportFontKeyForText(text);
-            const int fontIndex = fontIndexByKey.value(key, 0);
-            const GroupState state = text->states.isEmpty() ? GroupState{} : text->states.first();
-            QStringList textDataCodes;
-            for (const QChar ch : text->text)
-                textDataCodes.append(QString::number(ch.unicode()));
-
-            QDomElement textEl = doc.createElement("text");
-
-            QDomElement initEl = doc.createElement("init");
-            initEl.setAttribute("index", fontIndex);
-            initEl.setAttribute("text", text->text);
-            initEl.appendChild(doc.createTextNode(buildInitHex(textSchema, {
-                {"enb", state.enabled ? 1u : 0u},
-                {"color", BitParser::colorToBgr(state.color)},
-                {"x", static_cast<quint32>(state.x)},
-                {"y", static_cast<quint32>(state.y)},
-                {"font_index", static_cast<quint32>(fontIndex)},
-                {"char_offset", 0u},
-                {"char_count", static_cast<quint32>(text->text.size())}
-            })));
-            textEl.appendChild(initEl);
-
-            QDomElement dataEl = doc.createElement("data");
-            dataEl.appendChild(doc.createTextNode(textDataCodes.join(", ")));
-            textEl.appendChild(dataEl);
-
-            objectsEl.appendChild(textEl);
-            continue;
-        }
-
-        const QString tagName = objectTagForSerialization(objIdx, objects, objectTags);
-        const QString schemaName = tagName;
-        const ParamSchema schema = registry->buildSchema(schemaName);
-        if (tagName.isEmpty() || schema.isEmpty())
-            continue;
-        objectsEl.appendChild(createObjectElement(doc, tagName, schema, obj));
-    }
-
-    if (fontsOut)
-        *fontsOut = generatedFonts;
-
-    return doc;
-}
-}
-
-ProjectManager::ProjectManager() : m_document(new EditorProjectDocument())
+ProjectManager::ProjectManager()
 {
     resetEditorLayers();
     connect(this, &ProjectManager::projectLoaded, this, [this]() { ++m_sceneRevision; });
@@ -1578,7 +65,7 @@ bool ProjectManager::loadFromFile(const QString &fileName)
 
     QDomDocument doc;
     QString readError;
-    if (!readXmlDocument(fileName, &doc, &readError)) {
+    if (!ProjectXmlFile::read(fileName, &doc, &readError)) {
         m_lastErrorMessage = readError;
         emit logMessage(tr("ОШИБКА: %1").arg(readError));
         return false;
@@ -1604,7 +91,7 @@ bool ProjectManager::loadFromFile(const QString &fileName)
         m_lastErrorMessage = tr("Настройки <editor>/<workspace> не совпадают с заголовком проекта.");
         return false;
     }
-    *m_document = state.document;
+    m_document = state.document;
     m_objects = state.objects; m_objectTags = state.objectTags;
     m_groups = state.groups; m_nextGroupId = state.nextGroupId;
     m_editorLayers = state.layers; m_nextLayerId = state.nextLayerId;
@@ -1631,9 +118,9 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 {
     auto *registry = FpgaSchemaRegistry::instance();
     m_lastErrorMessage.clear();
-    m_document->setProjectName(projectName);
-    m_document->setCanvasSize(width, height);
-    m_document->setBackgroundColor(backgroundColor);
+    m_document.setProjectName(projectName);
+    m_document.setCanvasSize(width, height);
+    m_document.setBackgroundColor(backgroundColor);
     m_filePath = filePath;
     m_showGrid = false;
     m_snapToCanvas = true;
@@ -1657,7 +144,7 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
         m_schemas.insert(schemaName, registry->buildSchema(schemaName));
     }
 
-    emit logMessage(tr("Создан новый проект: %1 (%2x%3)").arg(m_document->projectName()).arg(m_document->canvasWidth()).arg(m_document->canvasHeight()));
+    emit logMessage(tr("Создан новый проект: %1 (%2x%3)").arg(m_document.projectName()).arg(m_document.canvasWidth()).arg(m_document.canvasHeight()));
     emit projectLoaded();
     emit editorViewStateChanged();
     emit projectChanged();
@@ -1666,13 +153,13 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 
 ProjectManager::ProjectSnapshot ProjectManager::captureSnapshot() const
 {
-    return {cloneObjectList(m_objects), m_objectTags, m_groups, m_nextGroupId,
+    return {ObjectCloner::cloneScene(m_objects), m_objectTags, m_groups, m_nextGroupId,
             m_editorLayers, m_nextLayerId, m_activeLayerId, m_showAllLayers};
 }
 
 void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
 {
-    m_objects = cloneObjectList(snapshot.objects);
+    m_objects = ObjectCloner::cloneScene(snapshot.objects);
     m_objectTags = snapshot.objectTags;
     m_groups = snapshot.groups;
     m_nextGroupId = snapshot.nextGroupId;
@@ -1772,7 +259,7 @@ int ProjectManager::addObject(const QString &typeName)
 {
     auto *registry = FpgaSchemaRegistry::instance();
 
-    if (!m_document->hasCanvas()) {
+    if (!m_document.hasCanvas()) {
         emit logMessage(tr("Сначала откройте или создайте проект"));
         return -1;
     }
@@ -1793,12 +280,12 @@ int ProjectManager::addObject(const QString &typeName)
     }
 
     const int offset = 24 * (m_objects.size() % 6);
-    const double marginX = qMin(40.0, m_document->canvasWidth() * 0.5);
-    const double marginY = qMin(40.0, m_document->canvasHeight() * 0.5);
-    const double centerX = qBound(marginX, m_document->canvasWidth() * 0.35 + offset,
-                                   m_document->canvasWidth() - marginX);
-    const double centerY = qBound(marginY, m_document->canvasHeight() * 0.35 + offset,
-                                   m_document->canvasHeight() - marginY);
+    const double marginX = qMin(40.0, m_document.canvasWidth() * 0.5);
+    const double marginY = qMin(40.0, m_document.canvasHeight() * 0.5);
+    const double centerX = qBound(marginX, m_document.canvasWidth() * 0.35 + offset,
+                                   m_document.canvasWidth() - marginX);
+    const double centerY = qBound(marginY, m_document.canvasHeight() * 0.35 + offset,
+                                   m_document.canvasHeight() - marginY);
 
     if (auto rect = dynamic_cast<RectangleObject*>(rawObject)) {
         rect->x = qMax(12.0, centerX - 60.0);
@@ -1812,7 +299,7 @@ int ProjectManager::addObject(const QString &typeName)
     else if (auto dashedLine = dynamic_cast<DashedLineObject*>(rawObject)) {
         dashedLine->x0 = qMax(12.0, centerX - 70.0);
         dashedLine->y0 = centerY;
-        dashedLine->x1 = qMin(static_cast<double>(m_document->canvasWidth() - 12), centerX + 70.0);
+        dashedLine->x1 = qMin(static_cast<double>(m_document.canvasWidth() - 12), centerX + 70.0);
         dashedLine->y1 = centerY + 42.0;
         dashedLine->color = QColor("#9EDCFF");
         dashedLine->lineWidth = 3;
@@ -1822,9 +309,9 @@ int ProjectManager::addObject(const QString &typeName)
     }
     else if (auto ribbon = dynamic_cast<RibbonScaleObject*>(rawObject)) {
         ribbon->left = qMax(12.0, centerX - 48.0);
-        ribbon->right = qMin(static_cast<double>(m_document->canvasWidth() - 12), centerX + 48.0);
+        ribbon->right = qMin(static_cast<double>(m_document.canvasWidth() - 12), centerX + 48.0);
         ribbon->top = qMax(12.0, centerY - 90.0);
-        ribbon->bottom = qMin(static_cast<double>(m_document->canvasHeight() - 12), centerY + 90.0);
+        ribbon->bottom = qMin(static_cast<double>(m_document.canvasHeight() - 12), centerY + 90.0);
         ribbon->lineWidth = 2;
         ribbon->period = 24;
         ribbon->yStart = ribbon->top + 12.0;
@@ -1832,10 +319,10 @@ int ProjectManager::addObject(const QString &typeName)
     }
     else if (auto horizon = dynamic_cast<AviaHorizonObject*>(rawObject)) {
         horizon->enabled = true;
-        horizon->xCenter = m_document->canvasWidth() / 2.0;
-        horizon->yCenter = m_document->canvasHeight() / 2.0;
-        horizon->areaWidth = m_document->canvasWidth();
-        horizon->areaHeight = m_document->canvasHeight();
+        horizon->xCenter = m_document.canvasWidth() / 2.0;
+        horizon->yCenter = m_document.canvasHeight() / 2.0;
+        horizon->areaWidth = m_document.canvasWidth();
+        horizon->areaHeight = m_document.canvasHeight();
         horizon->lineWidth = 4.0;
         horizon->earthColor = QColor("#C27D1B");
         horizon->skyColor = QColor("#4FCAF7");
@@ -1864,7 +351,7 @@ int ProjectManager::addObject(const QString &typeName)
     else if (auto textObject = dynamic_cast<TextObject*>(rawObject)) {
         if (!m_fonts.isEmpty()) {
             const FpgaFont font = m_fonts.constBegin().value();
-            const QString characters = orderedFontCharacters(font);
+            const QString characters = font.orderedCharacters();
             textObject->text = characters.isEmpty() ? QStringLiteral(" ") : QString(characters.front());
             textObject->setFontAtlas(font, true);
         } else {
@@ -1926,7 +413,7 @@ int ProjectManager::addObject(const QString &typeName, double x, double y)
     const double dx = x - bounds.center().x();
     const double dy = y - bounds.center().y();
     obj->moveBy(dx, dy);
-    moveObjectInsideCanvas(obj.data(), m_document->canvasWidth(), m_document->canvasHeight());
+    CanvasGeometry::keepInside(obj.data(), m_document.canvasWidth(), m_document.canvasHeight());
 
     emit projectChanged();
     return index;
@@ -1943,6 +430,12 @@ bool ProjectManager::removeObjects(const QList<int> &indexes)
         normalized.append(index);
     }
 
+    for (int i = 0; i < m_objects.size(); ++i) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(m_objects[i].data());
+        if (copy && seen.contains(m_objects.indexOf(copy->source())) && !seen.contains(i)) {
+            seen.insert(i); normalized.append(i);
+        }
+    }
     if (normalized.isEmpty())
         return false;
 
@@ -2095,6 +588,11 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
     // Внутри группы последний init расположен на переднем плане, как при экспорте.
     for (auto it = selected.crbegin(); it != selected.crend(); ++it) {
         const auto source = m_objects[*it];
+        for (const auto &object : m_objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+            if (copy && copy->source() == source)
+                return fail(tr("Сначала сделайте зависимые симметричные копии независимыми."));
+        }
         if (source->editorLayerId() != merged->editorLayerId())
             return fail(tr("Для объединения в staticgroup переместите объекты на один слой."));
         if (source->isSelectionLocked())
@@ -2374,7 +872,7 @@ bool ProjectManager::setGroupExportEnabled(int groupId, bool enabled)
 
     bool hasChanges = false;
     for (int index : members) {
-        if (index >= 0 && index < m_objects.size() && m_objects[index]->isExportEnabled() != enabled) {
+        if (index >= 0 && index < m_objects.size() && !isSymmetryCopy(index) && m_objects[index]->isExportEnabled() != enabled) {
             hasChanges = true;
             break;
         }
@@ -2408,6 +906,7 @@ bool ProjectManager::renameObject(int index, const QString &name)
 
 bool ProjectManager::copyObjects(const QList<int> &indexes)
 {
+    for (int index : indexes) if (isSymmetryCopy(index)) return false;
     m_clipboardObjects.clear();
     m_clipboardTags.clear();
     m_clipboardGroups.clear();
@@ -2419,7 +918,7 @@ bool ProjectManager::copyObjects(const QList<int> &indexes)
             continue;
         seen.insert(index);
         sourceToClipboard.insert(index, m_clipboardObjects.size());
-        m_clipboardObjects.append(cloneObject(m_objects[index]));
+        m_clipboardObjects.append(m_objects[index]->clone());
         m_clipboardTags.append(index < m_objectTags.size() ? m_objectTags[index] : QString());
     }
 
@@ -2456,11 +955,32 @@ void ProjectManager::syncNextGroupId()
     m_nextGroupId = qMax(m_nextGroupId, nextId);
 }
 
-QList<int> ProjectManager::pasteObjects()
+QList<int> ProjectManager::pasteObjects(std::optional<QPointF> position)
 {
     QList<int> pastedIndexes;
     if (m_clipboardObjects.isEmpty())
         return pastedIndexes;
+
+    QList<QSharedPointer<BaseObject>> clones;
+    QRectF bounds;
+    for (const auto &source : m_clipboardObjects) {
+        const auto clone = source->clone();
+        if (!clone) return {};
+        bounds = clones.isEmpty() ? clone->getBoundingRect() : bounds.united(clone->getBoundingRect());
+        clone->setEditorLayerId(m_activeLayerId);
+        clones.append(clone);
+    }
+    if (position && (!qIsFinite(position->x()) || !qIsFinite(position->y()))) return {};
+    // Центр общего габарита оказывается под курсором. Коррекция у границ
+    // применяется ко всему набору, чтобы расстояния внутри группы не менялись.
+    QPointF delta = position ? *position - bounds.center() : QPointF(24.0, 24.0);
+    const QRectF moved = bounds.translated(delta);
+    const double canvasW = m_document.canvasWidth(), canvasH = m_document.canvasHeight();
+    delta.rx() += moved.width() > canvasW ? -moved.left()
+        : qBound(-moved.left(), 0.0, canvasW - moved.right());
+    delta.ry() += moved.height() > canvasH ? -moved.top()
+        : qBound(-moved.top(), 0.0, canvasH - moved.bottom());
+    for (const auto &clone : clones) clone->moveBy(delta.x(), delta.y());
 
     recordHistory();
     const int pasteCount = m_clipboardObjects.size();
@@ -2470,13 +990,7 @@ QList<int> ProjectManager::pasteObjects()
     }
 
     for (int i = m_clipboardObjects.size() - 1; i >= 0; --i) {
-        const auto clone = cloneObject(m_clipboardObjects[i]);
-        if (!clone)
-            continue;
-        clone->setEditorLayerId(m_activeLayerId);
-        clone->moveBy(24.0, 24.0);
-        moveObjectInsideCanvas(clone.data(), m_document->canvasWidth(), m_document->canvasHeight());
-        m_objects.prepend(clone);
+        m_objects.prepend(clones[i]);
         m_objectTags.prepend(i < m_clipboardTags.size() ? m_clipboardTags[i] : QString());
     }
 
@@ -2510,12 +1024,170 @@ bool ProjectManager::canPasteObjects() const
     return !m_clipboardObjects.isEmpty();
 }
 
+bool ProjectManager::isSymmetryCopy(int index) const
+{
+    return dynamic_cast<SymmetryCopyObject *>(getObjectAt(index).data()) != nullptr;
+}
+
+QList<QSharedPointer<SymmetryAxis>> ProjectManager::symmetryAxes() const
+{
+    QList<QSharedPointer<SymmetryAxis>> axes;
+    for (const auto &object : m_objects) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (copy && !axes.contains(copy->axis())) axes.append(copy->axis());
+    }
+    return axes;
+}
+
+bool ProjectManager::canCreateSymmetry(const QList<int> &indexes) const
+{
+    if (indexes.isEmpty() || !m_document.hasCanvas()) return false;
+    for (int index : indexes) {
+        const auto object = getObjectAt(index);
+        if (!supportsObjectReflection(object.data()) || object->isSelectionLocked()
+            || !isObjectVisibleInEditor(object.data())) return false;
+    }
+    return true;
+}
+
+QList<int> ProjectManager::createSymmetry(const QList<int> &indexes, Qt::Orientation orientation)
+{
+    m_lastErrorMessage.clear();
+    if (!canCreateSymmetry(indexes) || (orientation != Qt::Vertical && orientation != Qt::Horizontal)) return {};
+    auto axis = QSharedPointer<SymmetryAxis>::create();
+    axis->id = 1;
+    for (const auto &existing : symmetryAxes()) axis->id = qMax(axis->id, existing->id + 1);
+    axis->orientation = orientation;
+    axis->position = (orientation == Qt::Vertical ? getCanvasWidth() : getCanvasHeight()) / 2.0;
+    const QSet<int> selected(indexes.begin(), indexes.end());
+    QList<QSharedPointer<BaseObject>> objects;
+    QStringList tags;
+    QList<int> copies;
+    QMap<int, int> remap;
+    recordHistory();
+    for (int i = 0; i < m_objects.size(); ++i) {
+        const auto source = m_objects[i];
+        remap.insert(i, objects.size());
+        objects.append(source); tags.append(m_objectTags.value(i));
+        if (!selected.contains(i)) continue;
+        auto copy = QSharedPointer<SymmetryCopyObject>::create(source, axis);
+        copy->setEditorLayerId(source->editorLayerId());
+        copy->setCustomName((source->customName().isEmpty() ? source->getDisplayName() : source->customName()) + tr(" — копия"));
+        copies.append(objects.size()); objects.append(copy); tags.append(QStringLiteral("symmetry-copy"));
+    }
+    for (auto &group : m_groups) for (int &member : group.members) member = remap.value(member);
+    m_objects = objects; m_objectTags = tags;
+    emit projectChanged();
+    emit logMessage(tr("Создана симметрия: %1 копий").arg(copies.size()));
+    return copies;
+}
+
+bool ProjectManager::detachSymmetryCopy(int index)
+{
+    const auto *copy = dynamic_cast<SymmetryCopyObject *>(getObjectAt(index).data());
+    if (!copy) return false;
+    auto object = copy->source()->clone();
+    if (!object || !reflectObject(object.data(), *copy->axis())) return false;
+    const int sourceIndex = m_objects.indexOf(copy->source());
+    if (sourceIndex < 0) return false;
+    object->setCustomName(copy->customName());
+    object->setEditorLayerId(copy->editorLayerId());
+    object->setViewVisible(copy->isViewVisible());
+    object->setSelectionLocked(copy->isSelectionLocked());
+    object->setExportEnabled(true);
+    recordHistory();
+    m_objectTags[index] = m_objectTags.value(sourceIndex);
+    m_objects[index] = object;
+    emit projectChanged();
+    emit logMessage(tr("Копия стала независимым объектом"));
+    return true;
+}
+
+bool ProjectManager::setSymmetryAxisPosition(int id, double position, bool recordChange)
+{
+    if (!qIsFinite(position)) return false;
+    for (const auto &axis : symmetryAxes()) {
+        if (axis->id != id) continue;
+        const bool vertical = axis->orientation == Qt::Vertical;
+        const double size = vertical ? getCanvasWidth() : getCanvasHeight();
+        double minimum = 0, maximum = size;
+        for (const auto &object : m_objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+            if (!copy || copy->axis() != axis) continue;
+            const auto bounds = copy->source()->getBoundingRect();
+            minimum = qMax(minimum, (vertical ? bounds.right() : bounds.bottom()) / 2);
+            maximum = qMin(maximum, (size + (vertical ? bounds.left() : bounds.top())) / 2);
+        }
+        if (minimum > maximum) return false;
+        position = qBound(minimum, qRound(position * 2) / 2.0, maximum);
+        if (qAbs(position - axis->position) < 1e-9) return false;
+        if (recordChange) recordHistory();
+        axis->position = position;
+        for (const auto &object : m_objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+            if (copy && copy->axis() == axis) emit object->changed();
+        }
+        emit projectChanged();
+        return true;
+    }
+    return false;
+}
+
+QPointF ProjectManager::constrainSymmetryMove(const QList<int> &indexes, const QPointF &delta) const
+{
+    double minX = -1e30, maxX = 1e30, minY = -1e30, maxY = 1e30;
+    for (const auto &object : m_objects) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (!copy || !indexes.contains(m_objects.indexOf(copy->source()))) continue;
+        const auto bounds = copy->getBoundingRect();
+        if (copy->axis()->orientation == Qt::Vertical) {
+            minX = qMax(minX, bounds.right() - getCanvasWidth()); maxX = qMin(maxX, bounds.left());
+            minY = qMax(minY, -bounds.top()); maxY = qMin(maxY, getCanvasHeight() - bounds.bottom());
+        } else {
+            minX = qMax(minX, -bounds.left()); maxX = qMin(maxX, getCanvasWidth() - bounds.right());
+            minY = qMax(minY, bounds.bottom() - getCanvasHeight()); maxY = qMin(maxY, bounds.top());
+        }
+    }
+    return {minX <= maxX ? qBound(minX, delta.x(), maxX) : 0.0,
+            minY <= maxY ? qBound(minY, delta.y(), maxY) : 0.0};
+}
+
+bool ProjectManager::symmetryFitsCanvas(const BaseObject *source, const QRectF &bounds) const
+{
+    for (const auto &object : m_objects) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (!copy || copy->source().data() != source) continue;
+        const auto reflected = copy->reflection().mapRect(bounds);
+        if (reflected.left() < -1e-6 || reflected.top() < -1e-6
+            || reflected.right() > getCanvasWidth() + 1e-6 || reflected.bottom() > getCanvasHeight() + 1e-6) return false;
+    }
+    return true;
+}
+
+bool ProjectManager::canEditGeometry(int index, const std::function<void(BaseObject *)> &edit, bool clampToCanvas) const
+{
+    const auto source = getObjectAt(index);
+    if (!source) return false;
+    bool linked = false;
+    for (const auto &object : m_objects) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (copy && copy->source() == source) { linked = true; break; }
+    }
+    if (!linked) return true;
+    const auto probe = source->clone();
+    if (!probe) return false;
+    edit(probe.data());
+    if (clampToCanvas) CanvasGeometry::keepInside(probe.data(), getCanvasWidth(), getCanvasHeight());
+    return symmetryFitsCanvas(source.data(), probe->getBoundingRect());
+}
+
 bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
 {
-    if (index < 0 || index >= m_objects.size() || !m_document->hasCanvas())
+    if (index < 0 || index >= m_objects.size() || !m_document.hasCanvas())
         return false;
 
     const auto object = m_objects[index];
+    if (!object->canMove()) return false;
     const QRectF bounds = object->getBoundingRect();
     if (bounds.isEmpty())
         return false;
@@ -2527,24 +1199,26 @@ bool ProjectManager::alignObject(int index, ObjectAlignment alignment)
         dx = -bounds.left();
         break;
     case ObjectAlignment::HCenter:
-        dx = m_document->canvasWidth() / 2.0 - bounds.center().x();
+        dx = m_document.canvasWidth() / 2.0 - bounds.center().x();
         break;
     case ObjectAlignment::Right:
-        dx = m_document->canvasWidth() - bounds.right();
+        dx = m_document.canvasWidth() - bounds.right();
         break;
     case ObjectAlignment::Top:
         dy = -bounds.top();
         break;
     case ObjectAlignment::VCenter:
-        dy = m_document->canvasHeight() / 2.0 - bounds.center().y();
+        dy = m_document.canvasHeight() / 2.0 - bounds.center().y();
         break;
     case ObjectAlignment::Bottom:
-        dy = m_document->canvasHeight() - bounds.bottom();
+        dy = m_document.canvasHeight() - bounds.bottom();
         break;
     }
 
+    const auto delta = constrainSymmetryMove({index}, QPointF(dx, dy));
+    if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y())) return true;
     recordHistory();
-    object->moveBy(dx, dy);
+    object->moveBy(delta.x(), delta.y());
     emit projectChanged();
     emit logMessage(tr("Выполнено выравнивание объекта"));
     return true;
@@ -2596,6 +1270,8 @@ bool ProjectManager::setObjectExportEnabled(int index, bool enabled)
     if (index < 0 || index >= m_objects.size())
         return false;
 
+    if (isSymmetryCopy(index)) return !enabled;
+
     if (m_objects[index]->isExportEnabled() == enabled)
         return true;
 
@@ -2628,7 +1304,7 @@ bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QS
 {
     for (const auto &candidate : m_objects) {
         if (candidate.data() != object) continue;
-        const auto probe = cloneObject(candidate);
+        const auto probe = candidate->clone();
         if (!probe) return false;
         for (const auto &property : candidate->getProperties())
             if (property.first == name) return probe->setObjectProperty(name, property.second);
@@ -2636,19 +1312,48 @@ bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QS
     return false;
 }
 
+bool ProjectManager::setObjectRotationPivot(int index, const QPointF &canvasPosition)
+{
+    const auto object = getObjectAt(index);
+    if (!object || !object->supportsRotationHandle() || object->isSelectionLocked()
+        || !isObjectVisibleInEditor(object.data()) || !qIsFinite(canvasPosition.x()) || !qIsFinite(canvasPosition.y())
+        || !object->contains(canvasPosition)) return false;
+    bool invertible = false;
+    const auto inverse = object->rotationFrame().inverted(&invertible);
+    if (!invertible) return false;
+    const auto local = inverse.map(canvasPosition);
+    if (!qIsFinite(local.x()) || !qIsFinite(local.y())) return false;
+    if (object->editorRotationPivot() && QLineF(*object->editorRotationPivot(), local).length() < 1e-9) return false;
+    recordHistory();
+    object->setEditorRotationPivot(local);
+    finishObjectEdit(tr("Изменён редакторский центр вращения"));
+    return true;
+}
+
 bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects,
                                        const QString &name, const QString &value)
 {
     m_lastErrorMessage.clear();
+    QString resolvedValue = value;
+    if (!objects.isEmpty() && std::all_of(objects.cbegin(), objects.cend(), [&name](const auto &object) {
+        return object && object->isNumericProperty(name);
+    })) {
+        double result = 0.0;
+        if (!NumericExpression::evaluate(value, &result)) {
+            m_lastErrorMessage = tr("Некорректное выражение. Используйте числа, +, −, *, / и скобки. Деление на ноль недопустимо.");
+            return false;
+        }
+        resolvedValue = QString::number(result, 'g', std::numeric_limits<double>::digits10);
+    }
     QList<QSharedPointer<BaseObject>> changed;
     for (const auto &object : objects) {
         if (!object || !m_objects.contains(object)) return false;
         const auto properties = object->getProperties();
         const auto it = std::find_if(properties.cbegin(), properties.cend(), [&name](const auto &p) { return p.first == name; });
         if (it == properties.cend()) return false;
-        if (it->second == value || changed.contains(object)) continue;
-        const auto probe = cloneObject(object);
-        if (!probe || !probe->setObjectProperty(name, value)) {
+        if (it->second == resolvedValue || changed.contains(object)) continue;
+        const auto probe = object->clone();
+        if (!probe || !probe->setObjectProperty(name, resolvedValue)) {
             m_lastErrorMessage = probe ? probe->lastValidationMessage() : QString();
             if (m_lastErrorMessage.isEmpty()) m_lastErrorMessage = tr("Значение параметра «%1» недопустимо для одного из выбранных объектов.").arg(name);
             return false;
@@ -2659,13 +1364,18 @@ bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> 
             m_lastErrorMessage = tr("Координаты должны быть конечными числами, а размеры не могут быть отрицательными.");
             return false;
         }
+        CanvasGeometry::keepInside(probe.data(), getCanvasWidth(), getCanvasHeight());
+        if (!symmetryFitsCanvas(object.data(), probe->getBoundingRect())) {
+            m_lastErrorMessage = tr("Изменение выводит симметричную копию за границы холста. Переместите ось или уменьшите объект.");
+            return false;
+        }
         changed.append(object);
     }
     if (changed.isEmpty()) return !objects.isEmpty();
     recordHistory();
     for (const auto &object : changed) {
-        object->setObjectProperty(name, value);
-        moveObjectInsideCanvas(object.data(), m_document->canvasWidth(), m_document->canvasHeight());
+        object->setObjectProperty(name, resolvedValue);
+        CanvasGeometry::keepInside(object.data(), m_document.canvasWidth(), m_document.canvasHeight());
     }
     emit projectChanged();
     return true;
@@ -2788,10 +1498,17 @@ bool ProjectManager::setEditorLayerColor(int id, const QColor &color)
 bool ProjectManager::setObjectsLayer(const QList<QSharedPointer<BaseObject>> &objects, int layerId)
 {
     if (!hasEditorLayer(layerId) || objects.isEmpty()) return false;
+    for (const auto &object : objects) if (dynamic_cast<SymmetryCopyObject *>(object.data())) return false;
     for (const auto &object : objects) if (!object || !m_objects.contains(object)) return false;
     if (std::all_of(objects.cbegin(), objects.cend(), [layerId](const auto &o) { return o->editorLayerId() == layerId; })) return true;
     recordHistory();
-    for (const auto &object : objects) object->setEditorLayerId(layerId);
+    for (const auto &object : objects) {
+        object->setEditorLayerId(layerId);
+        for (const auto &candidate : m_objects) {
+            const auto *copy = dynamic_cast<SymmetryCopyObject *>(candidate.data());
+            if (copy && copy->source() == object) candidate->setEditorLayerId(layerId);
+        }
+    }
     notifyEditorLayersChanged();
     return true;
 }
@@ -2809,11 +1526,19 @@ int ProjectManager::duplicateEditorLayer(int id)
             m_lastErrorMessage = tr("Нельзя дублировать слой с 3D-видом: в проекте допустим только один 3D-вид.");
             return -1;
         }
-        const auto copy = cloneObject(m_objects[i]);
-        if (!copy) return -1;
         copiedIndexes.insert(i, copies.size());
-        copies.append(copy);
+        copies.append(m_objects[i]);
         tags.append(m_objectTags.value(i));
+    }
+    copies = ObjectCloner::cloneScene(copies);
+    QMap<const SymmetryAxis *, int> axisIds;
+    int nextAxisId = 1;
+    for (const auto &axis : symmetryAxes()) nextAxisId = qMax(nextAxisId, axis->id + 1);
+    for (const auto &object : copies) {
+        const auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data());
+        if (!copy) continue;
+        if (!axisIds.contains(copy->axis().data())) axisIds.insert(copy->axis().data(), nextAxisId++);
+        copy->axis()->id = axisIds.value(copy->axis().data());
     }
     recordHistory();
     const int newId = m_nextLayerId++;
@@ -2884,16 +1609,7 @@ bool ProjectManager::removeEditorLayer(int id)
 
 QDomDocument ProjectManager::buildCompiledFpgaXml() const
 {
-    QMap<int, FpgaFont> generatedFonts;
-    return buildCompiledXmlDocument(
-        m_document->projectName(),
-        m_document->canvasWidth(),
-        m_document->canvasHeight(),
-        m_document->backgroundColor(),
-        m_objects,
-        m_objectTags,
-        &generatedFonts
-    );
+    return FpgaXmlExporter::compile(m_document, m_objects, m_objectTags);
 }
 
 bool ProjectManager::exportFpgaConfiguration(const QString &path, const FpgaHardwareScene &scene, QString *error)
@@ -2926,7 +1642,7 @@ bool ProjectManager::saveToFile(const QString &targetFile)
     QDomDocument doc = buildCompiledFpgaXml();
     if (!FpgaCompiledDocument::fromDomDocument(doc, &m_lastErrorMessage).isValid()) return false;
     EditorProjectXml::State state;
-    state.document = *m_document;
+    state.document = m_document;
     state.objects = m_objects; state.objectTags = m_objectTags;
     state.layers = m_editorLayers; state.groups = m_groups;
     state.nextLayerId = m_nextLayerId; state.nextGroupId = m_nextGroupId;
@@ -2938,23 +1654,7 @@ bool ProjectManager::saveToFile(const QString &targetFile)
     state.fpgaConfiguration = m_fpgaConfiguration;
     if (!EditorProjectXml::write(doc, state, &m_lastErrorMessage)) return false;
 
-    QSaveFile outFile(outPath);
-    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        m_lastErrorMessage = tr("Не удалось открыть файл для записи: %1").arg(outFile.errorString());
-        return false;
-    }
-
-    const QString xmlText = QStringLiteral("<?xml version='1.0' encoding='windows-1251'?>\n") + doc.toString(4);
-    const QByteArray encodedXml = encodeXmlAsWindows1251(xmlText);
-    if (outFile.write(encodedXml) != encodedXml.size()) {
-        m_lastErrorMessage = tr("Не удалось записать XML: %1").arg(outFile.errorString());
-        outFile.cancelWriting();
-        return false;
-    }
-    if (!outFile.commit()) {
-        m_lastErrorMessage = tr("Не удалось завершить сохранение XML: %1").arg(outFile.errorString());
-        return false;
-    }
+    if (!ProjectXmlFile::write(outPath, doc, &m_lastErrorMessage)) return false;
 
     emit logMessage(tr("Проект сохранён: %1").arg(outPath));
     m_lastErrorMessage.clear();
@@ -2964,7 +1664,7 @@ bool ProjectManager::saveToFile(const QString &targetFile)
 
 int ProjectManager::importImage(const QString &fileName, bool rotating)
 {
-    if (!m_document->hasCanvas()) {
+    if (!m_document.hasCanvas()) {
         emit logMessage(tr("Сначала создайте или откройте проект"));
         return -1;
     }
@@ -2993,8 +1693,8 @@ int ProjectManager::importImage(const QString &fileName, bool rotating)
         imageObject->setRasterImage(image, QFileInfo(fileName).fileName());
     }
 
-    const int maxW = qMax(1, m_document->canvasWidth() / 3);
-    const int maxH = qMax(1, m_document->canvasHeight() / 3);
+    const int maxW = qMax(1, m_document.canvasWidth() / 3);
+    const int maxH = qMax(1, m_document.canvasHeight() / 3);
     if (imageObject->width > maxW || imageObject->height > maxH) {
         const QSizeF fitted = QSizeF(imageObject->width, imageObject->height).scaled(QSizeF(maxW, maxH), Qt::KeepAspectRatio);
         imageObject->width = fitted.width();
@@ -3003,12 +1703,12 @@ int ProjectManager::importImage(const QString &fileName, bool rotating)
 
     const ParamSchema staticSchema = m_schemas.value(QStringLiteral("staticgroup"),
         FpgaSchemaRegistry::instance()->buildSchema(QStringLiteral("staticgroup")));
-    const QSizeF hardwareFitted = fitSizeToStaticGroupLimits(QSizeF(imageObject->width, imageObject->height), staticSchema);
+    const QSizeF hardwareFitted = ImageResourceBuilder::fitSizeToStaticGroupLimits(QSizeF(imageObject->width, imageObject->height), staticSchema);
     imageObject->width = hardwareFitted.width();
     imageObject->height = hardwareFitted.height();
 
-    imageObject->x = qMax(0.0, (m_document->canvasWidth() - imageObject->width) / 2.0);
-    imageObject->y = qMax(0.0, (m_document->canvasHeight() - imageObject->height) / 2.0);
+    imageObject->x = qMax(0.0, (m_document.canvasWidth() - imageObject->width) / 2.0);
+    imageObject->y = qMax(0.0, (m_document.canvasHeight() - imageObject->height) / 2.0);
 
     recordHistory();
     insertObjectAtFront(imageObject, QStringLiteral("image"));
@@ -3027,10 +1727,10 @@ QSharedPointer<BaseObject> ProjectManager::getObjectAt(int index) const
 
 // геттеры
 int ProjectManager::getObjectCount() const { return m_objects.size(); }
-QString ProjectManager::getProjectName() const { return m_document->projectName(); }
-int ProjectManager::getCanvasWidth() const { return m_document->canvasWidth(); }
-int ProjectManager::getCanvasHeight() const { return m_document->canvasHeight(); }
-QColor ProjectManager::getBackgroundColor() const { return m_document->backgroundColor(); }
+QString ProjectManager::getProjectName() const { return m_document.projectName(); }
+int ProjectManager::getCanvasWidth() const { return m_document.canvasWidth(); }
+int ProjectManager::getCanvasHeight() const { return m_document.canvasHeight(); }
+QColor ProjectManager::getBackgroundColor() const { return m_document.backgroundColor(); }
 QString ProjectManager::getFilePath() const { return m_filePath; }
 const QList<QSharedPointer<BaseObject>>& ProjectManager::getObjects() const { return m_objects; }
 QList<ProjectManager::ObjectGroup> ProjectManager::objectGroups() const { return m_groups; }
@@ -3096,8 +1796,8 @@ void ProjectManager::readGlobalWorkspaceSettings()
 // сеттеры
 void ProjectManager::setBackgroundColor(const QColor &color)
 {
-    if (m_document->backgroundColor() != color) {
-        m_document->setBackgroundColor(color);
+    if (m_document.backgroundColor() != color) {
+        m_document.setBackgroundColor(color);
         emit projectChanged();
     }
 }
@@ -3106,8 +1806,8 @@ void ProjectManager::setCanvasSize(int width, int height)
 {
     const int clampedWidth = qMax(1, width);
     const int clampedHeight = qMax(1, height);
-    if (m_document->canvasWidth() != clampedWidth || m_document->canvasHeight() != clampedHeight) {
-        m_document->setCanvasSize(clampedWidth, clampedHeight);
+    if (m_document.canvasWidth() != clampedWidth || m_document.canvasHeight() != clampedHeight) {
+        m_document.setCanvasSize(clampedWidth, clampedHeight);
         emit projectChanged();
     }
 }

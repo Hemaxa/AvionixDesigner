@@ -37,7 +37,7 @@ private slots:
     void transmitUartFrame();
 
 private:
-    bool compilePackets(bool showError = true);
+    bool compilePackets();
     bool ensureCompiled();
     bool hasSelectedMode() const;
     bool simulatorModeActive() const;
@@ -56,6 +56,7 @@ private:
     QToolButton *m_stopButton = nullptr;
     QToolButton *m_exportConfigurationButton = nullptr;
     FpgaPipelineConfig m_uartConfiguration;
+    FpgaHardwareScene m_uartScene;
 
     FpgaPacketBundle m_bundle;
     FpgaUartTransport *m_uartTransport = nullptr;

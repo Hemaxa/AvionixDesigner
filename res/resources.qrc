@@ -23,6 +23,7 @@
         <file>icons/list/lock-off.svg</file>
         <file>icons/list/eye-on.svg</file>
         <file>icons/list/eye-off.svg</file>
+        <file>icons/list/symmetry-copy.svg</file>
         <file>icons/settings/grid.svg</file>
         <file>icons/settings/snap-screen.svg</file>
         <file>icons/settings/snap-grid.svg</file>
@@ -61,6 +62,8 @@
         <file>icons/selection/group.svg</file>
         <file>icons/selection/ungroup.svg</file>
         <file>icons/selection/merge-static.svg</file>
+        <file>icons/selection/symmetry-vertical.svg</file>
+        <file>icons/selection/symmetry-horizontal.svg</file>
         <file>icons/selection/delete.svg</file>
     </qresource>
 </RCC>

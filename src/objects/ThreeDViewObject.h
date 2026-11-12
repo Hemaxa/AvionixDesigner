@@ -14,6 +14,9 @@ class ThreeDViewObject : public BaseObject
 public:
     explicit ThreeDViewObject(QObject *parent = nullptr);
 
+    // Независимая копия параметров, ресурсов и состояния редактора.
+    QSharedPointer<BaseObject> clone() const override;
+
     void parse(const QString &hexInit, const ParamSchema &schema) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
@@ -21,6 +24,7 @@ public:
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
     bool canResize() const override { return false; }
+    bool canMove() const override { return false; }
     bool contains(const QPointF &point) const override;
     void moveBy(double dx, double dy) override;
     void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;

@@ -7,6 +7,8 @@
 #include <QMap>
 #include <QString>
 #include <QDomElement>
+#include <QSharedPointer>
+#include <optional>
 
 // ParamInfo - смещение и ширина одного поля битовой схемы.
 struct ParamInfo
@@ -30,6 +32,10 @@ public:
     explicit BaseObject(QObject *parent = nullptr) : QObject(parent) {}
     virtual ~BaseObject() = default;
 
+    // Каждый конкретный тип сам копирует свои параметры и ресурсы.
+    // QObject не копируется: у результата собственные сигналы и время жизни.
+    virtual QSharedPointer<BaseObject> clone() const = 0;
+
     // виртуальный метод, который парсит основные параметры из HEX-строки
     virtual void parse(const QString &hexInit, const ParamSchema &schema) = 0;
 
@@ -43,8 +49,20 @@ public:
     virtual QString getTypeName() const = 0; //возвращает тип объекта
     virtual QString getDisplayName() const { return getTypeName(); } //отображаемое имя для UI
     virtual QList<QPair<QString, QString>> getProperties() const = 0; //возвращает список свойств объекта
+    // Числовые свойства допускают арифметические выражения в редакторе.
+    virtual bool isNumericProperty(const QString &name) const
+    {
+        for (const auto &property : getProperties()) {
+            if (property.first != name) continue;
+            bool numeric = false;
+            property.second.toDouble(&numeric);
+            return numeric;
+        }
+        return false;
+    }
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
     virtual bool supportsRotationHandle() const { return false; }
+    virtual bool canMove() const { return true; }
     virtual bool canResize() const { return !m_resizeLocked; }
     virtual bool isImportedHardwareObject() const { return m_importedHardwareObject; }
     virtual void setImportedHardwareObject(bool imported) { m_importedHardwareObject = imported; }
@@ -67,6 +85,17 @@ public:
     // Метаданные редактора: сохраняются в <editor>, отдельно от аппаратных параметров.
     int editorLayerId() const { return m_editorLayerId; }
     void setEditorLayerId(int id) { m_editorLayerId = id; }
+    // Нормированные координаты в локальном прямоугольнике объекта. В XML
+    // сохраняется точка холста, чтобы обрезка маски при экспорте не смещала метку.
+    const std::optional<QPointF> &editorRotationPivot() const { return m_editorRotationPivot; }
+    void setEditorRotationPivot(const std::optional<QPointF> &point) { m_editorRotationPivot = point; emit changed(); }
+    virtual QTransform rotationFrame() const
+    {
+        const auto bounds = getBoundingRect();
+        QTransform frame; frame.translate(bounds.x(), bounds.y()); frame.scale(bounds.width(), bounds.height());
+        return frame;
+    }
+    virtual QPointF rotationCenter() const { return getBoundingRect().center(); }
 
     // геометрия и взаимодействие
     virtual bool contains(const QPointF &point) const { return getBoundingRect().contains(point); }
@@ -85,6 +114,19 @@ signals:
     void changed();  //сигнал об изменении объекта
 
 protected:
+    // Общие метаданные переносятся без служебной ошибки последнего редактирования.
+    void copyEditorStateTo(BaseObject &target) const
+    {
+        target.m_viewVisible = m_viewVisible;
+        target.m_selectionLocked = m_selectionLocked;
+        target.m_exportEnabled = m_exportEnabled;
+        target.m_importedHardwareObject = m_importedHardwareObject;
+        target.m_resizeLocked = m_resizeLocked;
+        target.m_editRestrictionHint = m_editRestrictionHint;
+        target.m_customName = m_customName;
+        target.m_editorLayerId = m_editorLayerId;
+        target.m_editorRotationPivot = m_editorRotationPivot;
+    }
     void setValidationMessage(const QString &message) const { m_lastValidationMessage = message; }
 
 private:
@@ -96,5 +138,6 @@ private:
     bool m_exportEnabled = true;
     QString m_customName;
     QString m_editRestrictionHint;
+    std::optional<QPointF> m_editorRotationPivot;
     mutable QString m_lastValidationMessage;
 };

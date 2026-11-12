@@ -1,6 +1,7 @@
 // TextObject - редакторский объект текста, экспортируемый в FPGA XML через font/text ресурсы.
 
 #include "TextObject.h"
+#include "fpga/config/FpgaPipelineConfig.h"
 
 #include "ProportionalResize.h"
 #include "text/FontRasterizer.h"
@@ -106,6 +107,7 @@ QList<QPair<QString, QString>> TextObject::getProperties() const
         {"Y", QString::number(state.y)},
         {"Шрифт", fontFamily},
         {"Размер", QString::number(pixelSize)},
+        {"Позиции ПЛИС (0 — авто)", QString::number(symbolCapacity)},
         {"Индекс шрифта", QString::number(fontIndex)},
         {"Цвет", state.color.name()}
     };
@@ -192,6 +194,14 @@ bool TextObject::setObjectProperty(const QString &name, const QString &value)
             return false;
         }
         fontIndex = value.toInt(&ok);
+    }
+    else if (name == "Позиции ПЛИС (0 — авто)") {
+        const int count = value.toInt(&ok);
+        if (!ok || count < 0 || count > FpgaPipelineConfig::parameterArraySize) {
+            setValidationMessage(QStringLiteral("Число позиций должно быть от 0 до %1.").arg(FpgaPipelineConfig::parameterArraySize));
+            return false;
+        }
+        symbolCapacity = count;
     }
     else if (name == "Цвет") {
         const QColor color(value);
@@ -368,4 +378,24 @@ QRectF TextObject::getBoundingRect() const
         return QRectF();
     const GroupState state = states.first();
     return QRectF(state.x, state.y, state.w, state.h);
+}
+
+QSharedPointer<BaseObject> TextObject::clone() const
+{
+    auto *clone = new TextObject();
+    clone->states = states;
+    clone->groupNumber = groupNumber;
+    clone->maskImages = maskImages;
+    clone->text = text;
+    clone->fontFamily = fontFamily;
+    clone->pixelSize = pixelSize;
+    clone->fontIndex = fontIndex;
+    clone->symbolCapacity = symbolCapacity;
+    clone->restrictedAtlasEditing = restrictedAtlasEditing;
+    clone->exportAlphabetGroups = exportAlphabetGroups;
+    if (hasFontAtlas())
+        clone->setFontAtlas(fontAtlas(), restrictedAtlasEditing);
+    clone->extraCharacters = extraCharacters;
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
 }

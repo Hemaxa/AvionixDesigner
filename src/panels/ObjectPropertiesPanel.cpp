@@ -5,6 +5,7 @@
 #include "BaseObject.h"
 #include "ProjectManager.h"
 #include "ThreeDViewObject.h"
+#include "ExpressionSpinBox.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 
 #include <QColorDialog>
@@ -347,6 +348,9 @@ void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &
             combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
             combo->setMinimumContentsLength(6);
             combo->setPlaceholderText(tr("Разные значения"));
+            combo->setEnabled(std::none_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [](const auto &object) {
+                return dynamic_cast<SymmetryCopyObject *>(object.data()) != nullptr;
+            }));
             layout->addWidget(combo);
             m_tableWidget->setCellWidget(i, 1, editor);
             connect(combo, &QComboBox::activated, this, [this, combo](int index) {
@@ -372,6 +376,10 @@ void ObjectPropertiesPanel::updateValueItem(int row, const QString &name, const 
     item->setData(Qt::UserRole, mixed);
     item->setIcon(QIcon());
     const bool readOnly = isReadOnlyProperty(name);
+    const bool numeric = !m_currentObjects.isEmpty() && std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [&name](const auto &object) {
+        return object->isNumericProperty(name);
+    });
+    item->setToolTip(!readOnly && numeric ? NumericExpression::helpText() : QString());
     item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
     if (!readOnly && !isColorProperty(name) && name != tr("Слой") && name != QStringLiteral("Прозрачность"))
         item->setFlags(item->flags() | Qt::ItemIsEditable);
@@ -431,7 +439,7 @@ QWidget *ObjectPropertiesPanel::createTransparencyEditor(double value)
     auto *layout = new QHBoxLayout(editor);
     layout->setContentsMargins(10, 3, 10, 3);
     layout->setSpacing(8);
-    auto *spin = new QSpinBox(editor);
+    auto *spin = new ExpressionSpinBox(editor);
     spin->setObjectName("TransparencySpin");
     spin->setRange(value < 0 ? -1 : 0, 100);
     spin->setSpecialValueText(value < 0 ? tr("Разные") : QString());
@@ -515,6 +523,8 @@ void ObjectPropertiesPanel::refreshHardwareWarnings()
     QStringList messages;
     bool errors = false;
     for (const auto &object : m_currentObjects) {
+        if (dynamic_cast<SymmetryCopyObject *>(object.data()) && !messages.contains(object->editRestrictionHint()))
+            messages.append(object->editRestrictionHint());
         const auto report = FpgaResourceLimits::inspect(*object);
         errors |= !report.errors.isEmpty();
         for (const auto &message : report.messages()) if (!messages.contains(message)) messages.append(message);
@@ -584,5 +594,8 @@ bool ObjectPropertiesPanel::isColorProperty(const QString &name) const
 
 bool ObjectPropertiesPanel::isReadOnlyProperty(const QString &name) const
 {
+    if (name == tr("Слой") && std::any_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [](const auto &object) {
+        return dynamic_cast<SymmetryCopyObject *>(object.data()) != nullptr;
+    })) return true;
     return m_readOnlyProperties.contains(name);
 }

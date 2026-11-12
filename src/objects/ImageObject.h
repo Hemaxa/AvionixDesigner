@@ -39,6 +39,9 @@ public:
     QColor maskColor = QColor("#FFFFFF");
     bool autoMaskColor = true;
     double rotationDegrees = 0.0;
+    // Редакторские отражения исходника до штатной сборки цветовых масок.
+    bool mirrorHorizontal = false;
+    bool mirrorVertical = false;
     QString sourceName;
     QString format = QStringLiteral("raster");
 
@@ -67,6 +70,9 @@ public:
     void restoreRotationCoefficients(int sine, int cosine);
     QPoint rotationCoefficients() const;
 
+    // Независимая копия параметров, ресурсов и состояния редактора.
+    QSharedPointer<BaseObject> clone() const override;
+
     void parse(const QString &hexInit, const ParamSchema &schema) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;
@@ -74,6 +80,8 @@ public:
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
     bool supportsRotationHandle() const override { return isRotationObject() && canResize(); }
+    QTransform rotationFrame() const override;
+    QPointF rotationCenter() const override;
     bool contains(const QPointF &point) const override;
 
     void moveBy(double dx, double dy) override;

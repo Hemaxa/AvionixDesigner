@@ -15,15 +15,24 @@ public:
     QString fontFamily = QStringLiteral("Arial");
     int pixelSize = 14;
     int fontIndex = 0;
+    int symbolCapacity = 0; // Ноль выделяет по одной позиции на текущий код строки.
     QString extraCharacters = QStringLiteral("α°+-/");
     QStringList exportAlphabetGroups;
     bool restrictedAtlasEditing = false;
 
     explicit TextObject(QObject *parent = nullptr);
 
+    // Копирует текст, его атлас, маски предпросмотра и метаданные редактора.
+    QSharedPointer<BaseObject> clone() const override;
+
     QString getTypeName() const override;
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
+    bool isNumericProperty(const QString &name) const override
+    {
+        return name != QStringLiteral("Текст") && name != QStringLiteral("Символы")
+            && name != QStringLiteral("Шрифт") && BaseObject::isNumericProperty(name);
+    }
     bool setObjectProperty(const QString &name, const QString &value) override;
     void resizeBy(int edgeFlags, double dx, double dy, bool proportional = false) override;
     QRectF getBoundingRect() const override;

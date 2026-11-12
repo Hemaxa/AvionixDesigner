@@ -31,12 +31,13 @@ bool layoutText(const QString &text, const FpgaFont &font, TextLayout *layout, Q
     const int spaceAdvance = font.glyphs.contains(QLatin1Char(' '))
         ? font.glyphs.value(QLatin1Char(' ')).advance : fallbackSpace;
 
-    for (const QChar character : text) {
+    for (qsizetype index = 0; index < text.size(); ++index) {
+        const QChar character = text[index];
         if (!previous.isNull())
             penX += font.kerningPairs.value(QString(previous) + character, 0);
 
         if (character.isSpace()) {
-            // Как и в XML-редакторе, пробельные коды занимают место без статического объекта.
+            // Пробел сдвигает перо, оставляя соответствующую позицию без маски.
             penX += font.glyphs.contains(character) ? font.glyphs.value(character).advance : spaceAdvance;
         } else {
             const auto it = font.glyphs.constFind(character);
@@ -54,7 +55,7 @@ bool layoutText(const QString &text, const FpgaFont &font, TextLayout *layout, Q
             maxX = qMax(maxX, right);
             if (left < std::numeric_limits<int>::min() || left > std::numeric_limits<int>::max())
                 return fail(QStringLiteral("Координаты текста выходят за допустимый диапазон."));
-            positioned.append({character, QPoint(static_cast<int>(left), glyph.bearingY)});
+            positioned.append({character, QPoint(static_cast<int>(left), glyph.bearingY), index});
             if (firstGlyph) {
                 top = glyph.bearingY;
                 bottom = glyph.bearingY + glyph.height;

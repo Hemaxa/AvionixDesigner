@@ -20,6 +20,7 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
+#include "ExpressionSpinBox.h"
 #include <QSvgRenderer>
 #include <QTimer>
 #include <QToolButton>
@@ -90,9 +91,9 @@ void drawSvg(QPainter *painter, QSvgRenderer &renderer, const QRectF &target) {
 }
 
 // AircraftValueSpin - числовое поле координат, курса или высоты с ускорением шага по Shift.
-class AircraftValueSpin : public QDoubleSpinBox {
+class AircraftValueSpin : public ExpressionDoubleSpinBox {
 public:
-  explicit AircraftValueSpin(QWidget *parent) : QDoubleSpinBox(parent) {}
+  explicit AircraftValueSpin(QWidget *parent) : ExpressionDoubleSpinBox(parent) {}
   double fastStep = 1.0;
 protected:
   void stepBy(int steps) override {
@@ -113,9 +114,9 @@ protected:
 };
 
 // AircraftScreenYSpin - редактор сырого yscreen с ускорением стрелок и колеса по Shift.
-class AircraftScreenYSpin : public QSpinBox {
+class AircraftScreenYSpin : public ExpressionSpinBox {
 public:
-  using QSpinBox::QSpinBox;
+  using ExpressionSpinBox::ExpressionSpinBox;
 protected:
   void stepBy(int steps) override {
     setValue(value() + steps * (QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier)

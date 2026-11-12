@@ -736,6 +736,8 @@ void MainWindow::connectSignals() {
           &MainWindow::ungroupSelectedObjects);
   connect(m_selectionToolStrip, &SelectionToolStrip::mergeStaticRequested, this,
           &MainWindow::mergeSelectedStaticGroups);
+  connect(m_selectionToolStrip, &SelectionToolStrip::symmetryRequested, this,
+          &MainWindow::createSymmetry);
   connect(m_viewport, &ViewportPanel::imageDropped, this,
           [this](const QString &fileName) {
             const int index =
@@ -952,16 +954,33 @@ void MainWindow::copySelectedObjects() {
 }
 
 void MainWindow::pasteObjects() {
-  const QList<int> pastedIndexes = ProjectManager::instance()->pasteObjects();
+  const QList<int> pastedIndexes = ProjectManager::instance()->pasteObjects(m_viewport->pastePosition());
   if (pastedIndexes.isEmpty())
     return;
 
   m_objectList->refreshList();
   m_objectList->selectRows(pastedIndexes);
   m_viewport->setSelectedIndexes(pastedIndexes);
+  m_viewport->setFocus(Qt::ShortcutFocusReason);
   handleSelectionChanged(pastedIndexes);
   m_viewport->update();
   updateCommandState();
+}
+
+void MainWindow::createSymmetry(Qt::Orientation orientation) {
+  auto *project = ProjectManager::instance();
+  QList<QSharedPointer<BaseObject>> sources;
+  const auto selection = m_viewport->getSelectedIndexes();
+  for (int index : selection) sources.append(project->getObjectAt(index));
+  if (project->createSymmetry(selection, orientation).isEmpty()) return;
+  QList<int> indexes;
+  for (const auto &source : sources) indexes.append(project->getObjects().indexOf(source));
+  m_objectList->refreshList();
+  m_objectList->selectRows(indexes);
+  m_viewport->setSelectedIndexes(indexes);
+  handleSelectionChanged(indexes);
+  m_viewport->setFocus(Qt::ShortcutFocusReason);
+  m_viewport->update();
 }
 
 bool MainWindow::configureFontExportAlphabets() {
@@ -1053,14 +1072,24 @@ void MainWindow::mergeSelectedStaticGroups() {
 
 void MainWindow::checkHardwareResources() {
   QStringList messages;
+  bool hasErrors = false;
+  bool hasText = false;
   for (const auto &object : ProjectManager::instance()->getObjects()) {
     if (!object->isExportEnabled()) continue;
+    hasText |= object->getTypeName() == "text";
     const auto report = FpgaResourceLimits::inspect(*object);
+    hasErrors |= !report.errors.isEmpty();
     if (!report.messages().isEmpty())
       messages.append((object->customName().isEmpty() ? object->getDisplayName() : object->customName()) + ":\n" + report.messages().join('\n'));
   }
+  if (hasText && !hasErrors) {
+    QString error;
+    const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+    if (error.isEmpty()) messages += bundle.document.warnings;
+    else messages.append(error);
+  }
   if (messages.isEmpty())
-    QMessageBox::information(this, tr("Память ПЛИС"), tr("Статические группы и вращающиеся изображения укладываются в ограничения памяти и параметров."));
+    QMessageBox::information(this, tr("Память ПЛИС"), tr("Растровые объекты укладываются в ограничения памяти и параметров."));
   else
     QMessageBox::warning(this, tr("Ограничения ПЛИС"), messages.join("\n\n"));
 }
@@ -1167,7 +1196,7 @@ void MainWindow::alignSelectedObject(int actionId) {
     bool hasBounds = false;
     for (int index : members) {
       const auto object = project->getObjectAt(index);
-      if (!object)
+      if (!object || !object->canMove())
         continue;
       bounds = hasBounds ? bounds.united(object->getBoundingRect())
                          : object->getBoundingRect();
@@ -1199,7 +1228,7 @@ void MainWindow::alignSelectedObject(int actionId) {
     if (consumed.contains(index))
       continue;
     const auto object = project->getObjectAt(index);
-    if (!object)
+    if (!object || !object->canMove())
       continue;
     const QRectF bounds = object->getBoundingRect();
     if (!bounds.isEmpty())
@@ -1255,9 +1284,10 @@ void MainWindow::alignSelectedObject(int actionId) {
       break;
     }
 
+    delta = project->constrainSymmetryMove(unit.members, delta);
     if (!qFuzzyIsNull(delta.x()) || !qFuzzyIsNull(delta.y())) {
       for (int index : unit.members)
-        deltas.append({index, delta});
+        if (project->getObjectAt(index)->canMove()) deltas.append({index, delta});
     }
   }
 
@@ -1296,6 +1326,10 @@ void MainWindow::updateCommandState() {
   m_selectionToolStrip->setHistoryAvailable(project->canUndo(),
                                             project->canRedo());
   m_selectionToolStrip->setPasteAvailable(project->canPasteObjects());
+  const auto selection = m_viewport->getSelectedIndexes();
+  m_selectionToolStrip->setSymmetryAvailable(project->canCreateSymmetry(selection));
+  m_selectionToolStrip->setCopyAvailable(!selection.isEmpty() && std::none_of(selection.cbegin(), selection.cend(),
+      [project](int index) { return project->isSymmetryCopy(index); }));
 }
 
 int MainWindow::selectedGroupId() const {

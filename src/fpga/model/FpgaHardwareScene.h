@@ -3,6 +3,7 @@
 #pragma once
 
 #include "BaseObject.h"
+#include "text/FontAtlas.h"
 
 #include <QColor>
 #include <QList>
@@ -10,7 +11,14 @@
 #include <QStringList>
 
 // FpgaMemoryKind - способ упаковки растрового банка в пакеты ПЛИС.
-enum class FpgaMemoryKind { StaticMask, RotationTiles };
+enum class FpgaMemoryKind { StaticMask, RotationTiles, FontAtlas };
+
+// FpgaTextField - резерв слов параметров и шрифт надписи в текущем сеансе UART.
+struct FpgaTextField
+{
+    int fontIndex = 0;
+    int capacity = 0;
+};
 
 // FpgaHardwareMemory - общий банк уровней маски до упаковки в аппаратные блоки.
 struct FpgaHardwareMemory
@@ -39,6 +47,8 @@ struct FpgaHardwareScene
     QMap<QString, ParamSchema> schemas;
     QList<FpgaHardwareObject> objects;
     QList<FpgaHardwareMemory> memories;
+    QMap<int, FpgaFont> fonts;
+    QList<FpgaTextField> textFields;
     QStringList warnings;
 
     bool isValid() const { return width > 0 && height > 0; }

@@ -9,7 +9,8 @@
 class FpgaSceneCompiler
 {
 public:
-    // Раскрывает текст в staticgroup и назначает общие банки и индексы параметров.
-    // Исходный документ не меняется; ошибка возвращает невалидную сцену без пакетов.
-    FpgaHardwareScene compile(const FpgaCompiledDocument &document, QString *errorMessage = nullptr) const;
+    // Раскрывает текст в SYMBOLs и назначает общие банки и индексы параметров.
+    // При обновлении UART сохраняет загруженные шрифты и число позиций надписей.
+    FpgaHardwareScene compile(const FpgaCompiledDocument &document, QString *errorMessage = nullptr,
+                              const FpgaHardwareScene *loaded = nullptr) const;
 };

@@ -46,10 +46,8 @@ private:
     QMutex m_mutex;
     QWaitCondition m_changed;
     FpgaUartConfig m_config;
-    QByteArray m_scene;
-    QByteArray m_lastScene;
-    QByteArray m_lastOrdinary;
-    bool m_pendingFullScene = false;
+    QList<FpgaPacket> m_scene;
+    bool m_scenePending = false;
     QByteArray m_position;
     bool m_stop = false;
 };

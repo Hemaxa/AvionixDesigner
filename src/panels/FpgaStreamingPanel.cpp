@@ -26,6 +26,7 @@
 #include <QSerialPortInfo>
 #include "ApplicationSettings.h"
 #include <QSpinBox>
+#include "ExpressionSpinBox.h"
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -163,17 +164,17 @@ public:
         portLayout->addWidget(m_portCombo, 1);
         portLayout->addWidget(refreshButton, 0);
 
-        m_loadBaudRateSpin = new QSpinBox(this);
+        m_loadBaudRateSpin = new ExpressionSpinBox(this);
         m_loadBaudRateSpin->setObjectName(QStringLiteral("UartLoadBaudRateSpin"));
         m_loadBaudRateSpin->setRange(1200, 4000000);
         m_loadBaudRateSpin->setSingleStep(9600);
 
-        m_baudRateSpin = new QSpinBox(this);
+        m_baudRateSpin = new ExpressionSpinBox(this);
         m_baudRateSpin->setObjectName(QStringLiteral("UartBaudRateSpin"));
         m_baudRateSpin->setRange(1200, 4000000);
         m_baudRateSpin->setSingleStep(9600);
 
-        m_intervalSpin = new QSpinBox(this);
+        m_intervalSpin = new ExpressionSpinBox(this);
         m_intervalSpin->setObjectName(QStringLiteral("UartIntervalSpin"));
         m_intervalSpin->setRange(kMinimumUartIntervalMs, kMaximumUartIntervalMs);
         m_intervalSpin->setSingleStep(1);
@@ -309,12 +310,12 @@ FpgaStreamingPanel::FpgaStreamingPanel(QWidget *parent)
 
 FpgaStreamingPanel::~FpgaStreamingPanel() { stopUartStreaming(); }
 
-bool FpgaStreamingPanel::compilePackets(bool showError)
+bool FpgaStreamingPanel::compilePackets()
 {
     QString error;
     m_bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
     m_hasBundle = error.isEmpty() && m_bundle.document.isValid();
-    if (!error.isEmpty() && showError) {
+    if (!error.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("Пакеты ПЛИС"), error);
     }
     return m_hasBundle;
@@ -464,12 +465,14 @@ void FpgaStreamingPanel::startUartStreaming()
     m_lastSceneRevision = ProjectManager::instance()->sceneRevision();
     QString error;
     m_uartStreaming = m_uartTransport->startStreaming(m_bundle, m_uartConfig, &error);
-    if (!m_uartStreaming) QMessageBox::warning(this, QStringLiteral("UART"), error);
+    if (m_uartStreaming) m_uartScene = m_bundle.document;
+    else QMessageBox::warning(this, QStringLiteral("UART"), error);
 }
 
 void FpgaStreamingPanel::stopUartStreaming()
 {
     m_uartStreaming = false;
+    m_uartScene = {};
     if (m_uartTransport) m_uartTransport->stopStreaming();
 }
 
@@ -479,14 +482,15 @@ void FpgaStreamingPanel::transmitUartFrame()
     if (!m_uartStreaming) return;
     auto *project = ProjectManager::instance();
     if (project->sceneRevision() != m_lastSceneRevision) {
-        if (!compilePackets(false)) {
+        QString error;
+        auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error, &m_uartScene);
+        if (!bundle.document.isValid()) {
             stopUartStreaming();
             setRunning(simulatorModeActive());
-            QMessageBox::warning(this, QStringLiteral("UART"), QStringLiteral("Не удалось сформировать сцену."));
+            QMessageBox::warning(this, QStringLiteral("UART"), QStringLiteral("Передача UART остановлена.\n\n") + error);
             return;
         }
-        QString error;
-        const auto current = FpgaPipelineConfig::fromScene(m_bundle.document, &error);
+        const auto current = FpgaPipelineConfig::fromScene(bundle.document, &error);
         if (!current.isValid() || current != m_uartConfiguration) {
             stopUartStreaming();
             setRunning(simulatorModeActive());
@@ -495,7 +499,7 @@ void FpgaStreamingPanel::transmitUartFrame()
                     "Экспортируйте новый tube_config_pkg.sv и пересоберите прошивку ПЛИС.\n\n") + error);
             return;
         }
-        m_uartTransport->updateScene(m_bundle);
+        m_uartTransport->updateScene(bundle);
         m_lastSceneRevision = project->sceneRevision();
     }
     auto *view = project->threeDViewObject();

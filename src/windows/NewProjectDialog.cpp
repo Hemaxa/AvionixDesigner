@@ -14,6 +14,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QSpinBox>
+#include "ExpressionSpinBox.h"
 #include <QVBoxLayout>
 
 namespace {
@@ -73,14 +74,14 @@ NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
     formLayout->addWidget(createFormLabel(QStringLiteral("Имя"), this), 0, 0);
     formLayout->addWidget(m_nameEdit, 0, 1);
 
-    m_widthSpin = new QSpinBox(this);
+    m_widthSpin = new ExpressionSpinBox(this);
     m_widthSpin->setRange(64, 4095);
     m_widthSpin->setValue(640);
     m_widthSpin->setFixedHeight(32);
     formLayout->addWidget(createFormLabel(QStringLiteral("Ширина"), this), 1, 0);
     formLayout->addWidget(m_widthSpin, 1, 1);
 
-    m_heightSpin = new QSpinBox(this);
+    m_heightSpin = new ExpressionSpinBox(this);
     m_heightSpin->setRange(64, 4095);
     m_heightSpin->setValue(480);
     m_heightSpin->setFixedHeight(32);

@@ -259,3 +259,20 @@ int DashedLineObject::normalizedDashPeriod(int candidate) const
     const int lower = power >> 1;
     return (period - lower) <= (power - period) ? lower : power;
 }
+
+QSharedPointer<BaseObject> DashedLineObject::clone() const
+{
+    auto *clone = new DashedLineObject();
+    clone->enabled = enabled;
+    clone->color = color;
+    clone->x0 = x0;
+    clone->y0 = y0;
+    clone->x1 = x1;
+    clone->y1 = y1;
+    clone->dashPeriod = dashPeriod;
+    clone->dashLength = dashLength;
+    clone->dashPhase = dashPhase;
+    clone->lineWidth = lineWidth;
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}

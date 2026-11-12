@@ -36,6 +36,8 @@ public slots:
     void setHistoryAvailable(bool canUndo, bool canRedo);
     // включает кнопку вставки по состоянию внутреннего буфера обмена
     void setPasteAvailable(bool canPaste);
+    void setSymmetryAvailable(bool available);
+    void setCopyAvailable(bool available);
 
 signals:
     // запрашивает выравнивание или изменение порядка слоёв
@@ -55,12 +57,14 @@ signals:
     // запрашивает удаление редакторской группы
     void ungroupRequested();
     void mergeStaticRequested();
+    void symmetryRequested(Qt::Orientation orientation);
 
 private:
     // создаёт кнопку панели быстрых действий с иконкой и подсказкой
     QToolButton* createActionButton(const QString &iconPath, const QString &toolTip, const QString &shortcutText = QString());
 
     QList<QToolButton*> m_selectionButtons;
+    QList<QToolButton*> m_symmetryButtons;
     QToolButton *m_undoButton = nullptr;
     QToolButton *m_redoButton = nullptr;
     QToolButton *m_copyButton = nullptr;

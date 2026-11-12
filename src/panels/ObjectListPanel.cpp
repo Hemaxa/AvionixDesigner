@@ -34,6 +34,7 @@ enum class RowKind { Object = 0, Group = 1 };
 QString typeLabelForObject(const BaseObject *object) {
   if (!object)
     return {};
+  if (const auto *copy = dynamic_cast<const SymmetryCopyObject *>(object)) return typeLabelForObject(copy->source().data());
 
   if (const auto *rectangle = dynamic_cast<const RectangleObject *>(object))
     return rectangle->usesAlpha() ? QStringLiteral("rectangle_a") : QStringLiteral("rectangle");
@@ -271,8 +272,26 @@ void ObjectListPanel::refreshList() {
     label->setToolTip(text);
     rowLayout->addWidget(label, 1, Qt::AlignVCenter);
 
+    if (pm->isSymmetryCopy(index)) {
+      auto *detach = new QToolButton(rowWidget);
+      detach->setObjectName("ObjectListIconButton");
+      detach->setProperty("symmetryDetach", true);
+      detach->setAccessibleName(tr("Сделать копию независимой"));
+      detach->setToolTip(tr("Сделать независимым объектом. Вернуть связь можно через отмену действия."));
+      detach->setIcon(QIcon(":/icons/icons/list/symmetry-copy.svg"));
+      detach->setFixedSize(30, 30); detach->setIconSize(QSize(24, 24));
+      rowLayout->addWidget(detach, 0, Qt::AlignVCenter);
+      connect(detach, &QToolButton::clicked, this, [this, index] {
+        if (ProjectManager::instance()->detachSymmetryCopy(index)) { refreshList(); onSelectionChanged(); }
+      });
+    }
+
     auto *exportCheck = addExportControls(rowWidget, rowLayout, typeText,
         QStringLiteral("Экспортировать в XML"), obj->isExportEnabled());
+    if (pm->isSymmetryCopy(index)) {
+      exportCheck->setEnabled(false);
+      exportCheck->setToolTip(tr("Зависимая копия хранится в редакторе. Для экспорта сделайте её независимой значком копии."));
+    }
     rowWidget->ensurePolished();
     minimumRowWidth = qMax(minimumRowWidth, rowLayout->minimumSize().width());
 
@@ -298,13 +317,17 @@ void ObjectListPanel::refreshList() {
     bool anyVisible = false;
     bool allLocked = !members.isEmpty();
     bool allExportEnabled = !members.isEmpty();
+    bool hasExportableObjects = false;
     for (int member : members) {
       const auto object = pm->getObjectAt(member);
       if (!object)
         continue;
       anyVisible = anyVisible || object->isViewVisible();
       allLocked = allLocked && object->isSelectionLocked();
-      allExportEnabled = allExportEnabled && object->isExportEnabled();
+      if (!pm->isSymmetryCopy(member)) {
+        hasExportableObjects = true;
+        allExportEnabled = allExportEnabled && object->isExportEnabled();
+      }
     }
 
     QListWidgetItem *item = new QListWidgetItem();
@@ -355,7 +378,8 @@ void ObjectListPanel::refreshList() {
     rowLayout->addWidget(label, 1, Qt::AlignVCenter);
 
     auto *exportCheck = addExportControls(rowWidget, rowLayout, QStringLiteral("Группа"),
-        QStringLiteral("Экспортировать группу в XML"), allExportEnabled);
+        QStringLiteral("Экспортировать группу в XML"), hasExportableObjects && allExportEnabled);
+    exportCheck->setEnabled(hasExportableObjects);
     rowWidget->ensurePolished();
     minimumRowWidth = qMax(minimumRowWidth, rowLayout->minimumSize().width());
 

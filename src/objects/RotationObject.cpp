@@ -175,17 +175,27 @@ QRectF RotationObject::getBoundingRect() const
 
 bool RotationObject::contains(const QPointF &point) const
 {
-    // Учитываем поворот для определения попадания мыши
-    QTransform transform;
-    transform.translate(xRot, yRot);
-    transform.rotate(getAngleDegrees());
+    const auto layers = m_layers.isEmpty() ? QVector<RotationObjectLayer>{currentLayer()} : m_layers;
+    for (const auto &layer : layers) {
+        if (!layer.enabled) continue;
+        QTransform transform; transform.translate(layer.xRot, layer.yRot);
+        transform.rotate(qRadiansToDegrees(qAtan2(layer.sinVal, layer.cosVal)));
+        if (QRectF(layer.left, layer.top, layer.right - layer.left, layer.bottom - layer.top)
+            .contains(transform.inverted().map(point))) return true;
+    }
+    return false;
+}
 
-    // Инвертируем трансформацию, чтобы перевести точку клика в локальные координаты
-    QTransform invTransform = transform.inverted();
-    QPointF localPoint = invTransform.map(point);
+QTransform RotationObject::rotationFrame() const
+{
+    QTransform frame; frame.translate(xRot, yRot); frame.rotate(getAngleDegrees());
+    frame.translate(left, top); frame.scale(right - left, bottom - top);
+    return frame;
+}
 
-    QRectF localRect(left, top, right - left, bottom - top);
-    return localRect.contains(localPoint);
+QPointF RotationObject::rotationCenter() const
+{
+    return editorRotationPivot() ? rotationFrame().map(*editorRotationPivot()) : QPointF(xRot, yRot);
 }
 
 void RotationObject::moveBy(double dx, double dy)
@@ -231,12 +241,23 @@ void RotationObject::resizeBy(int edgeFlags, double dx, double dy, bool proporti
 
 void RotationObject::setRotation(double angle)
 {
+    const double oldAngle = getAngleDegrees();
+    const QPointF pivot = rotationCenter();
     double angleRad = qDegreesToRadians(angle);
     sinVal = qRound(qSin(angleRad) * 65536.0);
     cosVal = qRound(qCos(angleRad) * 65536.0);
+    QTransform delta; delta.rotate(getAngleDegrees() - oldAngle);
+    if (editorRotationPivot()) {
+        const auto center = pivot + delta.map(QPointF(xRot, yRot) - pivot);
+        xRot = center.x(); yRot = center.y();
+    }
     for (RotationObjectLayer &layer : m_layers) {
-        layer.sinVal = sinVal;
-        layer.cosVal = cosVal;
+        if (editorRotationPivot()) {
+            const auto center = pivot + delta.map(QPointF(layer.xRot, layer.yRot) - pivot);
+            layer.xRot = center.x(); layer.yRot = center.y();
+            const double layerAngle = qAtan2(layer.sinVal, layer.cosVal) + qDegreesToRadians(getAngleDegrees() - oldAngle);
+            layer.sinVal = qRound(qSin(layerAngle) * 65536.0); layer.cosVal = qRound(qCos(layerAngle) * 65536.0);
+        } else { layer.sinVal = sinVal; layer.cosVal = cosVal; }
     }
     emit changed();
 }
@@ -282,9 +303,8 @@ bool RotationObject::setObjectProperty(const QString &name, const QString &value
     else if (name == "Угол (°)") {
         double angleDeg = value.toDouble(&ok);
         if (ok) {
-            double angleRad = qDegreesToRadians(angleDeg);
-            sinVal = qRound(qSin(angleRad) * 65536.0);
-            cosVal = qRound(qCos(angleRad) * 65536.0);
+            setRotation(angleDeg);
+            return true;
         }
     }
     else if (name == "Цвет") {
@@ -399,4 +419,23 @@ void RotationObject::syncFirstLayerFromPublicFields()
         m_layers.append(currentLayer());
     else
         m_layers[0] = currentLayer();
+}
+
+QSharedPointer<BaseObject> RotationObject::clone() const
+{
+    auto *clone = new RotationObject();
+    clone->enabled = enabled;
+    clone->left = left;
+    clone->top = top;
+    clone->right = right;
+    clone->bottom = bottom;
+    clone->xRot = xRot;
+    clone->yRot = yRot;
+    clone->sinVal = sinVal;
+    clone->cosVal = cosVal;
+    clone->color = color;
+    clone->maskImage = maskImage;
+    clone->restoreHardwareLayers(hardwareLayers());
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
 }

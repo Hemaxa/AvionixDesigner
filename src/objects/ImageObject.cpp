@@ -522,11 +522,11 @@ QImage ImageObject::renderedSourceImage() const
         QSvgRenderer renderer(m_sourceBytes);
         QPainter painter(&image);
         renderer.render(&painter, QRectF(0, 0, outW, outH));
-        return image;
+        return image.mirrored(mirrorHorizontal, mirrorVertical);
     }
 
     if (!m_sourceImage.isNull()) {
-        return m_sourceImage.scaled(outW, outH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        return m_sourceImage.scaled(outW, outH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).mirrored(mirrorHorizontal, mirrorVertical);
     }
 
     return image;
@@ -608,6 +608,9 @@ QList<ImageMaskComponent> ImageObject::maskComponents() const
             const int bottom = qBound(top + 1, qRound((c.bounds.y() + c.bounds.height()) * sy), outHeight);
             c.bounds = QRect(left, top, right - left, bottom - top);
             c.mask = c.mask.scaled(c.bounds.size(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            if (mirrorHorizontal) c.bounds.moveLeft(outWidth - c.bounds.x() - c.bounds.width());
+            if (mirrorVertical) c.bounds.moveTop(outHeight - c.bounds.y() - c.bounds.height());
+            c.mask = c.mask.mirrored(mirrorHorizontal, mirrorVertical);
             if (i < m_colorLayers.size() && !m_colorLayers[i].autoMaskColor) c.color = m_colorLayers[i].maskColor;
             for (int y = 0; y < c.mask.height(); ++y)
                 for (int x = 0; x < c.mask.width(); ++x) {
@@ -636,6 +639,8 @@ void ImageObject::restoreRasterComponents(const QList<ImageMaskComponent> &compo
 
 void ImageObject::copyRasterSource(const ImageObject &source)
 {
+    mirrorHorizontal = source.mirrorHorizontal;
+    mirrorVertical = source.mirrorVertical;
     m_sourceImage = source.m_sourceImage;
     m_sourceBytes = source.m_sourceBytes;
     m_restoredComponents = source.m_restoredComponents;
@@ -834,6 +839,19 @@ bool ImageObject::contains(const QPointF &point) const
     return baseRect.contains(inverse.map(point));
 }
 
+QTransform ImageObject::rotationFrame() const
+{
+    const auto center = QPointF(x + width / 2, y + height / 2);
+    QTransform frame; frame.translate(center.x(), center.y()); frame.rotate(rotationDegrees);
+    frame.translate(-width / 2, -height / 2); frame.scale(width, height);
+    return frame;
+}
+
+QPointF ImageObject::rotationCenter() const
+{
+    return editorRotationPivot() ? rotationFrame().map(*editorRotationPivot()) : QPointF(x + width / 2, y + height / 2);
+}
+
 void ImageObject::moveBy(double dx, double dy)
 {
     x += dx;
@@ -875,7 +893,12 @@ void ImageObject::setRotation(double angle)
 {
     if (!isRotationObject() || !canResize())
         return;
+    const auto pivot = rotationCenter();
     rotationDegrees = angle;
+    if (editorRotationPivot()) {
+        const auto shift = pivot - rotationCenter();
+        x += shift.x(); y += shift.y();
+    }
     emit changed();
 }
 
@@ -905,7 +928,8 @@ bool ImageObject::setObjectProperty(const QString &name, const QString &value)
             setValidationMessage(QStringLiteral("Поворот изображения заблокирован после экспорта."));
             return false;
         }
-        rotationDegrees = value.toDouble(&ok);
+        const double angle = value.toDouble(&ok);
+        if (ok) { setRotation(angle); return true; }
     } else if (name == QStringLiteral("Автоцвет")) {
         const QString normalized = value.trimmed().toLower();
         if (normalized == QStringLiteral("да") || normalized == QStringLiteral("yes")
@@ -974,4 +998,22 @@ void ImageObject::rebuildColorLayers()
         maskColor = m_colorLayers.first().maskColor;
         autoMaskColor = m_colorLayers.first().autoMaskColor;
     }
+}
+
+QSharedPointer<BaseObject> ImageObject::clone() const
+{
+    auto *clone = new ImageObject(isRotationObject() ? ImageObject::Kind::Rotating : ImageObject::Kind::Static);
+    clone->x = x;
+    clone->y = y;
+    clone->width = width;
+    clone->height = height;
+    clone->maskColor = maskColor;
+    clone->autoMaskColor = autoMaskColor;
+    clone->rotationDegrees = rotationDegrees;
+    clone->sourceName = sourceName;
+    clone->format = format;
+    clone->copyRasterSource(*this);
+    clone->setColorLayers(colorLayers());
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
 }

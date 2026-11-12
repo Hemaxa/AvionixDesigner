@@ -4,6 +4,8 @@
 #include "ApplicationLanguage.h"
 #include "EditorWorkspacePanel.h"
 #include "ViewportPanel.h"
+#include "ObjectSnapper.h"
+#include "ObjectCloner.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
@@ -27,6 +29,10 @@
 #include "fpga/config/FpgaPipelineConfig.h"
 #include "AppearanceManager.h"
 #include "ApplicationSettings.h"
+#include "ExpressionSpinBox.h"
+#include "ObjectReflection.h"
+#include "EditorGestures.h"
+#include <QCursor>
 #include "FlowLayout.h"
 #include "BitParser.h"
 #include "FpgaSchemaRegistry.h"
@@ -198,6 +204,615 @@ private slots:
         QVERIFY(installRussianTranslation(*qApp));
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
+    }
+    void polymorphicClonesPreserveState() {
+        auto *p = ProjectManager::instance();
+        for (const auto &type : {"rectangle", "rectangle_a", "dashline", "RibonScale", "rotationobject",
+                                  "staticgroup", "aviahorizont", "layer3d", "text"}) {
+            p->createNewProject("Clone",640,480,Qt::black);
+            QVERIFY(p->addObject(type) >= 0);
+            const auto source = p->getObjectAt(0);
+            source->setCustomName("Independent copy"); source->setSelectionLocked(true);
+            source->setViewVisible(false); source->setExportEnabled(false);
+            source->setEditorRotationPivot(QPointF(.25,.75)); source->setEditRestrictionHint("Restriction");
+            const auto copy = source->clone();
+            QVERIFY(copy); QVERIFY(copy != source); QCOMPARE(copy->getTypeName(),source->getTypeName());
+            QCOMPARE(copy->getProperties(),source->getProperties()); QCOMPARE(copy->serializeParams(),source->serializeParams());
+            QCOMPARE(copy->getBoundingRect(),source->getBoundingRect()); QCOMPARE(copy->customName(),source->customName());
+            QCOMPARE(copy->editorRotationPivot(),source->editorRotationPivot()); QCOMPARE(copy->editRestrictionHint(),source->editRestrictionHint());
+            QVERIFY(copy->isSelectionLocked()); QVERIFY(!copy->isViewVisible()); QVERIFY(!copy->isExportEnabled());
+            const auto bounds = source->getBoundingRect(); copy->moveBy(5,7); QCOMPARE(source->getBoundingRect(),bounds);
+            copy->setCustomName("Changed copy"); QCOMPARE(source->customName(),QString("Independent copy"));
+        }
+        const auto source = QSharedPointer<RectangleObject>::create(); source->width=40; source->height=20;
+        const auto axis = QSharedPointer<SymmetryAxis>::create(); axis->id=1; axis->position=100;
+        const auto copy = QSharedPointer<SymmetryCopyObject>::create(source,axis);
+        const auto scene = ObjectCloner::cloneScene({source,copy});
+        const auto clonedCopy = qSharedPointerDynamicCast<SymmetryCopyObject>(scene[1]); QVERIFY(clonedCopy);
+        QCOMPARE(clonedCopy->source(),scene[0]); QVERIFY(clonedCopy->source()!=source); QVERIFY(clonedCopy->axis()!=axis);
+        axis->position=200; QCOMPARE(clonedCopy->axis()->position,100.);
+    }
+    void equalSpacingGeometry_data() {
+        QTest::addColumn<QRectF>("moving");
+        QTest::addColumn<QList<QRectF>>("targets");
+        QTest::addColumn<int>("axis");
+        QTest::addColumn<double>("tolerance");
+        QTest::addColumn<bool>("matched");
+        QTest::addColumn<double>("correction");
+        const QList<QRectF> row = {{20,100,40,40}, {100,100,60,40}};
+        QTest::newRow("continue-right") << QRectF(204,105,30,30) << row << int(Qt::Horizontal) << 8. << true << -4.;
+        QTest::newRow("continue-left") << QRectF(-54,105,30,30) << row << int(Qt::Horizontal) << 8. << true << 4.;
+        QTest::newRow("insert-different-widths") << QRectF(106,105,20,30)
+            << QList<QRectF>{{20,100,40,40},{180,100,80,40}} << int(Qt::Horizontal) << 8. << true << 4.;
+        QTest::newRow("vertical") << QRectF(105,204,30,30)
+            << QList<QRectF>{{100,20,40,40},{100,100,40,60}} << int(Qt::Vertical) << 8. << true << -4.;
+        QTest::newRow("touching") << QRectF(122,105,30,30)
+            << QList<QRectF>{{20,100,40,40},{60,100,60,40}} << int(Qt::Horizontal) << 8. << true << -2.;
+        QTest::newRow("fractional-gap") << QRectF(104,105,21,30)
+            << QList<QRectF>{{20,100,40,40},{173,100,80,40}} << int(Qt::Horizontal) << 8. << true << 2.;
+        QTest::newRow("outside-tolerance") << QRectF(210,105,30,30) << row << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("other-row") << QRectF(204,160,30,30) << row << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("no-common-row") << QRectF(204,100,30,100)
+            << QList<QRectF>{{20,100,40,20},{100,160,60,20}} << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("blocked-continuation") << QRectF(204,105,30,30)
+            << QList<QRectF>{{20,100,40,40},{100,100,60,40},{180,100,15,40}} << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("overlap-reference") << QRectF(204,105,30,30)
+            << QList<QRectF>{{20,100,100,40},{100,100,60,40}} << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("too-small-for-insertion") << QRectF(60,105,50,30) << row << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("one-reference") << QRectF(204,105,30,30)
+            << QList<QRectF>{{20,100,40,40}} << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("zoomed-tolerance") << QRectF(200.5,105,30,30) << row << int(Qt::Horizontal) << .4 << false << 0.;
+        QTest::newRow("invalid-bounds") << QRectF(204,105,0,30) << row << int(Qt::Horizontal) << 8. << false << 0.;
+    }
+    void equalSpacingGeometry() {
+        QFETCH(QRectF, moving); QFETCH(QList<QRectF>, targets); QFETCH(int, axis);
+        QFETCH(double, tolerance); QFETCH(bool, matched); QFETCH(double, correction);
+        const auto match = EqualSpacing::find(moving, targets, Qt::Orientation(axis), tolerance);
+        QCOMPARE(match.has_value(), matched);
+        if (!match) return;
+        QCOMPARE(match->correction, correction);
+        QCOMPARE(match->guides.size(), 2);
+        QVERIFY(match->guides.first().distance() >= 0.);
+        QVERIFY(qAbs(match->guides.first().distance() - match->guides.last().distance()) < 1e-6);
+        auto reversed = targets; std::reverse(reversed.begin(), reversed.end());
+        QCOMPARE(EqualSpacing::find(moving, reversed, Qt::Orientation(axis), tolerance)->correction, correction);
+    }
+    void snapCompetitionAndConstraints() {
+        ObjectSnapper::Options options; options.canvas = QSizeF(640,480); options.objectsEnabled = true;
+        const QRectF original(240,105,30,30);
+        const QList<QRectF> targets = {{20,100,40,40},{100,100,60,40}};
+        auto result = ObjectSnapper::snapMove(original, {-36,0}, targets, options);
+        QCOMPARE(original.translated(result.delta).left(), 200.); QCOMPARE(result.spacingGuides.size(), 2);
+        options.gridEnabled = true; options.gridStep = 17;
+        result = ObjectSnapper::snapMove(original, {-36,0}, targets, options);
+        QCOMPARE(original.translated(result.delta).left(), 200.);
+        for (const auto &guide : result.guides) QVERIFY(guide.orientation != Qt::Vertical); // Нет устаревшей линии сетки.
+        ObjectSnapper::validateGuides(result, QRectF(190,105,30,30), targets, options);
+        QVERIFY(result.spacingGuides.isEmpty()); // Ограничения не разрешили дойти до привязки.
+        options.gridEnabled = false;
+        const QRectF edgeCase(204,138,30,30);
+        result = ObjectSnapper::snapMove(edgeCase, {}, targets, options);
+        QCOMPARE(edgeCase.translated(result.delta).left(), 204.);
+        QCOMPARE(edgeCase.translated(result.delta).top(), 140.);
+        QVERIFY(result.spacingGuides.isEmpty()); // Вторая ось вывела объект из строки.
+        options.verticalEnabled = false;
+        result = ObjectSnapper::snapMove(original, {-36,7}, targets, options);
+        QCOMPARE(result.delta.y(), 0.); QCOMPARE(original.translated(result.delta).left(), 200.);
+        options.objectsEnabled = false;
+        result = ObjectSnapper::snapMove(original, {-36,7}, targets, options);
+        QCOMPARE(result.delta, QPointF(-36,0)); QVERIFY(result.guides.isEmpty()); QVERIFY(result.spacingGuides.isEmpty());
+        options.objectsEnabled = true; options.verticalEnabled = true;
+        auto closerEdge = targets; closerEdge.append(QRectF(205,300,30,30));
+        result = ObjectSnapper::snapMove(original, {-36,0}, closerEdge, options);
+        QCOMPARE(original.translated(result.delta).left(), 205.); QVERIFY(result.spacingGuides.isEmpty());
+    }
+    void automaticSpacingDrag_data() {
+        QTest::addColumn<bool>("vertical"); QTest::addColumn<double>("zoom"); QTest::addColumn<bool>("grouped");
+        QTest::newRow("horizontal") << false << 1. << false;
+        QTest::newRow("vertical") << true << 1. << false;
+        QTest::newRow("zoom-out") << false << .5 << false;
+        QTest::newRow("zoom-in") << false << 2.5 << false;
+        QTest::newRow("group-horizontal") << false << 1. << true;
+        QTest::newRow("group-vertical") << true << 1. << true;
+    }
+    void automaticSpacingDrag() {
+        QFETCH(bool, vertical); QFETCH(double, zoom); QFETCH(bool, grouped);
+        auto *p = ProjectManager::instance(); p->createNewProject("Smart spacing",640,480,Qt::black);
+        for (int i = 0; i < (grouped ? 4 : 3); ++i) p->addObject("rectangle");
+        auto bounds = [vertical](const QRectF &r) { return vertical ? QRectF(r.y(),r.x(),r.height(),r.width()) : r; };
+        QList<QRectF> rectangles = {{20,100,40,40},{100,100,60,40},{240,100,40,40}};
+        if (grouped) { rectangles[2].setWidth(20); rectangles.append({260,100,20,40}); }
+        for (int i = 0; i < rectangles.size(); ++i) {
+            auto *r = dynamic_cast<RectangleObject *>(p->getObjectAt(i).data()); const auto b = bounds(rectangles[i]);
+            r->x = b.x(); r->y = b.y(); r->width = b.width(); r->height = b.height();
+            r->strokeColor = Qt::transparent; r->fillColor = QColor("#445566");
+        }
+        if (grouped) QVERIFY(p->groupObjects({2,3}) >= 0);
+        p->setSnapToCanvas(false); p->setSnapToGrid(false); p->setSnapToObjects(true);
+        auto state = p->editorViewState(); state.scale = zoom; p->setEditorViewState(state);
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show();
+        viewport.setSelectedIndexes(grouped ? QList<int>{2,3} : QList<int>{2}); QTest::qWait(5);
+        const double scale = .95 * zoom;
+        auto point = [&](double x,double y) {
+            if (vertical) std::swap(x,y);
+            return QPoint(qRound((640 - 640*scale)/2 + x*scale),qRound((480 - 480*scale)/2 + y*scale));
+        };
+        auto move = [&](const QPoint &pos) {
+            QMouseEvent event(QEvent::MouseMove,QPointF(pos),QPointF(viewport.mapToGlobal(pos)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(&viewport,&event);
+        };
+        const auto from = point(260,120), to = point(223,120);
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,from);
+        move(point(228,120)); move(to);
+        auto actual = p->getObjectAt(2)->getBoundingRect();
+        QCOMPARE(vertical ? actual.top() : actual.left(), 200.);
+        QCOMPARE(vertical ? actual.left() : actual.top(), 100.);
+        if (grouped) QCOMPARE(p->getObjectAt(3)->getBoundingRect().topLeft() - actual.topLeft(),
+                              vertical ? QPointF(0,20) : QPointF(20,0));
+        QImage withGuides;
+        if (!vertical && zoom == 1. && !grouped) {
+            const auto xml = p->buildCompiledFpgaXml().toByteArray();
+            withGuides = viewport.grab().toImage();
+            QVERIFY(withGuides.save(QCoreApplication::applicationDirPath()+"/smart-spacing.png"));
+            QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), xml);
+        }
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,to);
+        if (!withGuides.isNull()) {
+            const auto withoutGuides = viewport.grab().toImage();
+            int changed = 0;
+            for (int y = point(0,116).y(); y <= point(0,124).y(); ++y)
+                for (int x = point(65,0).x(); x <= point(95,0).x(); ++x) {
+                    if (withGuides.pixel(x,y) != withoutGuides.pixel(x,y)) ++changed;
+                }
+            QVERIFY(changed > 20); // Размерные стрелки исчезают после отпускания мыши.
+        }
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectAt(2)->getBoundingRect(), bounds(rectangles[2]));
+        QVERIFY(p->redo()); actual = p->getObjectAt(2)->getBoundingRect();
+        QCOMPARE(vertical ? actual.top() : actual.left(), 200.);
+        QCOMPARE(p->getObjectAt(0)->getBoundingRect(), bounds(rectangles[0]));
+        QCOMPARE(p->getObjectAt(1)->getBoundingRect(), bounds(rectangles[1]));
+    }
+    void spacingModifiersAndVisibility() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Spacing modifiers",640,480,Qt::black);
+        for (int i = 0; i < 3; ++i) p->addObject("rectangle");
+        for (int i = 0; i < 3; ++i) {
+            auto *r = dynamic_cast<RectangleObject *>(p->getObjectAt(i).data());
+            r->x = i == 0 ? 20 : i == 1 ? 100 : 240; r->y = 100;
+            r->width = i == 1 ? 60 : 40; r->height = 40; r->strokeColor = Qt::transparent;
+        }
+        p->setSnapToCanvas(false); p->setSnapToGrid(false); p->setSnapToObjects(true);
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); viewport.setSelectedIndex(2); QTest::qWait(5);
+        auto point = [](double x,double y) { return QPoint(qRound(16+x*.95),qRound(12+y*.95)); };
+        auto move = [&](QPoint pos, Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+            QMouseEvent event(QEvent::MouseMove,QPointF(pos),QPointF(viewport.mapToGlobal(pos)),Qt::NoButton,Qt::LeftButton,modifiers);
+            QApplication::sendEvent(&viewport,&event);
+        };
+        auto *moving = dynamic_cast<RectangleObject *>(p->getObjectAt(2).data());
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,point(260,120));
+        move(point(223,120)); QCOMPARE(moving->x,200.);
+        QTest::keyPress(&viewport,Qt::Key_Alt); QVERIFY(moving->x > 202.);
+        QVERIFY(p->snapToObjects()); QTest::keyRelease(&viewport,Qt::Key_Alt); QCOMPARE(moving->x,200.);
+        move(point(223,135),Qt::ShiftModifier); QCOMPARE(moving->x,200.); QCOMPARE(moving->y,100.);
+        QTest::keyRelease(&viewport,Qt::Key_Shift); QVERIFY(moving->y > 110.);
+        move(point(223,120)); QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,point(223,120));
+        QVERIFY(p->setObjectViewVisible(0,false));
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,point(220,120));
+        move(point(224,120)); QVERIFY(moving->x > 202.); // Скрытый объект не задаёт интервал.
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,point(224,120));
+        QVERIFY(p->setObjectViewVisible(0,true)); p->setSnapToObjects(false);
+        const double before = moving->x;
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,point(before+20,120));
+        move(point(223,120)); QVERIFY(qAbs(moving->x-200.) > 1.);
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,point(223,120));
+    }
+    void rotationPivotMetadataAndExport() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp;
+        QImage raster(80,60,QImage::Format_ARGB32); raster.fill(Qt::transparent);
+        { QPainter painter(&raster); painter.fillRect(QRect(30,25,20,10),Qt::white); }
+        const auto png=temp.filePath("pivot.png"); QVERIFY(raster.save(png));
+        for(bool imageType:{false,true}) {
+            p->createNewProject("Pivot",320,240,Qt::black);
+            if(imageType) QVERIFY(p->importImage(png,true)>=0); else QVERIFY(p->addObject("rotationobject")>=0);
+            auto object=p->getObjectAt(0);
+            if(auto *image=dynamic_cast<ImageObject *>(object.data())) { image->x=80; image->y=70; }
+            if(auto *rotation=dynamic_cast<RotationObject *>(object.data())) {
+                rotation->xRot=120;rotation->yRot=100;rotation->left=-40;rotation->right=40;rotation->top=-30;rotation->bottom=30;
+                rotation->sinVal=0;rotation->cosVal=65536;rotation->maskImage=raster;rotation->restoreHardwareLayers({});
+            }
+            auto render=[](BaseObject *object) { QImage frame(320,240,QImage::Format_ARGB32); frame.fill(Qt::transparent); QPainter painter(&frame);object->draw(painter);painter.end();return frame; };
+            QString error;
+            const auto xmlBefore=p->buildCompiledFpgaXml().toByteArray();
+            const auto bytesBefore=FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)); QVERIFY2(error.isEmpty(),qPrintable(error));
+            const auto previewBefore=render(object.data());
+            const QPointF pivot(112,98);
+            QVERIFY(p->setObjectRotationPivot(0,pivot)); QCOMPARE(object->rotationCenter(),pivot);
+            QCOMPARE(render(object.data()),previewBefore);
+            QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),xmlBefore);
+            QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)),bytesBefore);
+            QVERIFY(!p->setObjectRotationPivot(0,pivot));
+            QVERIFY(!p->setObjectRotationPivot(0,QPointF(1000,1000)));
+            QVERIFY(p->undo()); QVERIFY(!p->getObjectAt(0)->editorRotationPivot()); QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),xmlBefore);
+            QVERIFY(p->redo()); QCOMPARE(p->getObjectAt(0)->rotationCenter(),pivot);
+            const auto path=temp.filePath("pivot.xml"); QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage()));
+            QFile f(path); QVERIFY(f.open(QIODevice::ReadOnly));QDomDocument doc;QVERIFY(doc.setContent(f.readAll()));f.close();
+            const auto meta=doc.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object").firstChildElement("rotation-pivot");
+            QVERIFY(!meta.isNull()); QCOMPARE(meta.attribute("canvas-x").toDouble(),pivot.x()); QCOMPARE(meta.attribute("canvas-y").toDouble(),pivot.y());
+            QVERIFY(doc.documentElement().firstChildElement("objects").elementsByTagName("rotation-pivot").isEmpty());
+            QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+            object=p->getObjectAt(0); QVERIFY(QLineF(object->rotationCenter(),pivot).length()<1e-8);
+            if(imageType) QVERIFY(dynamic_cast<ImageObject *>(object.data())->width<80); // Аппаратная маска обрезана; метка осталась на месте.
+            const auto current=object;
+            auto invalid=doc.cloneNode(true).toDocument();
+            invalid.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object").firstChildElement("rotation-pivot").setAttribute("canvas-x","nan");
+            QFile bad(temp.filePath("invalid-pivot.xml")); QVERIFY(bad.open(QIODevice::WriteOnly)); bad.write(invalid.toByteArray());bad.close();
+            QVERIFY(!p->loadFromFile(bad.fileName())); QCOMPARE(p->getObjectAt(0),current);
+            QVERIFY(p->copyObjects({0})); QCOMPARE(p->pasteObjects(QPointF(220,170)),QList<int>{0});
+            const auto clone=p->getObjectAt(0);
+            QCOMPARE(clone->editorRotationPivot(),object->editorRotationPivot());
+            QVERIFY(QLineF(clone->rotationCenter()-clone->getBoundingRect().topLeft(),object->rotationCenter()-object->getBoundingRect().topLeft()).length()<1e-8);
+            const auto clonePivot=clone->rotationCenter();
+            QCOMPARE(p->createSymmetry({0},Qt::Vertical),QList<int>{1}); QVERIFY(p->detachSymmetryCopy(1));
+            QVERIFY(QLineF(p->getObjectAt(1)->rotationCenter(),QPointF(320-clonePivot.x(),clonePivot.y())).length()<1e-6);
+            object->setRotation(90); QVERIFY(QLineF(object->rotationCenter(),pivot).length()<.001);
+            object->moveBy(7,9); QVERIFY(QLineF(object->rotationCenter(),pivot+QPointF(7,9)).length()<.001);
+            // Старый XML без редакторского центра остаётся совместимым.
+            auto legacy=doc.cloneNode(true).toDocument();auto first=legacy.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");first.removeChild(first.firstChildElement("rotation-pivot"));
+            QFile old(temp.filePath("legacy-pivot.xml"));QVERIFY(old.open(QIODevice::WriteOnly));old.write(legacy.toByteArray());old.close();
+            QVERIFY2(p->loadFromFile(old.fileName()),qPrintable(p->lastErrorMessage()));QVERIFY(!p->getObjectAt(0)->editorRotationPivot());
+        }
+        p->createNewProject("Unsupported pivot",320,240,Qt::black);p->addObject("rectangle");
+        QVERIFY(!p->setObjectRotationPivot(0,p->getObjectAt(0)->getBoundingRect().center()));
+    }
+    void rotationPivotGestureAndRotation() {
+        auto *p=ProjectManager::instance();p->createNewProject("Pivot gesture",640,480,Qt::black);p->addObject("rotationobject");
+        auto *rotation=dynamic_cast<RotationObject *>(p->getObjectAt(0).data());
+        rotation->xRot=220;rotation->yRot=180;rotation->left=-40;rotation->right=40;rotation->top=-30;rotation->bottom=30;
+        rotation->maskImage=QImage(80,60,QImage::Format_ARGB32);rotation->maskImage.fill(Qt::white);rotation->restoreHardwareLayers({});rotation->setRotation(25);
+        ViewportPanel viewport;viewport.resize(640,480);viewport.show();viewport.setSelectedIndex(0);QTest::qWait(5);
+        auto state=p->editorViewState();state.scale=1.4;state.offset=QPointF(25,-15);p->setEditorViewState(state);
+        const double scale=.95*state.scale;
+        auto point=[&](const QPointF &p) { return QPoint(qRound(320-320*scale+state.offset.x()+p.x()*scale),qRound(240-240*scale+state.offset.y()+p.y()*scale)); };
+        const auto desired=rotation->rotationFrame().map(QPointF(.25,.4));
+        const auto xml=p->buildCompiledFpgaXml().toByteArray();
+        QTest::mouseClick(&viewport,Qt::LeftButton,EditorGestures::rotationPivotModifiers,point(desired));
+        QVERIFY(rotation->editorRotationPivot());QVERIFY(QLineF(rotation->rotationCenter(),desired).length()<1.);QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),xml);
+        QCOMPARE(viewport.getSelectedIndexes(),QList<int>{0});
+        rotation->setRotation(0);const auto pivot=rotation->rotationCenter();
+        const auto bounds=rotation->getBoundingRect();const auto handle=QPointF(bounds.center().x(),bounds.top()-24/scale);
+        const auto from=point(handle);QTransform turn;turn.rotate(90);const auto to=point(pivot+turn.map(handle-pivot));
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,from);
+        // Нулевое перемещение ручки не должно давать скачок угла.
+        QMouseEvent still(QEvent::MouseMove,QPointF(from),QPointF(viewport.mapToGlobal(from)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&viewport,&still);
+        QVERIFY(qAbs(rotation->getAngleDegrees())<.001);
+        QMouseEvent move(QEvent::MouseMove,QPointF(to),QPointF(viewport.mapToGlobal(to)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&viewport,&move);
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,to);
+        QVERIFY(qAbs(rotation->getAngleDegrees()-90)<1.);QVERIFY(QLineF(rotation->rotationCenter(),pivot).length()<.01);
+        viewport.grab().save(QCoreApplication::applicationDirPath()+"/rotation-pivot.png");
+        QVERIFY(p->undo());rotation=dynamic_cast<RotationObject *>(p->getObjectAt(0).data());QVERIFY(qAbs(rotation->getAngleDegrees())<.001);QVERIFY(QLineF(rotation->rotationCenter(),pivot).length()<.01);
+        // У длинного повёрнутого объекта метка может совпасть с ручкой поворота.
+        rotation->setEditorRotationPivot(std::nullopt);rotation->xRot=320;rotation->yRot=240;
+        rotation->left=-100;rotation->right=100;rotation->top=-10;rotation->bottom=10;rotation->setRotation(90);
+        viewport.setSelectedIndex(0);const auto same=point(QPointF(320,230-24/scale));
+        QTest::mouseClick(&viewport,Qt::LeftButton,EditorGestures::rotationPivotModifiers,same);
+        const auto stationaryPivot=rotation->rotationCenter();QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,same);
+        const auto far=same+QPoint(20,15);QMouseEvent overlap(QEvent::MouseMove,QPointF(far),QPointF(viewport.mapToGlobal(far)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&viewport,&overlap);
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,far);QVERIFY(qAbs(rotation->getAngleDegrees()-90)<.001);QCOMPARE(rotation->rotationCenter(),stationaryPivot);
+        // Выбор точки на другом цветном слое и общий поворот нескольких слоёв.
+        RotationObject multi;multi.left=-40;multi.right=40;multi.top=-30;multi.bottom=30;multi.xRot=120;multi.yRot=100;multi.cosVal=65536;
+        multi.restoreHardwareLayers({{-40,-30,40,30,120,100,0,65536,Qt::red,true},{-40,-30,40,30,180,100,0,65536,Qt::green,true}});
+        const QPointF secondLayerPoint(200,100);QVERIFY(multi.contains(secondLayerPoint));multi.setEditorRotationPivot(multi.rotationFrame().inverted().map(secondLayerPoint));
+        multi.setRotation(90);QVERIFY(QLineF(multi.rotationCenter(),secondLayerPoint).length()<.001);
+        QCOMPARE(multi.hardwareLayers()[0].xRot,200.);QCOMPARE(multi.hardwareLayers()[0].yRot,20.);
+        QCOMPARE(multi.hardwareLayers()[1].xRot,200.);QCOMPARE(multi.hardwareLayers()[1].yRot,80.);
+    }
+    void symmetryLifecycleAndXml() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Symmetry",320,240,Qt::black);
+        p->addObject("rectangle"); p->addObject("rectangle");
+        for(int i=0;i<2;++i) { auto *r=dynamic_cast<RectangleObject *>(p->getObjectAt(i).data()); r->x=25+i*20; r->y=30+i*40; r->width=40; r->height=20; }
+        QVERIFY(p->renameObject(0,"Левый прибор"));
+        QString error; const auto before=FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)); QVERIFY2(error.isEmpty(),qPrintable(error));
+        QVERIFY(p->groupObjects({0,1})>=0);
+        QCOMPARE(p->createSymmetry({0,1},Qt::Vertical),(QList<int>{1,3}));
+        QCOMPARE(p->getObjectCount(),4); QCOMPARE(p->symmetryAxes().size(),1);
+        QCOMPARE(p->groupMembersForObject(0),(QList<int>{0,2}));
+        auto *copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QVERIFY(copy);
+        QCOMPARE(copy->customName(),QStringLiteral("Левый прибор — копия")); QCOMPARE(copy->source(),p->getObjectAt(0));
+        QCOMPARE(copy->getBoundingRect().center().x(),320-p->getObjectAt(0)->getBoundingRect().center().x());
+        QVERIFY(!copy->isExportEnabled()); QVERIFY(!copy->canMove()); QVERIFY(!copy->canResize());
+        QVERIFY(!p->setObjectExportEnabled(1,true)); copy->setExportEnabled(true); QVERIFY(!copy->isExportEnabled());
+        QVERIFY(!p->copyObjects({1})); QVERIFY(!p->canCreateSymmetry({1}));
+        QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)),before);
+        QSignalSpy changed(copy,&BaseObject::changed);
+        QVERIFY(p->setObjectProperty(p->getObjectAt(0).data(),"X","35")); QVERIFY(!changed.isEmpty());
+        const auto original=p->getObjectAt(0)->getBoundingRect();
+        const int axisId=p->symmetryAxes().first()->id;
+        QVERIFY(p->setSymmetryAxisPosition(axisId,170)); QCOMPARE(p->getObjectAt(0)->getBoundingRect(),original);
+        QCOMPARE(copy->getBoundingRect().center().x(),340-original.center().x());
+        QVERIFY(p->undo()); QCOMPARE(p->symmetryAxes().first()->position,160.);
+        copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QCOMPARE(copy->source(),p->getObjectAt(0));
+        auto *other=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(3).data()); QCOMPARE(copy->axis(),other->axis());
+        QVERIFY(p->redo()); QCOMPARE(p->symmetryAxes().first()->position,170.);
+        QVERIFY(p->reorderObjects({3,2,1,0}));
+        QTemporaryDir temp; const auto path=temp.filePath("symmetry.xml"); QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage()));
+        QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly)); QDomDocument xml; QVERIFY(xml.setContent(file.readAll())); file.close();
+        auto editor=xml.documentElement().firstChildElement("editor"); QCOMPARE(editor.firstChildElement("symmetry").elementsByTagName("axis").size(),1);
+        QCOMPARE(xml.documentElement().firstChildElement("objects").elementsByTagName("rectangle").size(),2);
+        QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+        copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(0).data()); QVERIFY(copy); QCOMPARE(copy->source(),p->getObjectAt(1));
+        QVERIFY(p->setObjectProperty(copy->source().data(),"Y","110"));
+        QCOMPARE(copy->getBoundingRect().top(),copy->source()->getBoundingRect().top());
+        const auto copyBounds=copy->getBoundingRect(); QVERIFY(p->detachSymmetryCopy(0));
+        QVERIFY(!p->isSymmetryCopy(0)); QVERIFY(p->getObjectAt(0)->isExportEnabled()); QCOMPARE(p->getObjectAt(0)->getBoundingRect(),copyBounds);
+        QCOMPARE(p->symmetryAxes().size(),1); QVERIFY(p->undo()); QVERIFY(p->isSymmetryCopy(0));
+        QVERIFY(p->redo()); QVERIFY(!p->isSymmetryCopy(0));
+        QVERIFY(p->saveToFile(path)); QVERIFY(p->loadFromFile(path));
+        QVERIFY(!p->isSymmetryCopy(0)); QVERIFY(p->isSymmetryCopy(2));
+        // Повреждённые связи отклоняются атомарно, не меняя открытый проект.
+        const int count=p->getObjectCount(); const auto current=p->getObjectAt(0);
+        for(int failure=0;failure<4;++failure) {
+            auto invalid=xml.cloneNode(true).toDocument(); auto e=invalid.documentElement().firstChildElement("editor");
+            auto relation=e.elementsByTagName("symmetry-copy").at(0).toElement();
+            if(failure==0) relation.setAttribute("source","missing");
+            if(failure==1) relation.setAttribute("axis-id",999);
+            if(failure==2) relation.parentNode().firstChildElement("flags").setAttribute("export-enabled","true");
+            if(failure==3) e.firstChildElement("symmetry").firstChildElement("axis").setAttribute("position","nan");
+            QFile bad(temp.filePath("invalid.xml")); QVERIFY(bad.open(QIODevice::WriteOnly)); bad.write(invalid.toByteArray()); bad.close();
+            QVERIFY(!p->loadFromFile(bad.fileName())); QCOMPARE(p->getObjectCount(),count); QCOMPARE(p->getObjectAt(0),current);
+        }
+        QVERIFY(p->removeObjects({3})); QVERIFY(!p->isSymmetryCopy(0)); QCOMPARE(p->symmetryAxes().size(),0);
+        QVERIFY(p->undo()); QCOMPARE(p->symmetryAxes().size(),1);
+        p->createNewProject("Excluded",320,240,Qt::black);
+        for(const auto &type:{"aviahorizont","layer3d","text"}) { QVERIFY(p->addObject(type)>=0); QVERIFY(!p->canCreateSymmetry({0})); QVERIFY(p->createSymmetry({0},Qt::Horizontal).isEmpty()); }
+    }
+    void symmetryReflectionAndDetach() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp;
+        QImage mask(3,2,QImage::Format_ARGB32); mask.fill(Qt::transparent);
+        mask.setPixelColor(0,0,QColor(255,0,0,255)); mask.setPixelColor(2,0,QColor(0,255,0,109)); mask.setPixelColor(1,1,QColor(0,0,255,255));
+        const auto png=temp.filePath("asymmetric.png"); QVERIFY(mask.save(png));
+        QFile svg(temp.filePath("asymmetric.svg")); QVERIFY(svg.open(QIODevice::WriteOnly));
+        svg.write("<svg xmlns='http://www.w3.org/2000/svg' width='30' height='20'><path fill='#ff0000' d='M0 0H30V5H5V20H0Z'/></svg>"); svg.close();
+        auto render=[](BaseObject *object) { QImage image(256,192,QImage::Format_ARGB32); image.fill(Qt::transparent); QPainter painter(&image); painter.setRenderHint(QPainter::Antialiasing); object->draw(painter); painter.end(); return image; };
+        auto difference=[](const QImage &first,const QImage &second) { const auto a=first.convertToFormat(QImage::Format_ARGB32_Premultiplied), b=second.convertToFormat(QImage::Format_ARGB32_Premultiplied); int difference=0; for(int y=0;y<a.height();++y) for(int x=0;x<a.width();++x) { const auto ca=a.pixel(x,y), cb=b.pixel(x,y); for(int d:{qAbs(qAlpha(ca)-qAlpha(cb)),qAbs(qRed(ca)-qRed(cb)),qAbs(qGreen(ca)-qGreen(cb)),qAbs(qBlue(ca)-qBlue(cb))}) difference=qMax(difference,d); } return difference; };
+        for(const auto orientation:{Qt::Vertical,Qt::Horizontal}) for(const auto &type:QStringList{"rectangle","dashline","RibonScale","staticgroup","rotationobject","rotation-layers","image","rotating-image","svg"}) {
+            p->createNewProject(type,256,192,Qt::black);
+            if(type=="image" || type=="rotating-image" || type=="svg") QVERIFY(p->importImage(type=="svg"?svg.fileName():png,type=="rotating-image")>=0);
+            else QVERIFY(p->addObject(type=="rotation-layers"?"rotationobject":type)>=0);
+            auto source=p->getObjectAt(0); source->setExportEnabled(false);
+            if(auto *v=dynamic_cast<RectangleObject *>(source.data())) { v->x=20;v->y=30;v->width=40;v->height=25;v->strokeWidth=3;v->strokeColor=Qt::green;v->fillColor=Qt::red; }
+            if(auto *v=dynamic_cast<DashedLineObject *>(source.data())) { v->x0=20;v->y0=30;v->x1=65;v->y1=47;v->lineWidth=3;v->dashPeriod=16;v->dashLength=7;v->dashPhase=5; }
+            if(auto *v=dynamic_cast<RibbonScaleObject *>(source.data())) { v->left=20;v->right=60;v->top=30;v->bottom=76;v->period=13;v->lineWidth=3;v->yStart=35; }
+            if(auto *v=dynamic_cast<StaticGroupObject *>(source.data())) { v->states={{20,30,3,2,0,Qt::red,true},{30,50,3,2,6,Qt::green,false}}; v->maskImages={mask,mask}; }
+            if(auto *v=dynamic_cast<RotationObject *>(source.data())) {
+                v->left=-2;v->right=1;v->top=-1;v->bottom=1;v->xRot=40;v->yRot=60;v->sinVal=39441;v->cosVal=52339;v->maskImage=mask;v->color=Qt::red;
+                if(type=="rotation-layers") v->restoreHardwareLayers({{-2,-1,1,1,40,60,39441,52339,Qt::red,true},{-2,-1,1,1,60,50,-39441,52339,Qt::green,true}});
+            }
+            if(auto *v=dynamic_cast<ImageObject *>(source.data())) { v->x=20;v->y=30; if(v->isRotationObject()) v->setRotation(29); }
+            const auto original=render(source.data());
+            QCOMPARE(p->createSymmetry({0},orientation),(QList<int>{1}));
+            const auto mirrored=render(p->getObjectAt(1).data());
+            QVERIFY2(difference(mirrored,original.mirrored(orientation==Qt::Vertical,orientation==Qt::Horizontal))<=4,qPrintable("Preview "+type+" difference="+QString::number(difference(mirrored,original.mirrored(orientation==Qt::Vertical,orientation==Qt::Horizontal)))));
+            const auto copyPath=temp.filePath("dependent.xml"); QVERIFY2(p->saveToFile(copyPath),qPrintable(p->lastErrorMessage()));
+            QVERIFY2(p->loadFromFile(copyPath),qPrintable(p->lastErrorMessage()));
+            QCOMPARE(render(p->getObjectAt(1).data()),mirrored);
+            QVERIFY(p->detachSymmetryCopy(1)); QVERIFY(!p->isSymmetryCopy(1));
+            const auto baked=render(p->getObjectAt(1).data());
+            QVERIFY2(difference(mirrored,baked)<=4,qPrintable("Detach "+type+" / "+QString::number(orientation)+" difference="+QString::number(difference(mirrored,baked))));
+            QVERIFY(p->getObjectAt(1)->isExportEnabled());
+            if(dynamic_cast<ImageObject *>(p->getObjectAt(1).data())) {
+                QVERIFY(p->setObjectExportEnabled(1,false));
+                const auto disabledPath=temp.filePath("disabled-mirror.xml"); QVERIFY2(p->saveToFile(disabledPath),qPrintable(p->lastErrorMessage()));
+                QVERIFY2(p->loadFromFile(disabledPath),qPrintable(p->lastErrorMessage()));
+                QCOMPARE(render(p->getObjectAt(1).data()),baked); QVERIFY(p->setObjectExportEnabled(1,true));
+            }
+            const auto detachedPath=temp.filePath("detached.xml"); QVERIFY2(p->saveToFile(detachedPath),qPrintable(type+": "+p->lastErrorMessage()));
+            QVERIFY2(p->loadFromFile(detachedPath),qPrintable(p->lastErrorMessage())); QVERIFY(!p->isSymmetryCopy(1));
+        }
+    }
+    void symmetryInterfaceAndAxisDrag() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Symmetry interface",640,480,QColor("#121922")); p->addObject("rectangle");
+        auto *r=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data()); r->x=50;r->y=60;r->width=60;r->height=40;
+        p->renameObject(0,QStringLiteral("Прибор")); p->setSnapToCanvas(false);p->setSnapToGrid(false);p->setSnapToObjects(false);p->setShowGrid(true);
+        AppearanceManager::instance()->applyAvionixTheme();
+        MainWindow window; window.resize(1400,1000); window.show(); window.activateWindow(); QTest::qWait(20);
+        window.resize(1400,1000); QTest::qWait(10);
+        auto *canvas=window.findChild<ViewportPanel *>(); auto *list=window.findChild<ObjectListPanel *>(); QVERIFY(canvas && list);
+        auto *vertical=window.findChild<QToolButton *>("VerticalSymmetryButton"); auto *horizontal=window.findChild<QToolButton *>("HorizontalSymmetryButton"); QVERIFY(vertical && horizontal);
+        QVERIFY(!vertical->isEnabled()); QVERIFY(!horizontal->isEnabled());
+        auto point=[&](double x,double y) {
+            const auto state=p->editorViewState(); const double scale=qMin(canvas->width()/640.,canvas->height()/480.)*.95*state.scale;
+            return QPoint(qRound((canvas->width()-640*scale)/2+state.offset.x()+x*scale),qRound((canvas->height()-480*scale)/2+state.offset.y()+y*scale));
+        };
+        QTest::mouseClick(canvas,Qt::LeftButton,Qt::NoModifier,point(80,80));
+        QVERIFY(vertical->isEnabled()); QVERIFY(horizontal->isEnabled()); QCOMPARE(vertical->size(),window.findChild<QToolButton *>("MergeStaticButton")->size());
+        vertical->click(); QCOMPARE(p->getObjectCount(),2); QCOMPARE(canvas->getSelectedIndexes(),QList<int>{0});
+        auto state=p->editorViewState();state.scale=1.25;state.offset=QPointF(17,-13);p->setEditorViewState(state);
+        auto drag=[&](QPoint from,const QList<QPoint> &positions) {
+            QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,from);
+            for(const auto &position:positions) { QMouseEvent move(QEvent::MouseMove,QPointF(position),QPointF(canvas->mapToGlobal(position)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier); QApplication::sendEvent(canvas,&move); }
+            QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,positions.last());
+        };
+        const auto parentBounds=p->getObjectAt(0)->getBoundingRect();
+        drag(point(320,160),{point(324,160),point(327,160),point(330,160)});
+        QVERIFY(qAbs(p->symmetryAxes().first()->position-330)<1.); QCOMPARE(p->getObjectAt(0)->getBoundingRect(),parentBounds);
+        QVERIFY(p->undo()); QCOMPARE(p->symmetryAxes().first()->position,320.); // Весь жест — одна отмена.
+        canvas->setSelectedIndex(0); list->selectRows({0});
+        const auto press=point(80,80), target=point(95,80);
+        const double totalScale=qMin(canvas->width()/640.,canvas->height()/480.)*.95*p->editorViewState().scale;
+        drag(press,{point(85,80),point(90,80),target});
+        r=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data()); QVERIFY(qAbs(r->x-(50+(target.x()-press.x())/totalScale))<.01);
+        auto *copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QVERIFY(copy);
+        QCOMPARE(copy->getBoundingRect().center().x()+r->getBoundingRect().center().x(),640.);
+        // После сдвига оси ограничение применяется и к зеркальной стороне.
+        const int axis=p->symmetryAxes().first()->id; QVERIFY(p->setSymmetryAxisPosition(axis,340));
+        canvas->setSelectedIndex(0); QTest::keyClick(canvas,Qt::Key_Left,Qt::ShiftModifier);
+        QVERIFY(copy->getBoundingRect().right()<=640.00001);
+        const double x=r->x; canvas->setSelectedIndex(1); QTest::keyClick(canvas,Qt::Key_Left); QCOMPARE(r->x,x);
+        ObjectPropertiesPanel properties; properties.showObjectProperties(1);
+        auto *layer=properties.findChild<QComboBox *>("ObjectLayerCombo"); QVERIFY(layer && !layer->isEnabled());
+        auto *rows=list->findChild<QListWidget *>(); QVERIFY(rows); QWidget *copyRow=nullptr; QToolButton *detach=nullptr;
+        for(int i=0;i<rows->count();++i) {
+            auto *row=rows->itemWidget(rows->item(i));
+            for(auto *button:row->findChildren<QToolButton *>()) if(button->property("symmetryDetach").toBool()) { copyRow=row;detach=button; }
+        }
+        QVERIFY(copyRow && detach); QVERIFY(!detach->isCheckable()); QCOMPARE(detach->size(),QSize(30,30)); QCOMPARE(detach->iconSize(),QSize(24,24));
+        auto *check=copyRow->findChild<QCheckBox *>("ObjectExportCheck"); QVERIFY(check && !check->isEnabled() && !check->isChecked());
+        canvas->resetView(); list->selectRows({1}); list->selectionChanged({1}); QTest::qWait(1);
+        window.grab().save(QCoreApplication::applicationDirPath()+"/symmetry-interface.png");
+        window.findChild<EditorWorkspacePanel *>()->grab().save(QCoreApplication::applicationDirPath()+"/symmetry-workspace.png");
+        detach->click(); QVERIFY(!p->isSymmetryCopy(1)); QVERIFY(p->getObjectAt(1)->isExportEnabled()); QVERIFY(p->symmetryAxes().isEmpty());
+        QTest::qWait(1);
+        for(auto *button:list->findChildren<QToolButton *>()) QVERIFY(!button->property("symmetryDetach").toBool());
+        QVERIFY(p->undo()); QVERIFY(p->isSymmetryCopy(1)); QCOMPARE(p->symmetryAxes().size(),1);
+        const auto bounds=p->getObjectAt(0)->getBoundingRect(); QTest::mouseClick(canvas,Qt::LeftButton,Qt::NoModifier,point(bounds.center().x(),bounds.center().y()));
+        QVERIFY(horizontal->isEnabled()); horizontal->click(); QCOMPARE(p->symmetryAxes().size(),2);
+        QSharedPointer<SymmetryAxis> hAxis;
+        for(const auto &axis:p->symmetryAxes()) if(axis->orientation==Qt::Horizontal) hAxis=axis;
+        QVERIFY(hAxis); drag(point(200,240),{point(200,245),point(200,250)}); QVERIFY(qAbs(hAxis->position-250)<1.);
+    }
+    void symmetryLayersAndClipboard() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Symmetry layers",640,480,Qt::black); p->addObject("rectangle");
+        QCOMPARE(p->createSymmetry({0},Qt::Vertical),(QList<int>{1}));
+        const int group=p->groupObjects({0,1}); QVERIFY(group>=0);
+        QVERIFY(p->setGroupExportEnabled(group,false)); QVERIFY(!p->getObjectAt(0)->isExportEnabled());
+        QVERIFY(p->setGroupExportEnabled(group,true)); QVERIFY(p->getObjectAt(0)->isExportEnabled()); QVERIFY(!p->getObjectAt(1)->isExportEnabled());
+        const int duplicated=p->duplicateEditorLayer(1); QVERIFY(duplicated>1); QCOMPARE(p->getObjectCount(),4); QCOMPARE(p->symmetryAxes().size(),2);
+        auto *copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QVERIFY(copy); QCOMPARE(copy->source(),p->getObjectAt(0));
+        auto *old=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(3).data()); QVERIFY(old); QCOMPARE(old->source(),p->getObjectAt(2));
+        QVERIFY(copy->axis()->id!=old->axis()->id);
+        const int layer=p->addEditorLayer(); QVERIFY(p->setObjectsLayer({p->getObjectAt(0)},layer)); QCOMPARE(p->getObjectAt(1)->editorLayerId(),layer);
+        QVERIFY(!p->setObjectsLayer({p->getObjectAt(1)},1));
+        QVERIFY(p->removeEditorLayer(layer)); QCOMPARE(p->getObjectCount(),2); QCOMPARE(p->symmetryAxes().size(),1);
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(),4); QCOMPARE(p->symmetryAxes().size(),2);
+        QTemporaryDir temp; QVERIFY2(p->saveToFile(temp.filePath("layers.xml")),qPrintable(p->lastErrorMessage()));
+        QVERIFY2(p->loadFromFile(temp.filePath("layers.xml")),qPrintable(p->lastErrorMessage()));
+        p->setShowAllLayers(true); QVERIFY(p->removeObjects({0})); QCOMPARE(p->getObjectCount(),2); QCOMPARE(p->symmetryAxes().size(),1);
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(),4);
+    }
+    void numericExpressions() {
+        double result = 123;
+        const QList<QPair<QString,double>> examples{
+            {"2+3*4",14}, {"(1920-80)/2",920}, {"-(-5)+2",7},
+            {" 1,5 + .25 ",1.75}, {"=1e2 / 4",25}, {"8/2/2",2},
+            {QStringLiteral("6 × 3 − 2 ÷ 4"),17.5}
+        };
+        for (const auto &example : examples) {
+            QVERIFY2(NumericExpression::evaluate(example.first,&result),qPrintable(example.first));
+            QCOMPARE(result,example.second);
+        }
+        for (const auto &invalid : QStringList{"", "(2+3", "2+", "1/0", "0/0", "1e309", "2**3", "1 2", "abc", "1e308*10", QString(70,'(')+"1"+QString(70,')')}) {
+            result=123; QVERIFY2(!NumericExpression::evaluate(invalid,&result),qPrintable(invalid)); QCOMPARE(result,123.);
+        }
+        ExpressionSpinBox spin; spin.setRange(0,1000); spin.setSuffix(" px"); spin.setValue(42); spin.show();
+        auto enter=[&](QAbstractSpinBox *field,const QString &text) {
+            field->setFocus(); field->selectAll(); QTest::keyClicks(field,text); QTest::keyClick(field,Qt::Key_Return);
+        };
+        enter(&spin,"(80-20)/2"); QCOMPARE(spin.value(),30); QCOMPARE(spin.text(),QString("30 px"));
+        enter(&spin,"10/4"); QCOMPARE(spin.value(),3);
+        enter(&spin,"10/0"); QCOMPARE(spin.value(),3);
+        enter(&spin,"2000+1"); QCOMPARE(spin.value(),3);
+        ExpressionDoubleSpinBox fraction; fraction.setRange(-1000,1000); fraction.setDecimals(3);
+        fraction.setPrefix("X: "); fraction.show(); enter(&fraction,"1,5/2"); QCOMPARE(fraction.value(),.75);
+
+        auto *p=ProjectManager::instance(); p->createNewProject("Expressions",640,480,Qt::black); p->addObject("rectangle");
+        auto rectangle=p->getObjectAt(0);
+        QVERIFY(p->setObjectProperty(rectangle.data(),"X","(100+20)/2"));
+        QCOMPARE(dynamic_cast<RectangleObject *>(rectangle.data())->x,60.);
+        QVERIFY(!p->setObjectProperty(rectangle.data(),"X","100/0"));
+        QCOMPARE(dynamic_cast<RectangleObject *>(rectangle.data())->x,60.);
+        QVERIFY(p->undo()); QVERIFY(p->redo());
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(0).data())->x,60.);
+        ObjectPropertiesPanel properties; properties.showObjectProperties(0);
+        auto *table=properties.findChild<QTableWidget *>(); QVERIFY(table);
+        for(int row=0;row<table->rowCount();++row) if(table->item(row,0)->text()=="X") table->item(row,1)->setText("200/2+5");
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(0).data())->x,105.);
+        p->addObject("text"); auto text=p->getObjectAt(0);
+        QVERIFY(p->setObjectProperty(text.data(),"Текст","123"));
+        QVERIFY(p->setObjectProperty(text.data(),"Текст","2+3"));
+        QCOMPARE(dynamic_cast<TextObject *>(text.data())->text,QString("2+3"));
+        SettingsWindow settings;
+        auto *fast=settings.findChild<QSpinBox *>("FastMoveStepSpin"); QVERIFY(fast);
+        fast->setValue(37); QVERIFY(QMetaObject::invokeMethod(&settings,"saveSettings")); QCOMPARE(ApplicationSettings::fastMoveStep(),37);
+        ApplicationSettings::create().remove("editor/fastMoveStep");
+    }
+    void pixelNudgingAndRectangleOutline() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Nudge",640,480,Qt::black);
+        p->addObject("rectangle"); p->addObject("rectangle");
+        auto rectangle=[&](int index) { return dynamic_cast<RectangleObject *>(p->getObjectAt(index).data()); };
+        auto *a=rectangle(0); auto *b=rectangle(1);
+        a->x=50; a->y=60; a->width=100; a->height=50; a->strokeWidth=5; a->strokeColor=Qt::red;
+        b->x=200; b->y=80; b->width=30; b->height=40; b->strokeColor=Qt::transparent;
+        QCOMPARE(a->getBoundingRect(),QRectF(45,55,110,60));
+        const auto params=a->serializeParams(); QCOMPARE(params.value("x0"),50u); QCOMPARE(params.value("w"),100u);
+        p->setSnapToGrid(true); p->setSnapToCanvas(true); p->setSnapToObjects(true);
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); viewport.setSelectedIndexes({0,1}); viewport.setFocus();
+        QTest::keyClick(&viewport,Qt::Key_Right); QCOMPARE(a->x,51.); QCOMPARE(b->x,201.);
+        ApplicationSettings::create().setValue("editor/fastMoveStep",37);
+        QTest::keyClick(&viewport,Qt::Key_Down,Qt::ShiftModifier); QCOMPARE(a->y,97.); QCOMPARE(b->y,117.);
+        QVERIFY(p->undo()); a=rectangle(0); b=rectangle(1); QCOMPARE(a->y,60.); QCOMPARE(b->y,80.);
+        QVERIFY(p->redo()); a=rectangle(0); QCOMPARE(a->y,97.);
+        viewport.setSelectedIndex(0);
+        QTest::keyClick(&viewport,Qt::Key_Left,Qt::ShiftModifier); QCOMPARE(a->x,14.);
+        QTest::keyClick(&viewport,Qt::Key_Left,Qt::ShiftModifier); QCOMPARE(a->getBoundingRect().left(),0.);
+        QTest::keyClick(&viewport,Qt::Key_Down,Qt::ShiftModifier);
+        QTest::keyClick(&viewport,Qt::Key_Right,Qt::ControlModifier); QCOMPARE(a->x,5.);
+        QVERIFY(p->setObjectSelectionLocked(0,true)); QTest::keyClick(&viewport,Qt::Key_Right); QCOMPARE(a->x,5.);
+        QVERIFY(p->setObjectSelectionLocked(0,false)); viewport.setSelectedIndex(0);
+        const double ratio=a->width/a->height; a->resizeBy(2|8,55,30,true);
+        QVERIFY(qAbs(a->width/a->height-ratio)<1e-9);
+        const auto grown=a->getBoundingRect(); a->resizeBy(2|8,0,0,true); QCOMPARE(a->getBoundingRect(),grown);
+        a->x=50; a->y=60; a->width=100; a->height=50;
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,QPoint(111,93));
+        QMouseEvent move(QEvent::MouseMove,QPointF(-40,700),QPointF(viewport.mapToGlobal(QPoint(-40,700))),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(&viewport,&move); QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,QPoint(-40,700));
+        QCOMPARE(a->getBoundingRect().left(),0.); QCOMPARE(a->getBoundingRect().bottom(),480.);
+        ApplicationSettings::create().remove("editor/fastMoveStep");
+    }
+    void pasteAtCursorPreservesGroup() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Paste",640,480,Qt::black);
+        p->addObject("rectangle"); p->addObject("rectangle");
+        for(int i=0;i<2;++i) {
+            auto *r=dynamic_cast<RectangleObject *>(p->getObjectAt(i).data());
+            r->x=50+i*100; r->y=60+i*20; r->width=40; r->height=30; r->strokeColor=Qt::transparent;
+        }
+        QVERIFY(p->groupObjects({0,1})>=0); QVERIFY(p->copyObjects({0,1}));
+        const auto pasted=p->pasteObjects(QPointF(400,300)); QCOMPARE(pasted,(QList<int>{0,1}));
+        auto a=p->getObjectAt(0)->getBoundingRect(), b=p->getObjectAt(1)->getBoundingRect();
+        QCOMPARE(b.topLeft()-a.topLeft(),QPointF(100,20)); QCOMPARE(a.united(b).center(),QPointF(400,300));
+        QCOMPARE(p->groupMembersForObject(0),(QList<int>{0,1}));
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(),2); QVERIFY(p->redo()); QCOMPARE(p->getObjectCount(),4);
+        p->pasteObjects(QPointF(0,480)); a=p->getObjectAt(0)->getBoundingRect(); b=p->getObjectAt(1)->getBoundingRect();
+        QCOMPARE(b.topLeft()-a.topLeft(),QPointF(100,20)); QCOMPARE(a.united(b).left(),0.); QCOMPARE(a.united(b).bottom(),480.);
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); QTest::qWait(5);
+        const QPoint oldCursor=QCursor::pos(); const auto cursorGuard=qScopeGuard([&] { QCursor::setPos(oldCursor); });
+        auto state=p->editorViewState(); state.scale=2; state.offset=QPointF(30,-20); p->setEditorViewState(state);
+        const QPoint target(350,220); QCursor::setPos(viewport.mapToGlobal(target));
+        const auto position=viewport.pastePosition(); QVERIFY(QLineF(position,QPointF(320,240)).length()<1.);
+        p->pasteObjects(position); a=p->getObjectAt(0)->getBoundingRect(); b=p->getObjectAt(1)->getBoundingRect();
+        QVERIFY(QLineF(a.united(b).center(),position).length()<1.);
+        MainWindow window; window.show(); window.activateWindow(); QTest::qWait(10);
+        auto *canvas=window.findChild<ViewportPanel *>(); QVERIFY(canvas); canvas->setFocus();
+        QCursor::setPos(canvas->mapToGlobal(canvas->rect().center()));
+        const auto expectedCenter=canvas->pastePosition(); const int count=p->getObjectCount();
+        QTest::keySequence(canvas,QKeySequence::Paste); QCOMPARE(p->getObjectCount(),count+2);
+        a=p->getObjectAt(0)->getBoundingRect(); b=p->getObjectAt(1)->getBoundingRect();
+        QVERIFY(QLineF(a.united(b).center(),expectedCenter).length()<1.);
+    }
+    void gridAboveScene() {
+        auto *p=ProjectManager::instance(); p->createNewProject("Grid overlay",640,480,Qt::black);
+        p->addObject("aviahorizont"); p->addObject("rectangle");
+        auto *r=dynamic_cast<RectangleObject *>(p->getObjectAt(0).data());
+        r->x=50; r->y=50; r->width=120; r->height=100; r->fillColor=Qt::green;
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); QTest::qWait(5);
+        auto capture=[&]() { QImage image(viewport.size(),QImage::Format_ARGB32); image.fill(Qt::transparent); viewport.render(&image); return image; };
+        p->setShowGrid(false); const auto plain=capture();
+        p->setShowGrid(true); const auto gridded=capture();
+        // Вертикальные линии X=100 и X=300: поверх прямоугольника и авиагоризонта.
+        for(int x:{111,301}) {
+            bool changed=false;
+            for(int dx=-1;dx<=1;++dx) if(plain.pixel(x+dx,120)!=gridded.pixel(x+dx,120)) changed=true;
+            QVERIFY(changed);
+        }
+        gridded.save(QCoreApplication::applicationDirPath()+"/grid-overlay.png");
     }
     void editorProjectRoundTrip() {
         auto *p = ProjectManager::instance();
@@ -571,13 +1186,15 @@ private slots:
         properties.showSelectedObjects({0, 1});
         QCOMPARE(table->item(rowFor("Ширина"), 1)->text(), QString("Разные значения"));
         table->item(rowFor("Ширина"), 1)->setText("90");
-        QCOMPARE(first->getBoundingRect().width(), 90.); QCOMPARE(second->getBoundingRect().width(), 90.);
+        QCOMPARE(dynamic_cast<RectangleObject *>(first.data())->width, 90.);
+        QCOMPARE(dynamic_cast<RectangleObject *>(second.data())->width, 90.);
+        QCOMPARE(first->getBoundingRect().width(), 94.); QCOMPARE(second->getBoundingRect().width(), 94.);
         QVERIFY(p->undo());
-        QCOMPARE(p->getObjectAt(0)->getBoundingRect().width(), 120.);
-        QCOMPARE(p->getObjectAt(1)->getBoundingRect().width(), 75.);
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(0).data())->width, 120.);
+        QCOMPARE(dynamic_cast<RectangleObject *>(p->getObjectAt(1).data())->width, 75.);
         first = p->getObjectAt(1); second = p->getObjectAt(0);
         QVERIFY(!p->setObjectsProperty({first, second}, "Ширина", "ошибка"));
-        QCOMPARE(first->getBoundingRect().width(), 75.); QCOMPARE(second->getBoundingRect().width(), 120.);
+        QCOMPARE(first->getBoundingRect().width(), 79.); QCOMPARE(second->getBoundingRect().width(), 124.);
         QVERIFY(p->setObjectsProperty({first, second}, "Заливка", "#ff5c7a"));
         QCOMPARE(dynamic_cast<RectangleObject *>(first.data())->fillColor.name(), QString("#ff5c7a"));
         properties.showSelectedObjects({0, 1});
@@ -981,7 +1598,7 @@ private slots:
             QVERIFY(!dynamic_cast<ImageObject *>(p->getObjectAt(1).data())->isRotationObject());
         }
     }
-    void textLayoutAndStaticPackets() {
+    void textLayoutAndSymbolPackets() {
         auto doc = textFixture();
         const auto original = doc.toByteArray();
         QString error;
@@ -1004,11 +1621,17 @@ private slots:
         QVERIFY2(bundle.document.isValid(), qPrintable(error));
         QCOMPARE(bundle.document.objects.size(), 3);
         QCOMPARE(bundle.document.objects[1].type, QString("rectangle"));
-        QCOMPARE(bundle.document.memories.size(), 2);
-        const QString expectedMask = QString("70700070700000707") + "37000777000000370"
-            + "00000500000000000" + "00000270000000000";
+        QCOMPARE(bundle.document.memories.size(), 1);
+        const QString expectedMask = QStringLiteral("70737076502707717");
         QCOMPARE(bundle.document.memories[0].data, expectedMask);
-        QCOMPARE(bundle.document.memories[1].data, expectedMask);
+        QVERIFY(bundle.document.memories[0].kind == FpgaMemoryKind::FontAtlas);
+        const auto config = FpgaPipelineConfig::fromScene(bundle.document, &error);
+        QVERIFY2(config.isValid(), qPrintable(error));
+        QCOMPARE(config.parameterCount(), 11);
+        QCOMPARE(config.stages[0].type, 7); QCOMPARE(config.stages[2].type, 7);
+        QCOMPARE(config.stages[0].parameterCount, 5); QCOMPARE(config.stages[2].parameterCount, 5);
+        QCOMPARE(config.stages[0].ramId, config.stages[2].ramId);
+        QCOMPARE(config.systemVerilog().count("TYPE_SYMBOLs"), 3);
         QVERIFY(!bundle.document.schemas.contains("text")); QVERIFY(!bundle.document.schemas.contains("font"));
         int memoryPackets = 0, parameterPackets = 0;
         QByteArray binary;
@@ -1017,28 +1640,34 @@ private slots:
             QCOMPARE(quint8(packet.bytes[6]), quint8(packet.type));
             QCOMPARE(packet.bytes.right(4).toHex(), QByteArray::number(FpgaPacketFramer::fletcher32(packet.bytes.left(packet.bytes.size()-4)),16).rightJustified(8,'0'));
             if (packet.type == FpgaPacketType::StaticMemory) {
-                ++memoryPackets; QCOMPARE(packet.address,0); QCOMPARE(packet.payloadSize,68);
+                ++memoryPackets; QCOMPARE(packet.address,0); QCOMPARE(packet.payloadSize,expectedMask.size());
                 QByteArray expected;
                 for (const auto level : expectedMask) expected.append(char(level.digitValue()));
-                QCOMPARE(packet.bytes.mid(12,68),expected);
+                QCOMPARE(packet.bytes.mid(12,expectedMask.size()),expected);
             } else {
                 QCOMPARE(packet.type,FpgaPacketType::Parameter);
                 QCOMPARE(packet.objId, parameterPackets++);
                 QCOMPARE(packet.payloadSize,19);
             }
         }
-        QCOMPARE(memoryPackets,2); QCOMPARE(parameterPackets,3);
+        QCOMPARE(memoryPackets,1); QCOMPARE(parameterPackets,11);
         for (int i : {0, 2}) {
             const auto &object = bundle.document.objects[i];
-            QCOMPARE(object.iparams.size(),1);
+            QCOMPARE(object.type,QString("symbols")); QCOMPARE(object.iparams.size(),5);
             const auto hex = object.iparams.first();
             QCOMPARE(BitParser::extract(hex,25,12), quint32(10));
             QCOMPARE(BitParser::extract(hex,37,12), quint32(20));
-            QCOMPARE(BitParser::extract(hex,49,12), quint32(17));
-            QCOMPARE(BitParser::extract(hex,61,12), quint32(4));
+            QCOMPARE(BitParser::extract(hex,49,12), quint32(3));
+            QCOMPARE(BitParser::extract(hex,61,12), quint32(2));
             QCOMPARE(BitParser::extract(hex,73,16), quint32(0));
             QCOMPARE(BitParser::extract(hex,1,24), quint32(0x563412));
             QCOMPARE(hex.left(15), QString(15,'0'));
+            QCOMPARE(BitParser::extract(object.iparams[1],73,16), quint32(6));
+            QCOMPARE(BitParser::extract(object.iparams[1],25,12), quint32(15));
+            QCOMPARE(BitParser::extract(object.iparams[1],37,12), quint32(21));
+            QCOMPARE(BitParser::extract(object.iparams[2],73,16), quint32(0));
+            QCOMPARE(object.iparams[3],QString(38,'0'));
+            QCOMPARE(BitParser::extract(object.iparams[4],25,12), quint32(24));
         }
         QTemporaryDir temp;
         QVERIFY(FpgaPacketDump::writeBinary(temp.filePath("text.bin"),bundle,&error));
@@ -1064,10 +1693,10 @@ private slots:
         auto otherText=secondText.cloneNode(true).toElement(); objects.appendChild(otherText);
         auto otherInit=otherText.firstChildElement("init"); auto h=otherInit.text(); BitParser::inject(h,49,8,1); otherInit.firstChild().setNodeValue(h);
         const auto twoFonts=compileTextFixture(doc,&error); QVERIFY2(twoFonts.document.isValid(),qPrintable(error));
-        QCOMPARE(twoFonts.document.memories.size(),3);
-        QCOMPARE(twoFonts.document.objects.last().memId,2); QCOMPARE(twoFonts.document.objects.first().memId,0);
+        QCOMPARE(twoFonts.document.memories.size(),2);
+        QCOMPARE(twoFonts.document.objects.last().memId,1); QCOMPARE(twoFonts.document.objects.first().memId,0);
         int uploads=0; for (const auto &packet:twoFonts.packets) if(packet.type==FpgaPacketType::StaticMemory) ++uploads;
-        QCOMPARE(uploads,3);
+        QCOMPARE(uploads,2);
     }
     void textClippingSpacesAndOffsets() {
         QString error;
@@ -1077,19 +1706,22 @@ private slots:
         objects.appendChild(objects.firstChildElement("text").cloneNode(true));
         const auto bundle = compileTextFixture(doc,&error);
         QVERIFY2(bundle.document.isValid(),qPrintable(error));
-        QCOMPARE(bundle.document.objects.size(),2); // Вторые A полностью за экраном.
-        QCOMPARE(bundle.document.memories[0].data, QString("7037"));
-        for (const auto &object : bundle.document.objects) {
-            const auto hex = object.iparams.first();
+        QCOMPARE(bundle.document.objects.size(),1);
+        const auto &params = bundle.document.objects.first().iparams;
+        QCOMPARE(params.size(),4);
+        QCOMPARE(bundle.document.memories[0].data, QString("707370765027077177037"));
+        for (int i : {0, 2}) {
+            const auto hex = params[i];
             QCOMPARE(BitParser::extract(hex,49,12),quint32(2)); QCOMPARE(BitParser::extract(hex,61,12),quint32(2));
-            QCOMPARE(BitParser::extract(hex,73,16),quint32(0));
+            QCOMPARE(BitParser::extract(hex,73,16),quint32(17));
+            QCOMPARE(params[i+1],QString(38,'0')); // Вторые A полностью за экраном.
         }
         FpgaSimulator simulator; simulator.loadBundle(bundle); const auto image = simulator.renderFrame();
         QCOMPARE(image.pixelColor(10,9),QColor(0x12,0x34,0x56)); // Вторая строка обрезанного растра.
 
-        auto empty = compileTextFixture(textFixture("   "),&error);
-        QVERIFY2(empty.document.isValid(),qPrintable(error)); QVERIFY(empty.document.objects.isEmpty());
-        QVERIFY(empty.packets.isEmpty()); QVERIFY(empty.document.memories.isEmpty());
+        auto spaces = compileTextFixture(textFixture("   "),&error);
+        QVERIFY2(spaces.document.isValid(),qPrintable(error));
+        QCOMPARE(spaces.document.objects.first().iparams,QStringList(3,QString(38,'0')));
         doc = textFixture(QStringLiteral("AЯV"));
         auto init = doc.documentElement().firstChildElement("objects").firstChildElement("text").firstChildElement("init");
         auto hex = init.text(); BitParser::inject(hex,57,16,1); BitParser::inject(hex,73,12,1); BitParser::inject(hex,0,1,0);
@@ -1099,32 +1731,77 @@ private slots:
         QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),73,16),quint32(0));
         QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),0,1),quint32(0));
     }
+    void textUartUpdatesKeepAtlasAndPositions() {
+        QString error;
+        const auto original = compileTextFixture(textFixture(), &error);
+        QVERIFY2(original.document.isValid(), qPrintable(error));
+        auto compileUpdate = [&](const QString &text) {
+            const auto document = FpgaCompiledDocument::fromDomDocument(textFixture(text), &error);
+            if (!document.isValid()) return FpgaPacketBundle{};
+            const auto scene = FpgaSceneCompiler().compile(document, &error, &original.document);
+            return scene.isValid() ? FpgaPacketCompiler().compile(scene, &error) : FpgaPacketBundle{};
+        };
+        const auto edited = compileUpdate("VA");
+        QVERIFY2(edited.document.isValid(), qPrintable(error));
+        QCOMPARE(edited.document.memories[0].data, original.document.memories[0].data);
+        QCOMPARE(FpgaPipelineConfig::fromScene(edited.document), FpgaPipelineConfig::fromScene(original.document));
+        const auto &params = edited.document.objects.first().iparams;
+        QCOMPARE(params.size(), 5);
+        QCOMPARE(BitParser::extract(params[0],73,16), quint32(6));
+        QCOMPARE(BitParser::extract(params[1],25,12), quint32(12));
+        for (int i = 2; i < params.size(); ++i) QCOMPARE(params[i], QString(38, '0'));
+        const auto empty = compileUpdate("");
+        QVERIFY2(empty.document.isValid(), qPrintable(error));
+        QCOMPARE(empty.document.objects.first().iparams, QStringList(5, QString(38, '0')));
+        QVERIFY(!compileUpdate("AAAAAA").document.isValid());
+        QVERIFY(error.contains("5") && error.contains("6"));
+
+#ifdef Q_OS_UNIX
+        PtyCapture capture;
+        QVERIFY(capture.master >= 0);
+        FpgaUartTransport transport;
+        QSignalSpy setup(&transport, &FpgaUartTransport::setupComplete);
+        FpgaUartConfig config;
+        config.portName = QString::fromLocal8Bit(capture.name);
+        config.loadBaudRate = 57600;
+        QVERIFY(transport.startStreaming(original, config, &error));
+        QTRY_COMPARE_WITH_TIMEOUT(setup.size(), 1, 3000);
+        const QByteArray initial = QByteArray(1, char(0)) + FpgaUartTransport::sceneBytes(original);
+        QTRY_COMPARE_WITH_TIMEOUT(capture.data(), initial, 1000);
+        QByteArray delta;
+        for (qsizetype i = 0; i < edited.packets.size(); ++i) {
+            if (edited.packets[i].bytes != original.packets[i].bytes) {
+                QCOMPARE(edited.packets[i].type, FpgaPacketType::Parameter);
+                delta += edited.packets[i].bytes;
+            }
+        }
+        QVERIFY(!delta.isEmpty());
+        transport.updateScene(edited);
+        QTRY_COMPARE_WITH_TIMEOUT(capture.data(), initial + delta, 1000);
+#endif
+    }
     void textAddressLimitsAndInvalidXml() {
         QString error;
         auto source = FpgaCompiledDocument::fromDomDocument(textFixture("A"),&error);
-        // Большой XML-атлас больше не загружается в ПЛИС целиком.
-        source.fonts[0].maskData = QString(70000,'0') + "707370";
-        source.fonts[0].glyphs['A'].offset = 70000;
-        auto scene = FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
-        QCOMPARE(scene.memories.first().data,QString("707370"));
-        QCOMPARE(BitParser::extract(scene.objects.first().iparams.first(),73,16),quint32(0));
-        source.width=512; source.height=512;
+        const int capacity = FpgaResourceLimits::fontPixels;
+        source.fonts[0].maskData = QString(capacity-6,'0') + "707377";
         auto &glyph=source.fonts[0].glyphs['A'];
-        glyph.width=256; glyph.height=256; glyph.advance=256; glyph.maskRows=QString(65536,'7');
-        scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
-        QCOMPARE(scene.memories.first().data.size(),65536);
+        glyph.offset = capacity-6;
+        const auto scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
+        QCOMPARE(scene.memories.first().data.size(),capacity);
+        QCOMPARE(BitParser::extract(scene.objects.first().iparams.first(),73,16),quint32(capacity-6));
         const auto full=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(full.document.isValid(),qPrintable(error));
-        QCOMPARE(full.packets.last().address,64512); QCOMPARE(full.packets.last().payloadSize,1024);
-        FpgaSimulator simulator; simulator.loadBundle(full); QCOMPARE(simulator.renderFrame().pixelColor(265,275),QColor(0x12,0x34,0x56));
-        glyph.height=257; glyph.maskRows=QString(256*257,'7');
-        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("65536"));
+        QCOMPARE(full.packets.last().address,16384); QCOMPARE(full.packets.last().payloadSize,1);
+        FpgaSimulator simulator; simulator.loadBundle(full); QCOMPARE(simulator.renderFrame().pixelColor(12,21),QColor(0x12,0x34,0x56));
+        source.fonts[0].maskData.append('0');
+        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains(QString::number(capacity)));
         source = FpgaCompiledDocument::fromDomDocument(textFixture("AAA"),&error);
         source.width = 12000; source.fonts[0].glyphs['A'].advance = 4095;
         QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("12-бит"));
         source = FpgaCompiledDocument::fromDomDocument(textFixture(),&error);
         const auto originalText=source.objects.first();
         for (int i = 0; i < 256; ++i) source.objects.append(originalText);
-        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("256"));
+        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("200"));
         source.fonts.clear(); source.objects.clear();
         FpgaCompiledObject many; many.type="rectangle"; many.iparams.fill(QString(38,'0'),65537); source.objects.append(many);
         QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("65536"));
@@ -1150,7 +1827,8 @@ private slots:
         auto *p = ProjectManager::instance(); p->createNewProject("Text",320,160,QColor(20,30,40));
         const int index = p->addObject("text");
         auto *text = dynamic_cast<TextObject *>(p->getObjectAt(index).data()); QVERIFY(text);
-        QVERIFY(text->setObjectProperty("Текст",QStringLiteral("AVAV Яя gyp α° 11")));
+        QVERIFY(text->setObjectProperty("Текст",QStringLiteral("A V Я я g y p α ° 1")));
+        QVERIFY(text->setObjectProperty("Позиции ПЛИС (0 — авто)","25"));
         text->states[0].x = 5; text->states[0].y = 7;
         QString error;
         const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
@@ -1172,6 +1850,7 @@ private slots:
         QTemporaryDir temp; QVERIFY(p->saveToFile(temp.filePath("text.xml"))); QVERIFY2(p->loadFromFile(temp.filePath("text.xml")),qPrintable(p->lastErrorMessage()));
         const auto restored = FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(restored.document.isValid(),qPrintable(error));
         QCOMPARE(FpgaUartTransport::sceneBytes(restored),bytes);
+        QCOMPARE(restored.document.objects.first().iparams.size(),25);
         // До упаковки в XML координаты и количество символов не должны молча обрезаться.
         text = dynamic_cast<TextObject *>(p->getObjectAt(0).data()); text->states[0].x=-1;
         QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid()); QVERIFY(!error.isEmpty());
@@ -1193,14 +1872,16 @@ private slots:
         auto source=FpgaCompiledDocument::fromDomDocument(textFixture("AA"),&error);
         auto &font=source.fonts[0]; font.glyphs['A'].advance=1;
         auto scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
-        QCOMPARE(scene.objects.size(),1); QCOMPARE(scene.objects.first().iparams.size(),1);
-        QCOMPARE(scene.memories.first().data,QString("77773770")); // Пересечение без отрицательного кернинга.
+        QCOMPARE(scene.objects.size(),1); QCOMPARE(scene.objects.first().iparams.size(),2);
+        QVERIFY(!scene.warnings.isEmpty());
+        TextMask mask; QVERIFY(composeTextMask("AA",font,&mask,&error));
+        QCOMPARE(mask.data,QString("77773770")); // Предпросмотр смешивает обе маски.
         font.kerningPairs.insert("AA",-1);
-        scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
-        QCOMPARE(scene.memories.first().data,QString("707570")); // 1/2 + 1/2*(1-1/2) = 3/4.
+        QVERIFY(composeTextMask("AA",font,&mask,&error));
+        QCOMPARE(mask.data,QString("707570")); // 1/2 + 1/2*(1-1/2) = 3/4.
         auto &glyph=font.glyphs['A']; glyph.width=5; glyph.height=4; glyph.advance=5;
         glyph.maskRows="00000\n00700\n00000\n00000";
-        TextMask mask; QVERIFY(composeTextMask("A",font,&mask,&error));
+        QVERIFY(composeTextMask("A",font,&mask,&error));
         QCOMPARE(mask.offset,QPoint(2,1)); QCOMPARE(mask.size,QSize(1,1)); QCOMPARE(mask.data,QString("7"));
     }
     void simulatorPacketValidationAndGroupPriority() {
@@ -1220,9 +1901,15 @@ private slots:
         FpgaHardwareObject group; group.type="staticgroup"; group.memId=0;
         group.iparams={testInit("staticgroup",{{"enb",1},{"color",0xffffff},{"w",1},{"h",1}}),
                       testInit("staticgroup",{{"enb",1},{"color",0xffffff},{"w",1},{"h",1},{"addr",1}})};
-        scene.objects={group}; scene.memories={{FpgaMemoryKind::StaticMask,"70"}};
+        scene.objects={group}; scene.memories={{FpgaMemoryKind::StaticMask,"07"}};
         bundle=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
         simulator.loadBundle(bundle); QCOMPARE(simulator.renderFrame().pixelColor(0,0),scene.backgroundColor);
+        BitParser::inject(scene.objects[0].iparams[1],25,12,1);
+        bundle=FpgaPacketCompiler().compile(scene,&error);
+        simulator.loadBundle(bundle); QCOMPARE(simulator.renderFrame().pixelColor(1,0),QColor(Qt::white));
+        QCOMPARE(bundle.packets[1].objId,1);
+        QCOMPARE(bundle.packets[2].address,0);
+        QCOMPARE(bundle.packets[2].bytes.mid(12,2),QByteArray("\0\7",2));
         scene.objects[0].iparams.removeLast(); group.startParamIndex=1; group.iparams.removeFirst(); scene.objects.append(group);
         simulator.loadBundle(FpgaPacketCompiler().compile(scene,&error));
         QCOMPARE(simulator.renderFrame().pixelColor(0,0),QColor(Qt::white)); // Между модулями ноль прозрачен.
@@ -1236,9 +1923,16 @@ private slots:
         QCOMPARE(ApplicationSettings::staticGroupPixels(),65536); QCOMPARE(ApplicationSettings::staticGroupElements(),8);
         settings.setValue("fpga/staticGroupPixels",6); settings.setValue("fpga/staticGroupElements",1); settings.sync();
         QString error;
-        auto bundle=compileTextFixture(textFixture("A"),&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
-        QVERIFY(!compileTextFixture(textFixture("AA"),&error).document.isValid()); QVERIFY(error.contains("6"));
-        auto scene=bundle.document; scene.objects[0].iparams.append(scene.objects[0].iparams.first());
+        auto *project = ProjectManager::instance();
+        project->createNewProject("Symbol limits", 80, 50, Qt::black);
+        QVERIFY(project->addObject("text") >= 0);
+        QVERIFY2(FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid(), qPrintable(error));
+        auto bundle=compileTextFixture(textFixture("AAAAAAAAA"),&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        QCOMPARE(bundle.document.objects[0].iparams.size(),9);
+        auto scene=bundle.document;
+        scene.objects[0].type="staticgroup"; scene.memories[0].kind=FpgaMemoryKind::StaticMask;
+        QVERIFY(!FpgaPacketCompiler().compile(scene,&error).document.isValid()); QVERIFY(error.contains("6"));
+        scene.memories[0].data="707370";
         QVERIFY(!FpgaPacketCompiler().compile(scene,&error).document.isValid());
         SettingsWindow window;
         auto *pixels=window.findChild<QSpinBox *>("StaticGroupPixelsSpin"); auto *elements=window.findChild<QSpinBox *>("StaticGroupElementsSpin");
@@ -1616,26 +2310,38 @@ private slots:
         auto *hotkeys=settings.findChild<QScrollArea *>("HotkeysScrollArea"); QVERIFY(hotkeys);
         QSet<QString> documented;
         for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) documented.insert(QKeySequence(label->text()).toString(QKeySequence::PortableText));
-        documented.insert(QKeySequence(QKeySequence::Delete).toString(QKeySequence::PortableText));
-        documented.insert(QKeySequence(Qt::Key_Backspace).toString(QKeySequence::PortableText));
         QMap<QString,QAction *> registered;
         for(auto *action:window.findChildren<QAction *>()) {
             QVERIFY(!action->text().endsWith("…") && !action->text().endsWith("..."));
-            if(action->shortcutContext()!=Qt::WindowShortcut || action->shortcut().isEmpty()) continue;
-            const auto primary=action->shortcut().toString(QKeySequence::PortableText);
-            QVERIFY2(documented.contains(primary),qPrintable("Shortcut missing from Settings: "+action->text()+" / "+primary));
+            if(action->shortcut().isEmpty()) continue;
             for(const auto &key:action->shortcuts()) {
                 const auto text=key.toString(QKeySequence::PortableText);
+                QVERIFY2(documented.contains(text),qPrintable("Shortcut missing from Settings: "+action->text()+" / "+text));
+                if(action->shortcutContext()!=Qt::WindowShortcut) continue;
                 QVERIFY2(!registered.contains(text) || registered.value(text)==action,qPrintable("Duplicate global shortcut: "+text));
                 registered.insert(text,action);
             }
         }
+        NewProjectDialog newProject;
+        for(auto *dialog:QList<QWidget *>{&settings,&newProject}) for(auto *button:dialog->findChildren<QAbstractButton *>()) {
+            if(button->shortcut().isEmpty()) continue;
+            const auto key=button->shortcut().toString(QKeySequence::PortableText);
+            QVERIFY2(documented.contains(key),qPrintable("Dialog shortcut missing from Settings: "+button->text()+" / "+key));
+        }
+        QStringList gestureTexts;
+        for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) gestureTexts.append(label->text());
+        for(const auto &gesture:QStringList{EditorGestures::rotationPivotShortcut(),"Ctrl + колесо мыши","Shift + ЛКМ / Shift + рамка","Ctrl + ЛКМ"})
+            QVERIFY2(gestureTexts.contains(gesture),qPrintable("Gesture missing from Settings: "+gesture));
         for(auto *button:window.findChildren<QAbstractButton *>()) QVERIFY(!button->text().endsWith("…") && !button->text().endsWith("..."));
         settings.show(); settings.findChild<QListWidget *>()->setCurrentRow(1); QTest::qWait(5);
         for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) if(label->text()=="Экспорт конфигурации ПЛИС:") {
             hotkeys->ensureWidgetVisible(label); break;
         }
         settings.grab().save(QCoreApplication::applicationDirPath()+"/hotkeys-fpga.png");
+        for(auto *label:hotkeys->widget()->findChildren<QLabel *>()) if(label->text()==EditorGestures::rotationPivotShortcut()) {
+            hotkeys->ensureWidgetVisible(label); break;
+        }
+        settings.grab().save(QCoreApplication::applicationDirPath()+"/hotkeys-rotation-pivot.png");
     }
     void contextCommandShortcuts() {
         auto *p=ProjectManager::instance(); p->createNewProject("context keys",1024,768,Qt::black);

@@ -35,4 +35,15 @@ struct FpgaFont
     QMap<QChar, FpgaGlyph> glyphs;
     QMap<QString, int> kerningPairs;
     QString maskData; // Все маски подряд: один символ '0'…'7' на ячейку.
+
+    // Сохраняет порядок XML/атласа; недостающие в glyphOrder коды дополняет из glyphs.
+    QString orderedCharacters() const
+    {
+        QString characters;
+        for (const QChar ch : glyphOrder)
+            if (glyphs.contains(ch) && !characters.contains(ch)) characters.append(ch);
+        for (auto it = glyphs.cbegin(); it != glyphs.cend(); ++it)
+            if (!characters.contains(it.key())) characters.append(it.key());
+        return characters;
+    }
 };
