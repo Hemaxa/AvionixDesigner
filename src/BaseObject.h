@@ -7,6 +7,7 @@
 #include <QMap>
 #include <QString>
 #include <QDomElement>
+#include <QSharedPointer>
 #include <optional>
 
 // ParamInfo - смещение и ширина одного поля битовой схемы.
@@ -30,6 +31,10 @@ public:
 
     explicit BaseObject(QObject *parent = nullptr) : QObject(parent) {}
     virtual ~BaseObject() = default;
+
+    // Каждый конкретный тип сам копирует свои параметры и ресурсы.
+    // QObject не копируется: у результата собственные сигналы и время жизни.
+    virtual QSharedPointer<BaseObject> clone() const = 0;
 
     // виртуальный метод, который парсит основные параметры из HEX-строки
     virtual void parse(const QString &hexInit, const ParamSchema &schema) = 0;
@@ -109,6 +114,19 @@ signals:
     void changed();  //сигнал об изменении объекта
 
 protected:
+    // Общие метаданные переносятся без служебной ошибки последнего редактирования.
+    void copyEditorStateTo(BaseObject &target) const
+    {
+        target.m_viewVisible = m_viewVisible;
+        target.m_selectionLocked = m_selectionLocked;
+        target.m_exportEnabled = m_exportEnabled;
+        target.m_importedHardwareObject = m_importedHardwareObject;
+        target.m_resizeLocked = m_resizeLocked;
+        target.m_editRestrictionHint = m_editRestrictionHint;
+        target.m_customName = m_customName;
+        target.m_editorLayerId = m_editorLayerId;
+        target.m_editorRotationPivot = m_editorRotationPivot;
+    }
     void setValidationMessage(const QString &message) const { m_lastValidationMessage = message; }
 
 private:

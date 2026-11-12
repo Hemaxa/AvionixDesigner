@@ -999,3 +999,21 @@ void ImageObject::rebuildColorLayers()
         autoMaskColor = m_colorLayers.first().autoMaskColor;
     }
 }
+
+QSharedPointer<BaseObject> ImageObject::clone() const
+{
+    auto *clone = new ImageObject(isRotationObject() ? ImageObject::Kind::Rotating : ImageObject::Kind::Static);
+    clone->x = x;
+    clone->y = y;
+    clone->width = width;
+    clone->height = height;
+    clone->maskColor = maskColor;
+    clone->autoMaskColor = autoMaskColor;
+    clone->rotationDegrees = rotationDegrees;
+    clone->sourceName = sourceName;
+    clone->format = format;
+    clone->copyRasterSource(*this);
+    clone->setColorLayers(colorLayers());
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}

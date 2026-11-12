@@ -20,6 +20,10 @@ class SymmetryCopyObject : public BaseObject
     Q_OBJECT
 public:
     SymmetryCopyObject(QSharedPointer<BaseObject> source, QSharedPointer<SymmetryAxis> axis);
+    QSharedPointer<BaseObject> clone() const override;
+    // При копировании всей сцены связи должны вести на копии исходника и оси.
+    QSharedPointer<SymmetryCopyObject> cloneWithLinks(const QSharedPointer<BaseObject> &source,
+                                                    const QSharedPointer<SymmetryAxis> &axis) const;
     void bindSource(const QSharedPointer<BaseObject> &source);
     const QSharedPointer<BaseObject> &source() const { return m_source; }
     const QSharedPointer<SymmetryAxis> &axis() const { return m_axis; }

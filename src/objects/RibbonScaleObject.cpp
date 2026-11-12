@@ -190,3 +190,19 @@ QMap<QString, quint32> RibbonScaleObject::serializeParams() const
         {"ystart", static_cast<quint32>(qMax(0, qRound(yStart)))}
     };
 }
+
+QSharedPointer<BaseObject> RibbonScaleObject::clone() const
+{
+    auto *clone = new RibbonScaleObject();
+    clone->enabled = enabled;
+    clone->color = color;
+    clone->left = left;
+    clone->right = right;
+    clone->top = top;
+    clone->bottom = bottom;
+    clone->lineWidth = lineWidth;
+    clone->period = period;
+    clone->yStart = yStart;
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}

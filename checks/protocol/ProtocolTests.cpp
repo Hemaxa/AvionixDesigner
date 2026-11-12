@@ -4,6 +4,8 @@
 #include "ApplicationLanguage.h"
 #include "EditorWorkspacePanel.h"
 #include "ViewportPanel.h"
+#include "ObjectSnapper.h"
+#include "ObjectCloner.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
@@ -202,6 +204,206 @@ private slots:
         QVERIFY(installRussianTranslation(*qApp));
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
+    }
+    void polymorphicClonesPreserveState() {
+        auto *p = ProjectManager::instance();
+        for (const auto &type : {"rectangle", "rectangle_a", "dashline", "RibonScale", "rotationobject",
+                                  "staticgroup", "aviahorizont", "layer3d", "text"}) {
+            p->createNewProject("Clone",640,480,Qt::black);
+            QVERIFY(p->addObject(type) >= 0);
+            const auto source = p->getObjectAt(0);
+            source->setCustomName("Independent copy"); source->setSelectionLocked(true);
+            source->setViewVisible(false); source->setExportEnabled(false);
+            source->setEditorRotationPivot(QPointF(.25,.75)); source->setEditRestrictionHint("Restriction");
+            const auto copy = source->clone();
+            QVERIFY(copy); QVERIFY(copy != source); QCOMPARE(copy->getTypeName(),source->getTypeName());
+            QCOMPARE(copy->getProperties(),source->getProperties()); QCOMPARE(copy->serializeParams(),source->serializeParams());
+            QCOMPARE(copy->getBoundingRect(),source->getBoundingRect()); QCOMPARE(copy->customName(),source->customName());
+            QCOMPARE(copy->editorRotationPivot(),source->editorRotationPivot()); QCOMPARE(copy->editRestrictionHint(),source->editRestrictionHint());
+            QVERIFY(copy->isSelectionLocked()); QVERIFY(!copy->isViewVisible()); QVERIFY(!copy->isExportEnabled());
+            const auto bounds = source->getBoundingRect(); copy->moveBy(5,7); QCOMPARE(source->getBoundingRect(),bounds);
+            copy->setCustomName("Changed copy"); QCOMPARE(source->customName(),QString("Independent copy"));
+        }
+        const auto source = QSharedPointer<RectangleObject>::create(); source->width=40; source->height=20;
+        const auto axis = QSharedPointer<SymmetryAxis>::create(); axis->id=1; axis->position=100;
+        const auto copy = QSharedPointer<SymmetryCopyObject>::create(source,axis);
+        const auto scene = ObjectCloner::cloneScene({source,copy});
+        const auto clonedCopy = qSharedPointerDynamicCast<SymmetryCopyObject>(scene[1]); QVERIFY(clonedCopy);
+        QCOMPARE(clonedCopy->source(),scene[0]); QVERIFY(clonedCopy->source()!=source); QVERIFY(clonedCopy->axis()!=axis);
+        axis->position=200; QCOMPARE(clonedCopy->axis()->position,100.);
+    }
+    void equalSpacingGeometry_data() {
+        QTest::addColumn<QRectF>("moving");
+        QTest::addColumn<QList<QRectF>>("targets");
+        QTest::addColumn<int>("axis");
+        QTest::addColumn<double>("tolerance");
+        QTest::addColumn<bool>("matched");
+        QTest::addColumn<double>("correction");
+        const QList<QRectF> row = {{20,100,40,40}, {100,100,60,40}};
+        QTest::newRow("continue-right") << QRectF(204,105,30,30) << row << int(Qt::Horizontal) << 8. << true << -4.;
+        QTest::newRow("continue-left") << QRectF(-54,105,30,30) << row << int(Qt::Horizontal) << 8. << true << 4.;
+        QTest::newRow("insert-different-widths") << QRectF(106,105,20,30)
+            << QList<QRectF>{{20,100,40,40},{180,100,80,40}} << int(Qt::Horizontal) << 8. << true << 4.;
+        QTest::newRow("vertical") << QRectF(105,204,30,30)
+            << QList<QRectF>{{100,20,40,40},{100,100,40,60}} << int(Qt::Vertical) << 8. << true << -4.;
+        QTest::newRow("touching") << QRectF(122,105,30,30)
+            << QList<QRectF>{{20,100,40,40},{60,100,60,40}} << int(Qt::Horizontal) << 8. << true << -2.;
+        QTest::newRow("fractional-gap") << QRectF(104,105,21,30)
+            << QList<QRectF>{{20,100,40,40},{173,100,80,40}} << int(Qt::Horizontal) << 8. << true << 2.;
+        QTest::newRow("outside-tolerance") << QRectF(210,105,30,30) << row << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("other-row") << QRectF(204,160,30,30) << row << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("no-common-row") << QRectF(204,100,30,100)
+            << QList<QRectF>{{20,100,40,20},{100,160,60,20}} << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("blocked-continuation") << QRectF(204,105,30,30)
+            << QList<QRectF>{{20,100,40,40},{100,100,60,40},{180,100,15,40}} << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("overlap-reference") << QRectF(204,105,30,30)
+            << QList<QRectF>{{20,100,100,40},{100,100,60,40}} << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("too-small-for-insertion") << QRectF(60,105,50,30) << row << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("one-reference") << QRectF(204,105,30,30)
+            << QList<QRectF>{{20,100,40,40}} << int(Qt::Horizontal) << 8. << false << 0.;
+        QTest::newRow("zoomed-tolerance") << QRectF(200.5,105,30,30) << row << int(Qt::Horizontal) << .4 << false << 0.;
+        QTest::newRow("invalid-bounds") << QRectF(204,105,0,30) << row << int(Qt::Horizontal) << 8. << false << 0.;
+    }
+    void equalSpacingGeometry() {
+        QFETCH(QRectF, moving); QFETCH(QList<QRectF>, targets); QFETCH(int, axis);
+        QFETCH(double, tolerance); QFETCH(bool, matched); QFETCH(double, correction);
+        const auto match = EqualSpacing::find(moving, targets, Qt::Orientation(axis), tolerance);
+        QCOMPARE(match.has_value(), matched);
+        if (!match) return;
+        QCOMPARE(match->correction, correction);
+        QCOMPARE(match->guides.size(), 2);
+        QVERIFY(match->guides.first().distance() >= 0.);
+        QVERIFY(qAbs(match->guides.first().distance() - match->guides.last().distance()) < 1e-6);
+        auto reversed = targets; std::reverse(reversed.begin(), reversed.end());
+        QCOMPARE(EqualSpacing::find(moving, reversed, Qt::Orientation(axis), tolerance)->correction, correction);
+    }
+    void snapCompetitionAndConstraints() {
+        ObjectSnapper::Options options; options.canvas = QSizeF(640,480); options.objectsEnabled = true;
+        const QRectF original(240,105,30,30);
+        const QList<QRectF> targets = {{20,100,40,40},{100,100,60,40}};
+        auto result = ObjectSnapper::snapMove(original, {-36,0}, targets, options);
+        QCOMPARE(original.translated(result.delta).left(), 200.); QCOMPARE(result.spacingGuides.size(), 2);
+        options.gridEnabled = true; options.gridStep = 17;
+        result = ObjectSnapper::snapMove(original, {-36,0}, targets, options);
+        QCOMPARE(original.translated(result.delta).left(), 200.);
+        for (const auto &guide : result.guides) QVERIFY(guide.orientation != Qt::Vertical); // Нет устаревшей линии сетки.
+        ObjectSnapper::validateGuides(result, QRectF(190,105,30,30), targets, options);
+        QVERIFY(result.spacingGuides.isEmpty()); // Ограничения не разрешили дойти до привязки.
+        options.gridEnabled = false;
+        const QRectF edgeCase(204,138,30,30);
+        result = ObjectSnapper::snapMove(edgeCase, {}, targets, options);
+        QCOMPARE(edgeCase.translated(result.delta).left(), 204.);
+        QCOMPARE(edgeCase.translated(result.delta).top(), 140.);
+        QVERIFY(result.spacingGuides.isEmpty()); // Вторая ось вывела объект из строки.
+        options.verticalEnabled = false;
+        result = ObjectSnapper::snapMove(original, {-36,7}, targets, options);
+        QCOMPARE(result.delta.y(), 0.); QCOMPARE(original.translated(result.delta).left(), 200.);
+        options.objectsEnabled = false;
+        result = ObjectSnapper::snapMove(original, {-36,7}, targets, options);
+        QCOMPARE(result.delta, QPointF(-36,0)); QVERIFY(result.guides.isEmpty()); QVERIFY(result.spacingGuides.isEmpty());
+        options.objectsEnabled = true; options.verticalEnabled = true;
+        auto closerEdge = targets; closerEdge.append(QRectF(205,300,30,30));
+        result = ObjectSnapper::snapMove(original, {-36,0}, closerEdge, options);
+        QCOMPARE(original.translated(result.delta).left(), 205.); QVERIFY(result.spacingGuides.isEmpty());
+    }
+    void automaticSpacingDrag_data() {
+        QTest::addColumn<bool>("vertical"); QTest::addColumn<double>("zoom"); QTest::addColumn<bool>("grouped");
+        QTest::newRow("horizontal") << false << 1. << false;
+        QTest::newRow("vertical") << true << 1. << false;
+        QTest::newRow("zoom-out") << false << .5 << false;
+        QTest::newRow("zoom-in") << false << 2.5 << false;
+        QTest::newRow("group-horizontal") << false << 1. << true;
+        QTest::newRow("group-vertical") << true << 1. << true;
+    }
+    void automaticSpacingDrag() {
+        QFETCH(bool, vertical); QFETCH(double, zoom); QFETCH(bool, grouped);
+        auto *p = ProjectManager::instance(); p->createNewProject("Smart spacing",640,480,Qt::black);
+        for (int i = 0; i < (grouped ? 4 : 3); ++i) p->addObject("rectangle");
+        auto bounds = [vertical](const QRectF &r) { return vertical ? QRectF(r.y(),r.x(),r.height(),r.width()) : r; };
+        QList<QRectF> rectangles = {{20,100,40,40},{100,100,60,40},{240,100,40,40}};
+        if (grouped) { rectangles[2].setWidth(20); rectangles.append({260,100,20,40}); }
+        for (int i = 0; i < rectangles.size(); ++i) {
+            auto *r = dynamic_cast<RectangleObject *>(p->getObjectAt(i).data()); const auto b = bounds(rectangles[i]);
+            r->x = b.x(); r->y = b.y(); r->width = b.width(); r->height = b.height();
+            r->strokeColor = Qt::transparent; r->fillColor = QColor("#445566");
+        }
+        if (grouped) QVERIFY(p->groupObjects({2,3}) >= 0);
+        p->setSnapToCanvas(false); p->setSnapToGrid(false); p->setSnapToObjects(true);
+        auto state = p->editorViewState(); state.scale = zoom; p->setEditorViewState(state);
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show();
+        viewport.setSelectedIndexes(grouped ? QList<int>{2,3} : QList<int>{2}); QTest::qWait(5);
+        const double scale = .95 * zoom;
+        auto point = [&](double x,double y) {
+            if (vertical) std::swap(x,y);
+            return QPoint(qRound((640 - 640*scale)/2 + x*scale),qRound((480 - 480*scale)/2 + y*scale));
+        };
+        auto move = [&](const QPoint &pos) {
+            QMouseEvent event(QEvent::MouseMove,QPointF(pos),QPointF(viewport.mapToGlobal(pos)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(&viewport,&event);
+        };
+        const auto from = point(260,120), to = point(223,120);
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,from);
+        move(point(228,120)); move(to);
+        auto actual = p->getObjectAt(2)->getBoundingRect();
+        QCOMPARE(vertical ? actual.top() : actual.left(), 200.);
+        QCOMPARE(vertical ? actual.left() : actual.top(), 100.);
+        if (grouped) QCOMPARE(p->getObjectAt(3)->getBoundingRect().topLeft() - actual.topLeft(),
+                              vertical ? QPointF(0,20) : QPointF(20,0));
+        QImage withGuides;
+        if (!vertical && zoom == 1. && !grouped) {
+            const auto xml = p->buildCompiledFpgaXml().toByteArray();
+            withGuides = viewport.grab().toImage();
+            QVERIFY(withGuides.save(QCoreApplication::applicationDirPath()+"/smart-spacing.png"));
+            QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), xml);
+        }
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,to);
+        if (!withGuides.isNull()) {
+            const auto withoutGuides = viewport.grab().toImage();
+            int changed = 0;
+            for (int y = point(0,116).y(); y <= point(0,124).y(); ++y)
+                for (int x = point(65,0).x(); x <= point(95,0).x(); ++x) {
+                    if (withGuides.pixel(x,y) != withoutGuides.pixel(x,y)) ++changed;
+                }
+            QVERIFY(changed > 20); // Размерные стрелки исчезают после отпускания мыши.
+        }
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectAt(2)->getBoundingRect(), bounds(rectangles[2]));
+        QVERIFY(p->redo()); actual = p->getObjectAt(2)->getBoundingRect();
+        QCOMPARE(vertical ? actual.top() : actual.left(), 200.);
+        QCOMPARE(p->getObjectAt(0)->getBoundingRect(), bounds(rectangles[0]));
+        QCOMPARE(p->getObjectAt(1)->getBoundingRect(), bounds(rectangles[1]));
+    }
+    void spacingModifiersAndVisibility() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Spacing modifiers",640,480,Qt::black);
+        for (int i = 0; i < 3; ++i) p->addObject("rectangle");
+        for (int i = 0; i < 3; ++i) {
+            auto *r = dynamic_cast<RectangleObject *>(p->getObjectAt(i).data());
+            r->x = i == 0 ? 20 : i == 1 ? 100 : 240; r->y = 100;
+            r->width = i == 1 ? 60 : 40; r->height = 40; r->strokeColor = Qt::transparent;
+        }
+        p->setSnapToCanvas(false); p->setSnapToGrid(false); p->setSnapToObjects(true);
+        ViewportPanel viewport; viewport.resize(640,480); viewport.show(); viewport.setSelectedIndex(2); QTest::qWait(5);
+        auto point = [](double x,double y) { return QPoint(qRound(16+x*.95),qRound(12+y*.95)); };
+        auto move = [&](QPoint pos, Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+            QMouseEvent event(QEvent::MouseMove,QPointF(pos),QPointF(viewport.mapToGlobal(pos)),Qt::NoButton,Qt::LeftButton,modifiers);
+            QApplication::sendEvent(&viewport,&event);
+        };
+        auto *moving = dynamic_cast<RectangleObject *>(p->getObjectAt(2).data());
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,point(260,120));
+        move(point(223,120)); QCOMPARE(moving->x,200.);
+        QTest::keyPress(&viewport,Qt::Key_Alt); QVERIFY(moving->x > 202.);
+        QVERIFY(p->snapToObjects()); QTest::keyRelease(&viewport,Qt::Key_Alt); QCOMPARE(moving->x,200.);
+        move(point(223,135),Qt::ShiftModifier); QCOMPARE(moving->x,200.); QCOMPARE(moving->y,100.);
+        QTest::keyRelease(&viewport,Qt::Key_Shift); QVERIFY(moving->y > 110.);
+        move(point(223,120)); QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,point(223,120));
+        QVERIFY(p->setObjectViewVisible(0,false));
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,point(220,120));
+        move(point(224,120)); QVERIFY(moving->x > 202.); // Скрытый объект не задаёт интервал.
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,point(224,120));
+        QVERIFY(p->setObjectViewVisible(0,true)); p->setSnapToObjects(false);
+        const double before = moving->x;
+        QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,point(before+20,120));
+        move(point(223,120)); QVERIFY(qAbs(moving->x-200.) > 1.);
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,point(223,120));
     }
     void rotationPivotMetadataAndExport() {
         auto *p=ProjectManager::instance(); QTemporaryDir temp;

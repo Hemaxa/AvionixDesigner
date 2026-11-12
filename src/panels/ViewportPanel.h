@@ -3,6 +3,7 @@
 #pragma once
 
 #include "BasePanel.h"
+#include "ObjectSnapper.h"
 
 #include <QList>
 #include <QColor>
@@ -31,6 +32,7 @@ protected:
     // отрисовка панели
     void paintEvent(QPaintEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
 
     // обработка мыши для выделения и изменения объектов
     void mousePressEvent(QMouseEvent *event) override;
@@ -75,22 +77,9 @@ private:
     int m_dragAxisId = -1;
     double m_dragAxisStartPosition = 0.0;
 
-    // SnapGuideKind - источник направляющей привязки: холст, сетка или объект.
-    enum class SnapGuideKind { Canvas, Grid, Object };
-    // SnapGuide - положение и направление одной линии привязки на холсте.
-    struct SnapGuide
-    {
-        SnapGuideKind kind = SnapGuideKind::Object;
-        Qt::Orientation orientation = Qt::Vertical;
-        double position = 0.0;
-    };
-
-    // SnapResult - скорректированное перемещение и направляющие привязки.
-    struct SnapResult
-    {
-        QPointF delta;
-        QList<SnapGuide> guides;
-    };
+    using SnapGuideKind = ObjectSnapper::GuideKind;
+    using SnapGuide = ObjectSnapper::Guide;
+    using SnapResult = ObjectSnapper::Result;
 
     // SnapPointResult - скорректированная точка и направляющие привязки.
     struct SnapPointResult
@@ -108,6 +97,7 @@ private:
 
     QPointF m_lastMousePos; // Последняя позиция мыши для расчёта дельт
     QPointF m_dragStartCanvasPos;
+    QPointF m_dragPointerCanvasPos;
     QRectF m_dragStartBounds;
     QPointF m_dragLastAppliedDelta;
     // Стартовые границы объектов для перемещения без накопления ошибок округления
@@ -120,6 +110,7 @@ private:
     double m_rotationStartAngle = 0.0;
     double m_rotationStartPointerAngle = 0.0;
     QList<SnapGuide> m_activeSnapGuides;
+    QList<SpacingGuide> m_activeSpacingGuides;
     QList<int> m_marqueeBaseSelection;
     QPointF m_marqueeStartPos;
     QPointF m_marqueeCurrentPos;
@@ -138,8 +129,8 @@ private:
     void drawRotationPivot(QPainter &painter, const class BaseObject *object);
     int hitTestSymmetryAxis(const QPointF &canvasPos) const;
     QList<int> movableSelection() const;
-    SnapResult snappedMoveDelta(int objectIndex, const QRectF &originalRect, const QPointF &delta) const;
-    SnapResult snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect, const QPointF &delta) const;
+    SnapResult snappedMoveDeltaForSelection(const QList<int> &objectIndexes, const QRectF &originalRect,
+                                            const QPointF &delta, Qt::KeyboardModifiers modifiers) const;
     SnapPointResult snappedPoint(const QList<int> &excludedIndexes, const QPointF &point) const;
     SnapResizeResult snappedResizeDelta(int objectIndex, const QRectF &bounds, int edgeFlags, const QPointF &delta) const;
     int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canResize, bool canRotate) const;
@@ -147,6 +138,8 @@ private:
     QRectF selectedObjectsRect() const;
     bool selectedObjectContains(const QPointF &canvasPos) const;
     void beginMoveDrag(const QPointF &canvasPos, const QRectF &bounds);
+    void updateMoveDrag(Qt::KeyboardModifiers modifiers);
+    void clearSnapGuides();
     // Перемещает объект к позиции, рассчитанной от начала перетаскивания
     void moveObjectToDragDelta(int index, const QPointF &delta);
     void ensureDragHistoryRecorded();

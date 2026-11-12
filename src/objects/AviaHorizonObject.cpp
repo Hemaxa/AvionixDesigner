@@ -202,3 +202,21 @@ void AviaHorizonObject::updateCanvasArea()
     areaWidth = canvasRect.width();
     areaHeight = canvasRect.height();
 }
+
+QSharedPointer<BaseObject> AviaHorizonObject::clone() const
+{
+    auto *clone = new AviaHorizonObject();
+    clone->enabled = enabled;
+    clone->earthColor = earthColor;
+    clone->skyColor = skyColor;
+    clone->horizonLineColor = horizonLineColor;
+    clone->lineWidth = lineWidth;
+    clone->xCenter = xCenter;
+    clone->yCenter = yCenter;
+    clone->areaWidth = areaWidth;
+    clone->areaHeight = areaHeight;
+    clone->sinVal = sinVal;
+    clone->cosVal = cosVal;
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}

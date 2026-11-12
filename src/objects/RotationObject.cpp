@@ -420,3 +420,22 @@ void RotationObject::syncFirstLayerFromPublicFields()
     else
         m_layers[0] = currentLayer();
 }
+
+QSharedPointer<BaseObject> RotationObject::clone() const
+{
+    auto *clone = new RotationObject();
+    clone->enabled = enabled;
+    clone->left = left;
+    clone->top = top;
+    clone->right = right;
+    clone->bottom = bottom;
+    clone->xRot = xRot;
+    clone->yRot = yRot;
+    clone->sinVal = sinVal;
+    clone->cosVal = cosVal;
+    clone->color = color;
+    clone->maskImage = maskImage;
+    clone->restoreHardwareLayers(hardwareLayers());
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}

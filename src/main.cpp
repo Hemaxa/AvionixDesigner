@@ -2,7 +2,6 @@
 
 #include "ProjectManager.h"
 #include "AppearanceManager.h"
-#include "ObjectsManager.h"
 #include "MainWindow.h"
 #include "ApplicationSettings.h"
 #include "ApplicationLanguage.h"

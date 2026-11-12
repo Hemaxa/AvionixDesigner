@@ -360,3 +360,13 @@ void StaticGroupObject::rebuildStateAddresses()
         nextAddr += qMax(1, state.w) * qMax(1, state.h);
     }
 }
+
+QSharedPointer<BaseObject> StaticGroupObject::clone() const
+{
+    auto *clone = new StaticGroupObject();
+    clone->states = states;
+    clone->groupNumber = groupNumber;
+    clone->maskImages = maskImages;
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}

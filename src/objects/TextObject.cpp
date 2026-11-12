@@ -379,3 +379,23 @@ QRectF TextObject::getBoundingRect() const
     const GroupState state = states.first();
     return QRectF(state.x, state.y, state.w, state.h);
 }
+
+QSharedPointer<BaseObject> TextObject::clone() const
+{
+    auto *clone = new TextObject();
+    clone->states = states;
+    clone->groupNumber = groupNumber;
+    clone->maskImages = maskImages;
+    clone->text = text;
+    clone->fontFamily = fontFamily;
+    clone->pixelSize = pixelSize;
+    clone->fontIndex = fontIndex;
+    clone->symbolCapacity = symbolCapacity;
+    clone->restrictedAtlasEditing = restrictedAtlasEditing;
+    clone->exportAlphabetGroups = exportAlphabetGroups;
+    if (hasFontAtlas())
+        clone->setFontAtlas(fontAtlas(), restrictedAtlasEditing);
+    clone->extraCharacters = extraCharacters;
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}

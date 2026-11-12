@@ -2,6 +2,19 @@
 
 #include "SymmetryCopyObject.h"
 
+QSharedPointer<BaseObject> SymmetryCopyObject::clone() const
+{
+    return cloneWithLinks(m_source, m_axis);
+}
+
+QSharedPointer<SymmetryCopyObject> SymmetryCopyObject::cloneWithLinks(
+    const QSharedPointer<BaseObject> &source, const QSharedPointer<SymmetryAxis> &axis) const
+{
+    auto copy = QSharedPointer<SymmetryCopyObject>::create(source, axis);
+    copyEditorStateTo(*copy);
+    return copy;
+}
+
 SymmetryCopyObject::SymmetryCopyObject(QSharedPointer<BaseObject> source, QSharedPointer<SymmetryAxis> axis)
     : m_source(std::move(source)), m_axis(std::move(axis))
 {

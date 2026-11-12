@@ -39,6 +39,16 @@ qt_add_executable(AvionixDesigner
     src/editor/SymmetryCopyObject.cpp
     src/editor/ObjectReflection.h
     src/editor/ObjectReflection.cpp
+    src/editor/ObjectCloner.h
+    src/editor/ObjectCloner.cpp
+    src/editor/CanvasGeometry.h
+    src/editor/CanvasGeometry.cpp
+    src/editor/ProjectXmlFile.h
+    src/editor/ProjectXmlFile.cpp
+    src/editor/EqualSpacing.h
+    src/editor/EqualSpacing.cpp
+    src/editor/ObjectSnapper.h
+    src/editor/ObjectSnapper.cpp
     src/editor/EditorProjectXml.h
     src/editor/EditorProjectXml.cpp
 
@@ -59,6 +69,8 @@ qt_add_executable(AvionixDesigner
     src/panels/LayersPanel.cpp
     src/panels/ViewportPanel.h
     src/panels/ViewportPanel.cpp
+    src/panels/SpacingGuidePainter.h
+    src/panels/SpacingGuidePainter.cpp
     src/panels/ObjectListPanel.h
     src/panels/ObjectListPanel.cpp
     src/panels/ObjectPropertiesPanel.h
@@ -117,6 +129,10 @@ qt_add_executable(AvionixDesigner
     src/fpga/model/FpgaHardwareScene.h
     src/fpga/compiler/FpgaSceneCompiler.h
     src/fpga/compiler/FpgaSceneCompiler.cpp
+    src/fpga/compiler/FpgaXmlExporter.h
+    src/fpga/compiler/FpgaXmlExporter.cpp
+    src/fpga/compiler/ImageResourceBuilder.h
+    src/fpga/compiler/ImageResourceBuilder.cpp
     src/fpga/compiler/FpgaResourceLimits.h
     src/fpga/compiler/FpgaResourceLimits.cpp
     src/fpga/model/Layer3dFormat.h

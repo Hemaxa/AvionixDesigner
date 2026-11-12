@@ -19,6 +19,7 @@ target_compile_features(AvionixProtocolTests PRIVATE cxx_std_17)
 target_compile_definitions(AvionixProtocolTests PRIVATE PROTOCOL_VECTOR_FILE="${PROJECT_BINARY_DIR}/verification/position-vectors.json")
 set_target_properties(AvionixProtocolTests PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON)
 find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+add_test(NAME project_structure COMMAND ${Python3_EXECUTABLE} -B "${PROJECT_SOURCE_DIR}/checks/verify_project_structure.py")
 add_test(NAME packet_reference COMMAND ${Python3_EXECUTABLE} -B "${CMAKE_CURRENT_SOURCE_DIR}/verify_fpga_packets.py"
     --app $<TARGET_FILE:AvionixDesigner> --output ${PROJECT_BINARY_DIR}/verification)
 add_test(NAME protocol_runtime COMMAND AvionixProtocolTests)

@@ -22,6 +22,9 @@ public:
 
     explicit TextObject(QObject *parent = nullptr);
 
+    // Копирует текст, его атлас, маски предпросмотра и метаданные редактора.
+    QSharedPointer<BaseObject> clone() const override;
+
     QString getTypeName() const override;
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;

@@ -14,10 +14,10 @@
 #include "BaseObject.h"
 #include "TextObject.h"
 #include "EditorViewState.h"
+#include "EditorProjectDocument.h"
 #include "SymmetryCopyObject.h"
 #include "fpga/config/FpgaPipelineConfig.h"
 
-class EditorProjectDocument;
 class ThreeDViewObject;
 
 // ObjectAlignment - направление выравнивания объектов относительно холста или выделения.
@@ -31,7 +31,9 @@ enum class ObjectAlignment
     Bottom
 };
 
-// ProjectManager - менеджер проекта, связывающий внутреннюю модель редактора с экспортом в XML.
+// ProjectManager — команды над текущей сценой, слоями, группами и историей.
+// Координирует загрузку/сохранение; кодировки, аппаратный XML, маски и копирование
+// сцены делегирует ProjectXmlFile, FpgaXmlExporter, ImageResourceBuilder и ObjectCloner.
 class ProjectManager : public QObject
 {
     Q_OBJECT
@@ -268,7 +270,7 @@ private:
     QString uniqueLayerName(const QString &base) const;
     void readGlobalWorkspaceSettings();
 
-    EditorProjectDocument *m_document = nullptr;
+    EditorProjectDocument m_document;
     QString m_filePath;
     QString m_lastErrorMessage;
     QList<QSharedPointer<BaseObject>> m_objects;

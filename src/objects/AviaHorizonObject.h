@@ -24,6 +24,9 @@ public:
 
     explicit AviaHorizonObject(QObject *parent = nullptr);
 
+    // Независимая копия параметров, ресурсов и состояния редактора.
+    QSharedPointer<BaseObject> clone() const override;
+
     void parse(const QString &hexInit, const ParamSchema &schema) override;
     void draw(QPainter &painter) override;
     QString getTypeName() const override;

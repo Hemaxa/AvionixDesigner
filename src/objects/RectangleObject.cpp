@@ -208,3 +208,20 @@ bool RectangleObject::usesAlpha() const
 {
     return explicitAlpha || alpha < 255 || fillColor.alpha() < 255;
 }
+
+QSharedPointer<BaseObject> RectangleObject::clone() const
+{
+    auto *clone = new RectangleObject();
+    clone->enabled = enabled;
+    clone->x = x;
+    clone->y = y;
+    clone->width = width;
+    clone->height = height;
+    clone->fillColor = fillColor;
+    clone->strokeColor = strokeColor;
+    clone->strokeWidth = strokeWidth;
+    clone->alpha = alpha;
+    clone->explicitAlpha = explicitAlpha;
+    copyEditorStateTo(*clone);
+    return QSharedPointer<BaseObject>(clone);
+}
