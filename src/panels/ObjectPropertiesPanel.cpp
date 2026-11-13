@@ -5,6 +5,9 @@
 #include "BaseObject.h"
 #include "ProjectManager.h"
 #include "ThreeDViewObject.h"
+#include "ImageObject.h"
+#include "StaticGroupObject.h"
+#include "TextObject.h"
 #include "ExpressionSpinBox.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 
@@ -15,6 +18,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <algorithm>
+#include <limits>
 #include <QMessageBox>
 #include <QScrollArea>
 #include <QSet>
@@ -33,16 +37,62 @@
 #include <QTimer>
 
 namespace {
+bool isStaticImage(const QSharedPointer<BaseObject> &object)
+{
+    if (const auto *image = dynamic_cast<const ImageObject *>(object.data())) return !image->isRotationObject();
+    return dynamic_cast<const StaticGroupObject *>(object.data()) && !dynamic_cast<const TextObject *>(object.data());
+}
+
+bool isLayerColor(const QString &name)
+{
+    return (name.startsWith(QStringLiteral("Слой ")) || name.startsWith(QStringLiteral("Состояние ")))
+        && name.endsWith(QStringLiteral(": Цвет"));
+}
+
+QString layerOrderProperty(const QString &colorProperty)
+{
+    return colorProperty.left(colorProperty.indexOf(':') + 1) + QStringLiteral(" Порядок");
+}
+
 // PropertyValueDelegate - выбор редакторов свойств и размещение составного поля прозрачности.
 class PropertyValueDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        const auto *table = qobject_cast<QTableWidget *>(parent());
+        const auto *editor = table ? table->cellWidget(index.row(), 0) : nullptr;
+        if (!editor || editor->objectName() != QStringLiteral("StaticLayerEditor")) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        QStyleOptionViewItem item(option);
+        initStyleOption(&item, index);
+        const auto *style = item.widget ? item.widget->style() : table->style();
+        if (index.column() == 0) {
+            // Под прозрачным составным полем рисуем фон строки без служебного имени свойства.
+            item.text.clear();
+            item.features &= ~QStyleOptionViewItem::HasDisplay;
+            style->drawControl(QStyle::CE_ItemViewItem, &item, painter, item.widget);
+            return;
+        }
+        const auto icon = item.icon;
+        item.icon = QIcon();
+        item.features &= ~QStyleOptionViewItem::HasDecoration;
+        style->drawControl(QStyle::CE_ItemViewItem, &item, painter, item.widget);
+        const QRect text = style->subElementRect(QStyle::SE_ItemViewItemText, &item, item.widget);
+        // Сохраняем прежний кружочек, располагая его после подписи «Цвет».
+        icon.paint(painter, QRect(text.left() + item.fontMetrics.horizontalAdvance(item.text) + 8,
+                                 text.center().y() - 8, 16, 16));
+    }
+
     void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         if (editor->objectName() == QStringLiteral("TransparencyEditor")
-            || editor->objectName() == QStringLiteral("PropertyFieldEditor")) {
+            || editor->objectName() == QStringLiteral("PropertyFieldEditor")
+            || editor->objectName() == QStringLiteral("StaticLayerEditor")) {
             // У составного поля свои отступы: используем всю высоту обычной строки,
             // без повторного вычитания padding из стиля ячейки.
             editor->setGeometry(option.rect);
@@ -202,12 +252,15 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
     m_tableWidget->horizontalHeader()->setStretchLastSection(true);
     m_tableWidget->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_tableWidget->verticalHeader()->setVisible(false);
+    m_tableWidget->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     m_tableWidget->setSelectionMode(QAbstractItemView::SingleSelection);
     m_tableWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableWidget->setAlternatingRowColors(false);
     m_tableWidget->setShowGrid(false);
-    m_tableWidget->setWordWrap(true);
+    m_tableWidget->setWordWrap(false);
+    m_tableWidget->setTextElideMode(Qt::ElideRight);
     m_tableWidget->setCornerButtonEnabled(false);
+    m_tableWidget->setItemDelegateForColumn(0, new PropertyValueDelegate(m_tableWidget));
     m_tableWidget->setItemDelegateForColumn(1, new PropertyValueDelegate(m_tableWidget));
     tableLayout->addWidget(m_tableWidget);
 
@@ -314,6 +367,11 @@ QList<QPair<QString, QString>> ObjectPropertiesPanel::commonProperties() const
     const bool sameLayer = std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [layer](const auto &o) { return o->editorLayerId() == layer; });
     if (!sameLayer) m_mixedProperties.insert(tr("Слой"));
     props.append({tr("Слой"), sameLayer ? ProjectManager::instance()->editorLayerName(layer) : tr("Разные значения")});
+    // Порядок блока редактируется рядом с его цветом в одной строке.
+    if (std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), isStaticImage))
+        props.erase(std::remove_if(props.begin(), props.end(), [](const auto &property) {
+            return property.first.endsWith(QStringLiteral(": Порядок"));
+        }), props.end());
     return props;
 }
 
@@ -336,6 +394,32 @@ void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
         m_tableWidget->setItem(i, 0, nameItem);
         m_tableWidget->setItem(i, 1, new QTableWidgetItem());
+        if (isLayerColor(props[i].first) && std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), isStaticImage)) {
+            auto *editor = new QWidget(m_tableWidget);
+            editor->setObjectName("StaticLayerEditor");
+            auto *layout = new QHBoxLayout(editor);
+            layout->setContentsMargins(13, 3, 6, 3);
+            layout->setSpacing(6);
+            layout->addWidget(new QLabel(tr("Слой"), editor));
+            auto *combo = new QComboBox(editor);
+            combo->setObjectName("StaticLayerOrderCombo");
+            combo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+            combo->setMinimumContentsLength(2);
+            combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            combo->setToolTip(tr("1 — передний план (индекс параметра 0). Больший номер — дальше от переднего плана."));
+            combo->setPlaceholderText(tr("Разные"));
+            const auto orderProperty = layerOrderProperty(props[i].first);
+            combo->setEnabled(std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [&orderProperty](const auto &object) {
+                return ProjectManager::instance()->isObjectPropertyEditable(object.data(), orderProperty);
+            }));
+            layout->addWidget(combo);
+            layout->addStretch();
+            nameItem->setSizeHint(editor->sizeHint());
+            m_tableWidget->setCellWidget(i, 0, editor);
+            connect(combo, &QComboBox::activated, this, [this, combo, orderProperty](int index) {
+                if (!m_updating && index >= 0) applyProperty(orderProperty, combo->itemData(index).toString());
+            });
+        }
         if (props[i].first == tr("Слой")) {
             auto *editor = new QWidget(m_tableWidget);
             editor->setObjectName("PropertyFieldEditor");
@@ -374,12 +458,13 @@ void ObjectPropertiesPanel::updateValueItem(int row, const QString &name, const 
     const bool mixed = m_mixedProperties.contains(name);
     item->setText(value);
     item->setData(Qt::UserRole, mixed);
+    item->setData(Qt::UserRole + 1, value);
     item->setIcon(QIcon());
     const bool readOnly = isReadOnlyProperty(name);
     const bool numeric = !m_currentObjects.isEmpty() && std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [&name](const auto &object) {
         return object->isNumericProperty(name);
     });
-    item->setToolTip(!readOnly && numeric ? NumericExpression::helpText() : QString());
+    item->setToolTip(!readOnly && numeric ? NumericExpression::helpText() : value);
     item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
     if (!readOnly && !isColorProperty(name) && name != tr("Слой") && name != QStringLiteral("Прозрачность"))
         item->setFlags(item->flags() | Qt::ItemIsEditable);
@@ -417,6 +502,28 @@ void ObjectPropertiesPanel::updateValueItem(int row, const QString &name, const 
             painter.drawEllipse(1, 1, 14, 14); painter.end();
             item->setIcon(QIcon(pixmap));
         }
+    }
+    if (auto *editor = m_tableWidget->cellWidget(row, 0); editor && editor->objectName() == QStringLiteral("StaticLayerEditor")) {
+        auto *combo = editor->findChild<QComboBox *>("StaticLayerOrderCombo");
+        const QSignalBlocker blocker(combo);
+        int count = std::numeric_limits<int>::max();
+        for (const auto &object : m_currentObjects) {
+            const auto *image = dynamic_cast<const ImageObject *>(object.data());
+            const int blocks = image ? image->colorLayers().size() : static_cast<const StaticGroupObject *>(object.data())->states.size();
+            count = qMin(count, blocks);
+        }
+        if (combo->count() != count) {
+            combo->clear();
+            for (int position = 1; position <= count; ++position) combo->addItem(QString::number(position), position);
+        }
+        const auto orderProperty = layerOrderProperty(name);
+        int position = -1;
+        if (!m_mixedProperties.contains(orderProperty))
+            for (const auto &property : m_currentObjects.first()->getProperties())
+                if (property.first == orderProperty) { position = property.second.toInt() - 1; break; }
+        combo->setCurrentIndex(position);
+        item->setText(mixed ? tr("Разные цвета") : tr("Цвет"));
+        item->setToolTip(mixed ? tr("Разные значения") : value);
     }
 }
 
@@ -478,12 +585,20 @@ QWidget *ObjectPropertiesPanel::createTransparencyEditor(double value)
 
 void ObjectPropertiesPanel::resizePropertyRows()
 {
-    m_tableWidget->resizeRowsToContents();
+    QStyleOptionViewItem option;
+    option.initFrom(m_tableWidget);
+    option.widget = m_tableWidget;
     int editorHeight = m_tableWidget->verticalHeader()->defaultSectionSize();
+    for (int row = 0; row < m_tableWidget->rowCount(); ++row) {
+        // Высота зависит от подписи и полей ввода, а не от длины значения.
+        const auto index = m_tableWidget->model()->index(row, 0);
+        editorHeight = qMax(editorHeight, m_tableWidget->itemDelegateForColumn(0)->sizeHint(option, index).height());
+        for (int column = 0; column < m_tableWidget->columnCount(); ++column)
+            if (auto *editor = m_tableWidget->cellWidget(row, column))
+                editorHeight = qMax(editorHeight, editor->sizeHint().height());
+    }
     for (int row = 0; row < m_tableWidget->rowCount(); ++row)
-        if (m_tableWidget->cellWidget(row, 1)) editorHeight = qMax(editorHeight, m_tableWidget->rowHeight(row));
-    for (int row = 0; row < m_tableWidget->rowCount(); ++row)
-        m_tableWidget->setRowHeight(row, qMax(editorHeight, m_tableWidget->rowHeight(row)));
+        m_tableWidget->setRowHeight(row, editorHeight);
 }
 
 void ObjectPropertiesPanel::applyTransparency(double value, bool interactive)
@@ -558,7 +673,7 @@ void ObjectPropertiesPanel::onCellDoubleClicked(int row, int column)
     if (!isColorProperty(propertyName) || isReadOnlyProperty(propertyName))
         return;
 
-    const QColor currentColor(valueItem->text());
+    const QColor currentColor(valueItem->data(Qt::UserRole + 1).toString());
     const QColor selectedColor = QColorDialog::getColor(currentColor, this, tr("Выбор цвета"), QColorDialog::DontUseNativeDialog);
     if (!selectedColor.isValid())
         return;

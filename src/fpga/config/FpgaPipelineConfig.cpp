@@ -1,6 +1,7 @@
 // FpgaPipelineConfig - структура аппаратного конвейера и экспорт tube_config_pkg.sv.
 
 #include "FpgaPipelineConfig.h"
+#include "fpga/compiler/FpgaScalePlaceholder.h"
 
 #include <QSaveFile>
 
@@ -29,7 +30,11 @@ bool FpgaPipelineConfig::isValid() const
         if (stageTypeName(stage.type).isEmpty() || stage.ramId < 0 || stage.ramId > 255) return false;
         const bool memory = stage.type == 1 || stage.type == 2 || stage.type == 7;
         if (!memory && stage.ramId != 0) return false;
-        if (stage.type != 2 && stage.type != 7 && stage.parameterCount != 1) return false;
+        if (stage.type == 6) {
+            // Старую сохранённую конфигурацию разрешаем открыть; сравнение с новой
+            // сценой потребует переэкспорта, поскольку шкала теперь занимает три слова.
+            if (stage.parameterCount != 1 && stage.parameterCount != FpgaScalePlaceholder::parameterCount) return false;
+        } else if (stage.type != 2 && stage.type != 7 && stage.parameterCount != 1) return false;
     }
     return true;
 }
@@ -65,9 +70,11 @@ FpgaPipelineConfig FpgaPipelineConfig::fromScene(const FpgaHardwareScene &scene,
             return fail(QStringLiteral("Тип памяти не соответствует аппаратному этапу."));
         if (!memory && object.memId != -1) return fail(QStringLiteral("Этап без растровой памяти ссылается на банк."));
         const int ramId = memory ? object.memId : 0;
-        // STATICGROUP/SYMBOLs получают вектор init. Остальные RTL-модули
+        if (type == 6 && count != FpgaScalePlaceholder::parameterCount)
+            return fail(QStringLiteral("Шкала должна содержать три 150-битных слова параметров."));
+        // STATICGROUP/SYMBOLs и 450-битная шкала получают вектор init. Остальные RTL-модули
         // принимают одно слово: состояния разворачиваются в последовательные этапы.
-        if (type == 2 || type == 7) config.stages.append({type, count, ramId});
+        if (type == 2 || type == 6 || type == 7) config.stages.append({type, count, ramId});
         else for (int i = 0; i < count; ++i) config.stages.append({type, 1, ramId});
         nextParameter += count;
     }

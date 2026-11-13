@@ -14,6 +14,7 @@
 #include "text/FontRasterizer.h"
 #include <QScopeGuard>
 #include "fpga/compiler/FpgaSceneCompiler.h"
+#include "fpga/compiler/FpgaScalePlaceholder.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include "fpga/simulator/FpgaSimulator.h"
 #include "fpga/transport/FpgaPacketDump.h"
@@ -38,6 +39,7 @@
 #include "FpgaSchemaRegistry.h"
 #include <QDomDocument>
 #include "ProjectManager.h"
+#include "ProjectXmlFile.h"
 #include "ThreeDViewObject.h"
 #include "ObjectLibraryPanel.h"
 #include "ObjectListPanel.h"
@@ -1552,6 +1554,161 @@ private slots:
         QDomDocument invalid; QVERIFY(invalid.setContent(oldSchema));
         QVERIFY(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error));
     }
+    void staticImageRegionsAndLayerOrder() {
+        auto *p = ProjectManager::instance();
+        p->createNewProject("Static regions", 80, 80, QColor("#345678"));
+        QTemporaryDir temp;
+        QFile file(temp.filePath("circles.svg")); QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'>"
+                   "<circle cx='24' cy='24' r='21' fill='#00ff00' stroke='black' stroke-width='4'/>"
+                   "<circle cx='24' cy='24' r='4' fill='black'/></svg>"); file.close();
+        QVERIFY(p->importImage(file.fileName()) >= 0);
+        auto object = p->getObjectAt(0);
+        auto *image = dynamic_cast<ImageObject *>(object.data()); QVERIFY(image);
+        image->x = 0; image->y = 0; image->width = 48; image->height = 48;
+        const auto original = image->maskComponents();
+        QCOMPARE(original.size(), 3); // Сглаживание не создаёт дополнительных цветовых блоков.
+        const int outline = original[0].layerIndex, fill = original[1].layerIndex, center = original[2].layerIndex;
+        QCOMPARE(original[0].color, original[2].color);
+        QVERIFY(original[1].color.green() > 240);
+        QVERIFY(original[2].bounds.width() < original[0].bounds.width());
+        bool partialAlpha = false;
+        for (const auto &component : original)
+            for (int y = 0; y < component.mask.height(); ++y)
+                for (int x = 0; x < component.mask.width(); ++x) {
+                    const int alpha = component.mask.pixelColor(x, y).alpha();
+                    partialAlpha |= alpha > 0 && alpha < 255;
+                }
+        QVERIFY(partialAlpha);
+        auto orderProperty = [](int id) { return QString("Слой %1: Порядок").arg(id + 1); };
+        auto colorProperty = [](int id) { return QString("Слой %1: Цвет").arg(id + 1); };
+        QString error;
+        auto before = FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(before.document.isValid(), qPrintable(error));
+        FpgaSimulator simulator; simulator.loadBundle(before);
+        QCOMPARE(simulator.renderFrame().pixelColor(24, 24), p->getBackgroundColor());
+        QVERIFY(p->setObjectsProperty({object}, orderProperty(center), "1"));
+        QVERIFY(p->setObjectsProperty({object}, orderProperty(fill), "2"));
+        const auto ordered = image->maskComponents();
+        QCOMPARE(ordered[0].layerIndex, center); QCOMPARE(ordered[1].layerIndex, fill); QCOMPARE(ordered[2].layerIndex, outline);
+        for (const auto &component : ordered) {
+            const auto originalComponent = original[component.layerIndex];
+            QCOMPARE(component.bounds, originalComponent.bounds); QCOMPARE(component.mask, originalComponent.mask);
+        }
+        QVERIFY(!image->setObjectProperty(orderProperty(center), "0"));
+        QVERIFY(!image->setObjectProperty(orderProperty(center), "4"));
+        QVERIFY(p->setObjectsProperty({object}, colorProperty(center), "#ff00ff"));
+        const auto colored = image->maskComponents();
+        QCOMPARE(colored[0].color, QColor(Qt::magenta)); QCOMPARE(colored[2].color, original[0].color);
+        const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(), qPrintable(error));
+        QCOMPARE(bundle.document.objects.first().iparams.size(), 3);
+        simulator.loadBundle(bundle);
+        const auto frame = simulator.renderFrame();
+        QCOMPARE(frame.pixelColor(24, 24), QColor(Qt::magenta));
+        QCOMPARE(frame.pixelColor(24, 12), colored[1].color);
+        QCOMPARE(frame.pixelColor(24, 2), colored[2].color);
+        const auto bytes = FpgaUartTransport::sceneBytes(bundle);
+        auto clone = image->clone();
+        QCOMPARE(static_cast<ImageObject *>(clone.data())->maskComponents()[0].color, QColor(Qt::magenta));
+        QVERIFY(p->undo());
+        QCOMPARE(static_cast<ImageObject *>(p->getObjectAt(0).data())->maskComponents()[0].color, original[2].color);
+        QVERIFY(p->redo());
+        // Отключённый от экспорта объект сохраняет исходный SVG и настройки областей.
+        const auto sourceProject = temp.filePath("source.xml");
+        QVERIFY(p->setObjectExportEnabled(0, false)); QVERIFY(p->saveToFile(sourceProject));
+        QDomDocument invalid; QVERIFY(ProjectXmlFile::read(sourceProject, &invalid, &error));
+        auto layers = invalid.elementsByTagName("color-layers").at(0).toElement();
+        auto firstLayer = layers.firstChildElement("layer");
+        firstLayer.nextSiblingElement("layer").setAttribute("order", firstLayer.attribute("order"));
+        const auto invalidProject = temp.filePath("invalid.xml"); QVERIFY(ProjectXmlFile::write(invalidProject, invalid, &error));
+        const auto keptObject = p->getObjectAt(0);
+        QVERIFY(!p->loadFromFile(invalidProject)); QCOMPARE(p->getObjectAt(0), keptObject);
+        QVERIFY2(p->loadFromFile(sourceProject), qPrintable(p->lastErrorMessage()));
+        image = static_cast<ImageObject *>(p->getObjectAt(0).data());
+        QCOMPARE(image->format, QString("svg"));
+        QCOMPARE(image->layerPosition(center), 1); QCOMPARE(image->layerPosition(fill), 2);
+        QVERIFY(p->setObjectExportEnabled(0, true));
+        QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)), bytes);
+        // Экспортируемый объект восстанавливается из init/data в том же порядке.
+        const auto hardwareProject = temp.filePath("hardware.xml"); QVERIFY(p->saveToFile(hardwareProject));
+        QVERIFY2(p->loadFromFile(hardwareProject), qPrintable(p->lastErrorMessage()));
+        QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)), bytes);
+        image = static_cast<ImageObject *>(p->getObjectAt(0).data());
+        QVERIFY(p->setObjectsProperty({p->getObjectAt(0)}, "Слой 1: Порядок", "3"));
+        QCOMPARE(image->maskComponents().last().color, QColor(Qt::magenta));
+    }
+    void staticImageRegionIdentityAndLimits() {
+        QImage source(16, 8, QImage::Format_ARGB32); source.fill(Qt::transparent);
+        { QPainter painter(&source); painter.fillRect(1, 1, 3, 3, Qt::black); painter.fillRect(11, 4, 3, 3, Qt::black); }
+        ImageObject image; image.setRasterImage(source, {});
+        QCOMPARE(image.maskComponents().size(), 2);
+        QVERIFY(image.setObjectProperty("Слой 1: Цвет", "#ff0000"));
+        QVERIFY(image.setObjectProperty("Слой 2: Порядок", "1"));
+        image.width *= 2; image.height *= 2; image.mirrorHorizontal = true;
+        const auto components = image.maskComponents(); QCOMPARE(components.size(), 2);
+        QCOMPARE(components[0].layerIndex, 1); QCOMPARE(components[0].color, QColor(Qt::black));
+        QCOMPARE(components[1].layerIndex, 0); QCOMPARE(components[1].color, QColor(Qt::red));
+        QVERIFY(components[1].bounds.x() > components[0].bounds.x());
+        // Старые настройки цвета распространяются на обе отдельные области.
+        image.setColorLayers({{Qt::black, Qt::blue, false}});
+        QCOMPARE(image.colorLayers().size(), 2);
+        for (const auto &component : image.maskComponents()) QCOMPARE(component.color, QColor(Qt::blue));
+        // Пиксели диагонали образуют один блок; разнесённые островки — разные.
+        QImage diagonal(9, 9, QImage::Format_ARGB32); diagonal.fill(Qt::transparent);
+        for (int i = 0; i < 9; ++i) diagonal.setPixelColor(i, i, Qt::white);
+        image.setRasterImage(diagonal, {}); QCOMPARE(image.maskComponents().size(), 1);
+        QImage islands(18, 1, QImage::Format_ARGB32); islands.fill(Qt::transparent);
+        for (int i = 0; i < 18; i += 2) islands.setPixelColor(i, 0, Qt::white);
+        image.setRasterImage(islands, {}); QCOMPARE(image.maskComponents().size(), 9);
+        QVERIFY(!FpgaResourceLimits::inspect(image).errors.isEmpty());
+        ImageObject rotating(ImageObject::Kind::Rotating); rotating.setRasterImage(source, {});
+        QCOMPARE(rotating.maskComponents().size(), 1); // Вращающиеся изображения сохраняют прежнее разбиение.
+    }
+    void staticLayerControlsAndHardwareGroups() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Layer controls", 80, 80, Qt::black);
+        QTemporaryDir temp;
+        QImage source(12, 12, QImage::Format_ARGB32); source.fill(Qt::black);
+        { QPainter painter(&source); painter.fillRect(2, 2, 8, 8, Qt::green); painter.fillRect(5, 5, 2, 2, Qt::black); }
+        const auto file = temp.filePath("regions.png"); QVERIFY(source.save(file)); QVERIFY(p->importImage(file) >= 0);
+        ObjectPropertiesPanel properties; properties.resize(290, 650); properties.show(); properties.showObjectProperties(0);
+        QTest::qWait(5);
+        auto *table = properties.findChild<QTableWidget *>(); QVERIFY(table);
+        int row = -1;
+        for (int i = 0; i < table->rowCount(); ++i)
+            if (table->item(i, 0)->text() == "Слой 3: Цвет") row = i;
+        QVERIFY(row >= 0);
+        auto *editor = table->cellWidget(row, 0); QVERIFY(editor);
+        auto *combo = editor->findChild<QComboBox *>("StaticLayerOrderCombo"); QVERIFY(combo);
+        QCOMPARE(combo->count(), 3); QCOMPARE(combo->currentIndex(), 2); QVERIFY(combo->isEnabled());
+        QCOMPARE(table->item(row, 1)->text(), QString("Цвет")); QVERIFY(!table->item(row, 1)->icon().isNull());
+        QVERIFY(editor->rect().contains(QRect(combo->pos(), combo->size())));
+        combo->setCurrentIndex(0); QVERIFY(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0)));
+        auto *image = static_cast<ImageObject *>(p->getObjectAt(0).data()); QCOMPARE(image->maskComponents().first().layerIndex, 2);
+        for (int i = 0; i < table->rowCount(); ++i)
+            if (table->item(i, 0)->text() == "Слой 3: Цвет") row = i;
+        QTimer::singleShot(0, [] {
+            auto *dialog = qobject_cast<QColorDialog *>(QApplication::activeModalWidget()); QVERIFY(dialog);
+            QCOMPARE(dialog->currentColor(), QColor(Qt::black));
+            dialog->setCurrentColor(Qt::blue); dialog->accept();
+        });
+        QVERIFY(QMetaObject::invokeMethod(&properties, "onCellDoubleClicked", Q_ARG(int, row), Q_ARG(int, 1)));
+        QCOMPARE(image->maskComponents().first().color, QColor(Qt::blue));
+        QCOMPARE(image->maskComponents()[1].color, QColor(Qt::black));
+        properties.grab().save(QCoreApplication::applicationDirPath() + "/static-layer-controls.png");
+        QVERIFY(p->undo()); QVERIFY(p->redo());
+        p->createNewProject("Hardware group", 80, 80, Qt::black); QVERIFY(p->addObject("staticgroup") >= 0);
+        auto object = p->getObjectAt(0); auto *group = static_cast<StaticGroupObject *>(object.data());
+        QImage a(2, 2, QImage::Format_ARGB32); a.fill(Qt::red);
+        QImage b(1, 1, QImage::Format_ARGB32); b.fill(Qt::blue);
+        group->states = {{0, 0, 2, 2, 0, Qt::red, true}, {0, 0, 1, 1, 4, Qt::blue, true}};
+        group->maskImages = {a, b};
+        QVERIFY(p->setObjectsProperty({object}, "Состояние 1: Порядок", "1"));
+        QCOMPARE(group->states.first().color, QColor(Qt::blue)); QCOMPARE(group->maskImages.first(), b);
+        QCOMPARE(group->states[0].addr, 0); QCOMPARE(group->states[1].addr, 1);
+        QString error; FpgaSimulator simulator; simulator.loadBundle(FpgaProjectPacketBuilder::buildCurrentProject(&error));
+        QCOMPARE(simulator.renderFrame().pixelColor(0, 0), QColor(Qt::blue));
+        QVERIFY(p->undo()); group = static_cast<StaticGroupObject *>(p->getObjectAt(0).data());
+        QCOMPARE(group->states.first().color, QColor(Qt::red)); QCOMPARE(group->maskImages.first(), a);
+    }
     void imageKindsAndMasks() {
         auto *p = ProjectManager::instance();
         QTemporaryDir temp;
@@ -2554,6 +2711,107 @@ private slots:
         }
         window.grab().save(QCoreApplication::applicationDirPath()+"/workspace.png");
     }
+    void ribbonScalePlaceholderPackets() {
+        // Проверяем все шесть присланных кадров, включая FCS. В двух сценах
+        // на ID 27 попадают соответственно первая и вторая шкалы.
+        const QList<QByteArray> reference = {
+            QByteArray::fromHex("5341494e001c03001b0013000001ff0074666600164ccd08c00dc011849f5c3107b0"),
+            QByteArray::fromHex("5341494e001c03001c001300043700041400042800001f40000000000c073237026a"),
+            QByteArray::fromHex("5341494e001c03001d00130000000000000000000000107000106e00106c2e6f02f4")
+        };
+        for (bool first : {true, false}) {
+            FpgaCompiledDocument doc; doc.width=640; doc.height=480;
+            doc.schemas.insert("RibonScale",FpgaSchemaRegistry::instance()->buildSchema("RibonScale"));
+            doc.schemas.insert("rectangle",FpgaSchemaRegistry::instance()->buildSchema("rectangle"));
+            FpgaCompiledObject rectangle; rectangle.type="rectangle"; rectangle.iparams={QString(38,'0')};
+            for (int i=0; i<(first ? 27 : 24); ++i) doc.objects.append(rectangle);
+            FpgaCompiledObject scale; scale.type="RibonScale"; scale.iparams={QString(38,'0')};
+            doc.objects.append(scale); // Старый XML с одним init также получает заглушку.
+            scale.iparams=QStringList(3,QString(38,'0')); doc.objects.append(scale);
+            doc.objects.append(rectangle);
+            QString error;
+            const auto scene=FpgaSceneCompiler().compile(doc,&error); QVERIFY2(scene.isValid(),qPrintable(error));
+            const auto bundle=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+            QCOMPARE(bundle.packets.size(),first ? 34 : 31);
+            for (int i=0; i<bundle.packets.size(); ++i) {
+                QCOMPARE(bundle.packets[i].type,FpgaPacketType::Parameter);
+                QCOMPARE(bundle.packets[i].objId,i);
+            }
+            for (int i=0; i<3; ++i) {
+                auto expected=reference[i];
+                if (!first && i==0)
+                    expected=QByteArray::fromHex("5341494e001c03001b0013000001ff0074666600164ccd08c00dc011849e5c3007af");
+                QCOMPARE(bundle.packets[27+i].bytes,expected);
+            }
+            const auto config=FpgaPipelineConfig::fromScene(scene,&error); QVERIFY2(config.isValid(),qPrintable(error));
+            QCOMPARE(config.parameterCount(),bundle.packets.size());
+            int scales=0;
+            for (const auto &stage:config.stages) if (stage.type==6) { ++scales; QCOMPARE(stage.parameterCount,3); QCOMPARE(stage.ramId,0); }
+            QCOMPARE(scales,2);
+            FpgaSimulator sim; sim.loadBundle(bundle);
+            QImage background(640,480,QImage::Format_ARGB32); background.fill(Qt::black);
+            QCOMPARE(sim.renderFrame(),background);
+        }
+    }
+    void ribbonScalePlaceholderProjectRoundTrip() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp; QString error;
+        QVERIFY(p->createNewProject("Scale placeholders",640,480,Qt::black));
+        for (int i=0; i<3; ++i) QVERIFY(p->addObject("RibonScale")>=0);
+        QList<QList<QPair<QString,QString>>> properties;
+        QList<QRectF> bounds;
+        for (int i=0; i<3; ++i) {
+            auto *scale=dynamic_cast<RibbonScaleObject *>(p->getObjectAt(i).data()); QVERIFY(scale);
+            scale->left=25.125+i*60; scale->right=scale->left+45.625;
+            scale->top=8.25+i; scale->bottom=188.875+i; scale->yStart=25.5+i;
+            scale->lineWidth=i+1; scale->period=17+i; scale->color=QColor(20+i,40+i,60+i); scale->enabled=false;
+            properties.append(scale->getProperties());
+            bounds.append(scale->getBoundingRect());
+        }
+        // Исключённая из экспорта шкала не должна забирать признак первой.
+        QVERIFY(p->setObjectExportEnabled(2,false));
+        auto dom=p->buildCompiledFpgaXml();
+        auto compiled=FpgaCompiledDocument::fromDomDocument(dom,&error); QVERIFY2(compiled.isValid(),qPrintable(error));
+        QCOMPARE(compiled.objects.size(),2);
+        QCOMPARE(compiled.objects[0].iparams,FpgaScalePlaceholder::parameters(true));
+        QCOMPARE(compiled.objects[1].iparams,FpgaScalePlaceholder::parameters(false));
+        const auto scene=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(scene.document.isValid(),qPrintable(error));
+        QCOMPARE(scene.document.objects[0].startParamIndex,0); QCOMPARE(scene.document.objects[1].startParamIndex,3);
+        const auto path=temp.filePath("scales.xml"); QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage()));
+        QDomDocument saved; QVERIFY2(ProjectXmlFile::read(path,&saved,&error),qPrintable(error));
+        auto object=saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        for (; !object.isNull(); object=object.nextSiblingElement("object")) QVERIFY(!object.firstChildElement("parameters").isNull());
+        QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),dom.toByteArray());
+        for (int i=0; i<3; ++i) {
+            QCOMPARE(p->getObjectAt(i)->getProperties(),properties[i]);
+            QCOMPARE(p->getObjectAt(i)->getBoundingRect(),bounds[i]);
+            QCOMPARE(p->getObjectAt(i)->isExportEnabled(),i!=2);
+        }
+
+        // Без геометрии заглушка не должна незаметно превращаться в другую шкалу.
+        object=saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        object.removeChild(object.firstChildElement("parameters"));
+        if (saved.firstChild().isProcessingInstruction()) saved.removeChild(saved.firstChild());
+        QVERIFY(ProjectXmlFile::write(path,saved,&error)); QVERIFY(!p->loadFromFile(path));
+        QVERIFY(p->lastErrorMessage().contains("параметры редактора"));
+        QCOMPARE(p->getObjectAt(0)->getBoundingRect(),bounds[0]);
+
+        // Старый односоставный XML без резервной геометрии продолжает открываться.
+        QVERIFY(p->createNewProject("Legacy scale",640,480,Qt::black)); QVERIFY(p->addObject("RibonScale")>=0);
+        const auto original=p->getObjectAt(0)->getProperties();
+        const auto legacy=testInit("RibonScale",p->getObjectAt(0)->serializeParams());
+        QVERIFY(p->saveToFile(path)); QVERIFY(ProjectXmlFile::read(path,&saved,&error));
+        auto scale=saved.documentElement().firstChildElement("objects").firstChildElement("RibonScale");
+        while (!scale.firstChild().isNull()) scale.removeChild(scale.firstChild());
+        auto init=saved.createElement("init"); init.appendChild(saved.createTextNode(legacy)); scale.appendChild(init);
+        object=saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        object.removeChild(object.firstChildElement("parameters"));
+        // ProjectXmlFile сам добавляет декларацию кодировки перед DOM.
+        if (saved.firstChild().isProcessingInstruction()) saved.removeChild(saved.firstChild());
+        QVERIFY(ProjectXmlFile::write(path,saved,&error)); QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+        QCOMPARE(p->getObjectAt(0)->getProperties(),original);
+        QCOMPARE(FpgaCompiledDocument::fromDomDocument(p->buildCompiledFpgaXml(),&error).objects[0].iparams,FpgaScalePlaceholder::parameters(true));
+    }
     void pipelineConfigMatchesPackets() {
         FpgaHardwareScene scene; scene.width=320; scene.height=240;
         scene.schemas.insert("rotationobject",FpgaSchemaRegistry::instance()->buildSchema("rotationobject"));
@@ -2594,6 +2852,11 @@ private slots:
         QCOMPARE(expanded.stages.size(),4); QCOMPARE(expanded.parameterCount(),6); QCOMPARE(expanded.stages.last().ramId,1);
         for(const auto &entry:QList<QPair<QString,int>>{{"rectangle_a",3},{"dashline",4},{"aviahorizont",5},{"RibonScale",6}}) {
             scene.objects={rectangle}; scene.objects[0].type=entry.first;
+            if (entry.second==6) {
+                QVERIFY(!FpgaPipelineConfig::fromScene(scene,&error).isValid());
+                FpgaPipelineConfig legacy; legacy.stages.append({6,1,0}); QVERIFY(legacy.isValid());
+                scene.objects[0].iparams=FpgaScalePlaceholder::parameters(true);
+            }
             QCOMPARE(FpgaPipelineConfig::fromScene(scene,&error).stages.first().type,entry.second);
         }
         scene.objects={};

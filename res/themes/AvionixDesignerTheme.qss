@@ -467,8 +467,8 @@ QToolButton#SettingsToolButton {
     background-color: #382126;
     border-color: #a14e54;
 }
-#TransparencyEditor, #PropertyFieldEditor { background-color: transparent; }
-#TransparencySpin, #ObjectLayerCombo, #WorkspaceLayerCombo, #PropertyValueCombo {
+#TransparencyEditor, #PropertyFieldEditor, #StaticLayerEditor { background-color: transparent; }
+#TransparencySpin, #ObjectLayerCombo, #WorkspaceLayerCombo, #PropertyValueCombo, #StaticLayerOrderCombo {
     min-height: 18px;
     max-height: 18px;
     padding: 3px 6px;

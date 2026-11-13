@@ -2,6 +2,7 @@
 
 #include "fpga/compiler/FpgaSceneCompiler.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
+#include "fpga/compiler/FpgaScalePlaceholder.h"
 #include "fpga/config/FpgaPipelineConfig.h"
 
 #include "BitParser.h"
@@ -66,6 +67,7 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
     QMap<int, QMap<QPair<QChar, int>, int>> clippedGlyphs;
     QList<QRect> stageGlyphs;
     bool overlappingGlyphs = false;
+    bool firstScale = true;
     int nextParameter = 0;
     const auto textSchema = document.schemas.value("text");
     for (const auto &source : document.objects) {
@@ -180,6 +182,13 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
         object.type = source.type;
         object.leftAnchored = source.leftAnchored;
         object.iparams = source.iparams;
+        if (source.type == QStringLiteral("RibonScale")) {
+            // Старые XML с одним init также отправляются как трёхсловная заглушка.
+            object.iparams = FpgaScalePlaceholder::parameters(firstScale);
+            if (firstScale)
+                scene.warnings.append(QStringLiteral("Ленточные шкалы передаются временными заглушками из трёх слов; симулятор их не отображает."));
+            firstScale = false;
+        }
         object.startParamIndex = nextParameter;
         if (source.type != QStringLiteral("layer3d")) {
             if (nextParameter + object.iparams.size() > 65536)
