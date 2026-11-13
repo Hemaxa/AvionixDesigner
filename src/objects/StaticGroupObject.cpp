@@ -183,6 +183,7 @@ QList<QPair<QString, QString>> StaticGroupObject::getProperties() const
         props.append({prefix + "Y", QString::number(s.y)});
         props.append({prefix + "Ширина", QString::number(s.w)});
         props.append({prefix + "Высота", QString::number(s.h)});
+        props.append({prefix + "Порядок", QString::number(i + 1)});
         props.append({prefix + "Цвет", s.color.name()});
         props.append({prefix + "Адрес", QString::number(s.addr)});
         props.append({prefix + "Видимость", s.enabled ? "да" : "нет"});
@@ -286,6 +287,15 @@ bool StaticGroupObject::setObjectProperty(const QString &name, const QString &va
         const int index = name.mid(10, colon - 10).toInt(&ok);
         if (!ok || colon < 10 || index < 0 || index >= states.size()) return false;
         const QString property = name.mid(colon + 1).trimmed();
+        if (property == "Порядок") {
+            const int destination = value.toInt(&ok) - 1;
+            if (!ok || destination < 0 || destination >= states.size() || maskImages.size() != states.size()) return false;
+            states.move(index, destination);
+            maskImages.move(index, destination);
+            rebuildStateAddresses();
+            emit changed();
+            return true;
+        }
         GroupState state = states[index];
         const bool sizeChange = property == "Ширина" || property == "Высота";
         if (sizeChange && !canResize()) {

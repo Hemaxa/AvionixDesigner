@@ -13,6 +13,7 @@
 #include <QtMath>
 
 #include <algorithm>
+#include <limits>
 
 namespace {
 constexpr int kVisibleAlphaThreshold = 24;
@@ -116,6 +117,10 @@ QList<PaletteEntry> paletteFromStoredLayers(const QList<ImageColorLayer> &stored
     for (const ImageColorLayer &layer : storedLayers) {
         if (!layer.sourceColor.isValid())
             continue;
+        // У статического изображения несколько независимых областей могут иметь один исходный цвет.
+        if (std::any_of(palette.cbegin(), palette.cend(), [&layer](const PaletteEntry &entry) {
+            return entry.sourceColor == layer.sourceColor;
+        })) continue;
         PaletteEntry entry;
         entry.sourceColor = layer.sourceColor;
         entry.firstIndex = palette.size();
@@ -396,15 +401,54 @@ QList<ImageMaskComponent> buildComponentsFromPixels(const ClassifiedImage &class
     return components;
 }
 
-QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<ImageColorLayer> &storedLayers)
+QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<ImageColorLayer> &storedLayers,
+                                          bool splitConnected = false)
 {
     QList<ImageMaskComponent> components;
-    const ClassifiedImage classified = classifyImage(source, storedLayers);
+    ClassifiedImage classified = classifyImage(source, storedLayers);
     if (classified.image.isNull() || classified.palette.isEmpty())
         return components;
 
     const int width = classified.image.width();
     const int height = classified.image.height();
+
+    if (splitConnected) {
+        // Палитра и сглаживание остаются прежними. Разделяем уже классифицированные
+        // пиксели по восьмисвязным областям, сохраняя диагональные линии целыми.
+        QVector<int> pixels;
+        for (int seed = 0; seed < classified.labels.size(); ++seed) {
+            const int colorIndex = classified.labels[seed];
+            if (colorIndex < 0) continue;
+            pixels.clear();
+            pixels.append(seed);
+            classified.labels[seed] = -1;
+            LayerAccumulator region;
+            for (qsizetype head = 0; head < pixels.size(); ++head) {
+                const int pixel = pixels[head], x = pixel % width, y = pixel / width;
+                addPixelToLayer(region, x, y, classified.image.pixelColor(x, y).alpha());
+                for (int ny = qMax(0, y - 1); ny <= qMin(height - 1, y + 1); ++ny)
+                    for (int nx = qMax(0, x - 1); nx <= qMin(width - 1, x + 1); ++nx) {
+                        const int next = ny * width + nx;
+                        if (classified.labels[next] != colorIndex) continue;
+                        classified.labels[next] = -1;
+                        pixels.append(next);
+                    }
+            }
+            ImageMaskComponent component;
+            component.layerIndex = components.size();
+            component.bounds = region.bounds;
+            component.color = classified.palette[colorIndex].sourceColor;
+            component.mask = QImage(region.bounds.size(), QImage::Format_ARGB32);
+            component.mask.fill(Qt::transparent);
+            for (int pixel : pixels) {
+                QColor color = component.color;
+                color.setAlpha(classified.image.pixelColor(pixel % width, pixel / width).alpha());
+                component.mask.setPixelColor(pixel % width - region.bounds.x(), pixel / width - region.bounds.y(), color);
+            }
+            components.append(component);
+        }
+        return components;
+    }
 
     QVector<int> pixels;
     pixels.reserve(width * height);
@@ -424,6 +468,19 @@ QList<ImageMaskComponent> extractComponents(const QImage &source, const QList<Im
     }
 
     return buildComponentsFromPixels(classified, storedLayers, pixels, layers);
+}
+
+QRectF relativeBounds(const QRect &bounds, const QSize &size)
+{
+    return QRectF(double(bounds.x()) / size.width(), double(bounds.y()) / size.height(),
+                  double(bounds.width()) / size.width(), double(bounds.height()) / size.height());
+}
+
+void sortComponents(QList<ImageMaskComponent> &components, const QList<ImageColorLayer> &layers)
+{
+    std::stable_sort(components.begin(), components.end(), [&layers](const auto &a, const auto &b) {
+        return layers.value(a.layerIndex).order < layers.value(b.layerIndex).order;
+    });
 }
 
 qint64 staticGroupPixelCost(const QList<ImageMaskComponent> &components)
@@ -611,6 +668,7 @@ QList<ImageMaskComponent> ImageObject::maskComponents() const
             if (mirrorHorizontal) c.bounds.moveLeft(outWidth - c.bounds.x() - c.bounds.width());
             if (mirrorVertical) c.bounds.moveTop(outHeight - c.bounds.y() - c.bounds.height());
             c.mask = c.mask.mirrored(mirrorHorizontal, mirrorVertical);
+            c.layerIndex = i;
             if (i < m_colorLayers.size() && !m_colorLayers[i].autoMaskColor) c.color = m_colorLayers[i].maskColor;
             for (int y = 0; y < c.mask.height(); ++y)
                 for (int x = 0; x < c.mask.width(); ++x) {
@@ -618,9 +676,62 @@ QList<ImageMaskComponent> ImageObject::maskComponents() const
                     c.mask.setPixelColor(x, y, pixel);
                 }
         }
+        if (!isRotationObject()) sortComponents(components, m_colorLayers);
         return components;
     }
-    return extractComponents(renderedSourceImage(), m_colorLayers);
+    if (isRotationObject()) return extractComponents(renderedSourceImage(), m_colorLayers);
+
+    // Идентифицируем области до отражения, чтобы цвет и позиция следовали за областью.
+    const QImage source = renderedSourceImage().mirrored(mirrorHorizontal, mirrorVertical);
+    const auto regions = extractComponents(source, m_colorLayers, true);
+    QList<ImageMaskComponent> components;
+    QMap<int, int> componentByLayer;
+    for (auto region : regions) {
+        const QRectF bounds = relativeBounds(region.bounds, source.size());
+        int layerIndex = -1;
+        double bestDistance = std::numeric_limits<double>::max();
+        for (int i = 0; i < m_colorLayers.size(); ++i) {
+            const auto &layer = m_colorLayers[i];
+            if (layer.sourceColor != region.color) continue;
+            const auto &reference = layer.sourceBounds;
+            const double distance = qPow(bounds.left() - reference.left(), 2)
+                + qPow(bounds.top() - reference.top(), 2) + qPow(bounds.right() - reference.right(), 2)
+                + qPow(bounds.bottom() - reference.bottom(), 2);
+            if (distance < bestDistance || (distance == bestDistance && componentByLayer.contains(layerIndex)
+                && !componentByLayer.contains(i))) { bestDistance = distance; layerIndex = i; }
+        }
+        region.layerIndex = layerIndex >= 0 ? layerIndex : region.layerIndex;
+        if (layerIndex >= 0 && !m_colorLayers[layerIndex].autoMaskColor)
+            region.color = m_colorLayers[layerIndex].maskColor;
+        for (int y = 0; y < region.mask.height(); ++y)
+            for (int x = 0; x < region.mask.width(); ++x) {
+                QColor color = region.color;
+                color.setAlpha(region.mask.pixelColor(x, y).alpha());
+                region.mask.setPixelColor(x, y, color);
+            }
+        // При изменении размера связная область может распасться на несколько частей.
+        // Они сохраняют общие настройки исходного блока.
+        if (componentByLayer.contains(region.layerIndex)) {
+            auto &target = components[componentByLayer.value(region.layerIndex)];
+            const QRect united = target.bounds.united(region.bounds);
+            QImage mask(united.size(), QImage::Format_ARGB32); mask.fill(Qt::transparent);
+            QPainter painter(&mask);
+            painter.drawImage(target.bounds.topLeft() - united.topLeft(), target.mask);
+            painter.drawImage(region.bounds.topLeft() - united.topLeft(), region.mask);
+            painter.end();
+            target.bounds = united; target.mask = mask;
+        } else {
+            componentByLayer.insert(region.layerIndex, components.size());
+            components.append(region);
+        }
+    }
+    for (auto &component : components) {
+        if (mirrorHorizontal) component.bounds.moveLeft(source.width() - component.bounds.right() - 1);
+        if (mirrorVertical) component.bounds.moveTop(source.height() - component.bounds.bottom() - 1);
+        component.mask = component.mask.mirrored(mirrorHorizontal, mirrorVertical);
+    }
+    sortComponents(components, m_colorLayers);
+    return components;
 }
 
 void ImageObject::restoreRasterComponents(const QList<ImageMaskComponent> &components, const QSize &size)
@@ -634,7 +745,8 @@ void ImageObject::restoreRasterComponents(const QList<ImageMaskComponent> &compo
     m_restoredComponents = components;
     m_restoredSize = size;
     m_colorLayers.clear();
-    for (const auto &c : components) m_colorLayers.append({c.color, c.color, true});
+    for (const auto &c : components)
+        m_colorLayers.append({c.color, c.color, true, relativeBounds(c.bounds, size), int(m_colorLayers.size())});
 }
 
 void ImageObject::copyRasterSource(const ImageObject &source)
@@ -673,10 +785,33 @@ QList<ImageColorLayer> ImageObject::colorLayers() const
 void ImageObject::setColorLayers(const QList<ImageColorLayer> &layers)
 {
     m_colorLayers = layers;
+    // Старые проекты хранили настройки на цвет. Переносим их на каждую область
+    // того же исходного цвета, не теряя пользовательскую перекраску.
+    if (!isRotationObject() && m_restoredComponents.isEmpty()
+        && (layers.isEmpty() || std::any_of(layers.cbegin(), layers.cend(), [](const auto &layer) { return layer.sourceBounds.isEmpty(); }))) {
+        const QImage source = renderedSourceImage().mirrored(mirrorHorizontal, mirrorVertical);
+        const auto components = extractComponents(source, layers, true);
+        m_colorLayers.clear();
+        for (const auto &component : components) {
+            ImageColorLayer layer{component.color, component.color, true};
+            for (const auto &stored : layers)
+                if (stored.sourceColor == component.color) { layer = stored; break; }
+            layer.sourceBounds = relativeBounds(component.bounds, source.size());
+            layer.order = m_colorLayers.size();
+            m_colorLayers.append(layer);
+        }
+    }
+    for (int i = 0; i < m_colorLayers.size(); ++i)
+        if (m_colorLayers[i].order < 0) m_colorLayers[i].order = i;
     if (!m_colorLayers.isEmpty()) {
         maskColor = m_colorLayers.first().maskColor;
         autoMaskColor = m_colorLayers.first().autoMaskColor;
     }
+}
+
+int ImageObject::layerPosition(int layerIndex) const
+{
+    return layerIndex >= 0 && layerIndex < m_colorLayers.size() ? m_colorLayers[layerIndex].order + 1 : 0;
 }
 
 bool ImageObject::hasRotation() const
@@ -808,11 +943,14 @@ QList<QPair<QString, QString>> ImageObject::getProperties() const
             if (props[i].first == QStringLiteral("Поворот (°)")) props.removeAt(i);
     }
     const QList<ImageMaskComponent> components = maskComponents();
-    if (components.size() > 1) {
+    if ((!isRotationObject() && !components.isEmpty()) || components.size() > 1) {
         props.removeLast();
         props.removeLast();
-        for (const ImageMaskComponent &component : components)
+        for (const ImageMaskComponent &component : components) {
+            if (!isRotationObject())
+                props.append({QStringLiteral("Слой %1: Порядок").arg(component.layerIndex + 1), QString::number(layerPosition(component.layerIndex))});
             props.append({QStringLiteral("Слой %1: Цвет").arg(component.layerIndex + 1), component.color.name()});
+        }
     }
 
     props.append({QStringLiteral("XML экспорт"), xmlExportSummary()});
@@ -958,6 +1096,18 @@ bool ImageObject::setObjectProperty(const QString &name, const QString &value)
                 m_colorLayers[0].autoMaskColor = false;
             }
         }
+    } else if (!isRotationObject() && name.startsWith(QStringLiteral("Слой ")) && name.endsWith(QStringLiteral(": Порядок"))) {
+        const int colon = name.indexOf(':');
+        const int layer = name.mid(5, colon - 5).toInt(&ok) - 1;
+        if (!ok || layer < 0 || layer >= m_colorLayers.size()) return false;
+        const int position = value.toInt(&ok) - 1;
+        if (!ok || position < 0 || position >= m_colorLayers.size()) return false;
+        const int previous = m_colorLayers[layer].order;
+        for (auto &other : m_colorLayers) {
+            if (previous < position && other.order > previous && other.order <= position) --other.order;
+            else if (position < previous && other.order >= position && other.order < previous) ++other.order;
+        }
+        m_colorLayers[layer].order = position;
     } else if (name.startsWith(QStringLiteral("Слой ")) && name.endsWith(QStringLiteral(": Цвет"))) {
         const int colonIndex = name.indexOf(':');
         const int layerNumber = name.mid(QStringLiteral("Слой ").size(), colonIndex - QStringLiteral("Слой ").size()).toInt(&ok);
@@ -983,7 +1133,8 @@ bool ImageObject::setObjectProperty(const QString &name, const QString &value)
 
 void ImageObject::rebuildColorLayers()
 {
-    const QList<ImageMaskComponent> components = extractComponents(renderedSourceImage(), {});
+    const auto source = renderedSourceImage().mirrored(mirrorHorizontal, mirrorVertical);
+    const QList<ImageMaskComponent> components = extractComponents(source, {}, !isRotationObject());
     m_colorLayers.clear();
     m_colorLayers.reserve(components.size());
     for (const ImageMaskComponent &component : components) {
@@ -991,6 +1142,8 @@ void ImageObject::rebuildColorLayers()
         layer.sourceColor = component.color;
         layer.maskColor = component.color;
         layer.autoMaskColor = true;
+        layer.sourceBounds = relativeBounds(component.bounds, source.size());
+        layer.order = m_colorLayers.size();
         m_colorLayers.append(layer);
     }
 

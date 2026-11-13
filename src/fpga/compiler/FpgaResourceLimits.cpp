@@ -47,7 +47,7 @@ Report inspect(const BaseObject &object)
             if (largeDimensions)
                 report.warnings.append(QStringLiteral("Габарит маски превышает 4095 пикселей. При экспорте растр будет уменьшен."));
             if (components.size() > staticParameters())
-                report.errors.append(QStringLiteral("Статической группе требуется %1 init; допускается не более %2. Уменьшите число цветовых слоёв.")
+                report.errors.append(QStringLiteral("Статической группе требуется %1 init; допускается не более %2. Уменьшите число блоков или разделите изображение на несколько групп.")
                     .arg(components.size()).arg(staticParameters()));
         }
     } else if (const auto *group = dynamic_cast<const StaticGroupObject *>(&object)) {

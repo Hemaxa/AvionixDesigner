@@ -15,6 +15,9 @@ struct ImageColorLayer
     QColor sourceColor;
     QColor maskColor;
     bool autoMaskColor = true;
+    // Границы исходной области в долях изображения; цвет и порядок не меняют её идентичность.
+    QRectF sourceBounds;
+    int order = -1;
 };
 
 // ImageMaskComponent - цветовая маска изображения со своим цветом и габаритами.
@@ -58,6 +61,7 @@ public:
     QList<ImageMaskComponent> maskComponents() const;
     QList<ImageColorLayer> colorLayers() const;
     void setColorLayers(const QList<ImageColorLayer> &layers);
+    int layerPosition(int layerIndex) const;
     bool hasRotation() const;
     QString xmlExportSummary() const;
     QByteArray sourcePayload() const;

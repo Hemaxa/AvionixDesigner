@@ -415,11 +415,28 @@ void objectFields(Fields &a, BaseObject &object, Resources &resources)
         if (!a.reading || a.node.hasAttribute("mirror-x")) a.value("mirror-x", v->mirrorHorizontal);
         if (!a.reading || a.node.hasAttribute("mirror-y")) a.value("mirror-y", v->mirrorVertical);
         auto list = a.child("color-layers");
-        auto colorFields = [](Fields &f, ImageColorLayer &c) { f.value("source-color", c.sourceColor); f.value("mask-color", c.maskColor); f.value("auto-mask-color", c.autoMaskColor); };
+        auto colorFields = [](Fields &f, ImageColorLayer &c) {
+            f.value("source-color", c.sourceColor); f.value("mask-color", c.maskColor); f.value("auto-mask-color", c.autoMaskColor);
+            if (!f.reading || f.node.hasAttribute("order")) f.value("order", c.order);
+            if ((!f.reading && !c.sourceBounds.isEmpty()) || f.node.hasAttribute("source-x")) {
+                double x = c.sourceBounds.x(), y = c.sourceBounds.y(), w = c.sourceBounds.width(), h = c.sourceBounds.height();
+                f.value("source-x", x); f.value("source-y", y); f.value("source-width", w); f.value("source-height", h);
+                c.sourceBounds = QRectF(x, y, w, h);
+                if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1.000000001 || y + h > 1.000000001)
+                    f.fail("Некорректные границы исходной области изображения.");
+            }
+        };
         if (a.reading) {
             QList<ImageColorLayer> colors;
             for (auto n = list.firstChildElement("layer"); !n.isNull(); n = n.nextSiblingElement("layer")) {
-                ImageColorLayer color; Fields f(n, true, a.error); colorFields(f, color); colors.append(color);
+                ImageColorLayer color; color.order = colors.size();
+                Fields f(n, true, a.error); colorFields(f, color); colors.append(color);
+            }
+            QSet<int> positions;
+            for (const auto &color : colors) {
+                if (color.order < 0 || color.order >= colors.size() || positions.contains(color.order))
+                    a.fail("Некорректный или повторный порядок блоков изображения.");
+                positions.insert(color.order);
             }
             v->setColorLayers(colors);
         } else {
