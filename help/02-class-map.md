@@ -79,6 +79,7 @@
 | `ImageResourceBuilder` | `src/fpga/compiler/ImageResourceBuilder.*` | Подготовка масок изображений под ограничения памяти и размеров |
 | `FpgaCompiledDocument`, `FpgaCompiledObject` | `src/fpga/model/FpgaCompiledDocument.*` | Проверенное представление исходного XML до назначения аппаратных индексов |
 | `FpgaSceneCompiler` | `src/fpga/compiler/FpgaSceneCompiler.*` | Аппаратные индексы, банки памяти, разворачивание текста в SYMBOLs |
+| `FpgaScalePlaceholder` | `src/fpga/compiler/FpgaScalePlaceholder.*` | Фиксированный трёхсловный образ незавершённого модуля шкалы для XML и UART |
 | `FpgaResourceLimits::Report` | `src/fpga/compiler/FpgaResourceLimits.*` | Ошибки и предупреждения по ресурсам объекта |
 | `FpgaHardwareScene`, `FpgaHardwareObject`, `FpgaHardwareMemory`, `FpgaTextField` | `src/fpga/model/FpgaHardwareScene.h` | Готовые параметры, банки памяти и резерв надписей |
 | `FpgaPipelineConfig`, `FpgaPipelineStage` | `src/fpga/config/FpgaPipelineConfig.*` | Структура аппаратного конвейера, сравнение и экспорт SystemVerilog |

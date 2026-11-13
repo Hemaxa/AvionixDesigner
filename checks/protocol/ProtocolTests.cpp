@@ -14,6 +14,7 @@
 #include "text/FontRasterizer.h"
 #include <QScopeGuard>
 #include "fpga/compiler/FpgaSceneCompiler.h"
+#include "fpga/compiler/FpgaScalePlaceholder.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include "fpga/simulator/FpgaSimulator.h"
 #include "fpga/transport/FpgaPacketDump.h"
@@ -38,6 +39,7 @@
 #include "FpgaSchemaRegistry.h"
 #include <QDomDocument>
 #include "ProjectManager.h"
+#include "ProjectXmlFile.h"
 #include "ThreeDViewObject.h"
 #include "ObjectLibraryPanel.h"
 #include "ObjectListPanel.h"
@@ -2554,6 +2556,107 @@ private slots:
         }
         window.grab().save(QCoreApplication::applicationDirPath()+"/workspace.png");
     }
+    void ribbonScalePlaceholderPackets() {
+        // Проверяем все шесть присланных кадров, включая FCS. В двух сценах
+        // на ID 27 попадают соответственно первая и вторая шкалы.
+        const QList<QByteArray> reference = {
+            QByteArray::fromHex("5341494e001c03001b0013000001ff0074666600164ccd08c00dc011849f5c3107b0"),
+            QByteArray::fromHex("5341494e001c03001c001300043700041400042800001f40000000000c073237026a"),
+            QByteArray::fromHex("5341494e001c03001d00130000000000000000000000107000106e00106c2e6f02f4")
+        };
+        for (bool first : {true, false}) {
+            FpgaCompiledDocument doc; doc.width=640; doc.height=480;
+            doc.schemas.insert("RibonScale",FpgaSchemaRegistry::instance()->buildSchema("RibonScale"));
+            doc.schemas.insert("rectangle",FpgaSchemaRegistry::instance()->buildSchema("rectangle"));
+            FpgaCompiledObject rectangle; rectangle.type="rectangle"; rectangle.iparams={QString(38,'0')};
+            for (int i=0; i<(first ? 27 : 24); ++i) doc.objects.append(rectangle);
+            FpgaCompiledObject scale; scale.type="RibonScale"; scale.iparams={QString(38,'0')};
+            doc.objects.append(scale); // Старый XML с одним init также получает заглушку.
+            scale.iparams=QStringList(3,QString(38,'0')); doc.objects.append(scale);
+            doc.objects.append(rectangle);
+            QString error;
+            const auto scene=FpgaSceneCompiler().compile(doc,&error); QVERIFY2(scene.isValid(),qPrintable(error));
+            const auto bundle=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+            QCOMPARE(bundle.packets.size(),first ? 34 : 31);
+            for (int i=0; i<bundle.packets.size(); ++i) {
+                QCOMPARE(bundle.packets[i].type,FpgaPacketType::Parameter);
+                QCOMPARE(bundle.packets[i].objId,i);
+            }
+            for (int i=0; i<3; ++i) {
+                auto expected=reference[i];
+                if (!first && i==0)
+                    expected=QByteArray::fromHex("5341494e001c03001b0013000001ff0074666600164ccd08c00dc011849e5c3007af");
+                QCOMPARE(bundle.packets[27+i].bytes,expected);
+            }
+            const auto config=FpgaPipelineConfig::fromScene(scene,&error); QVERIFY2(config.isValid(),qPrintable(error));
+            QCOMPARE(config.parameterCount(),bundle.packets.size());
+            int scales=0;
+            for (const auto &stage:config.stages) if (stage.type==6) { ++scales; QCOMPARE(stage.parameterCount,3); QCOMPARE(stage.ramId,0); }
+            QCOMPARE(scales,2);
+            FpgaSimulator sim; sim.loadBundle(bundle);
+            QImage background(640,480,QImage::Format_ARGB32); background.fill(Qt::black);
+            QCOMPARE(sim.renderFrame(),background);
+        }
+    }
+    void ribbonScalePlaceholderProjectRoundTrip() {
+        auto *p=ProjectManager::instance(); QTemporaryDir temp; QString error;
+        QVERIFY(p->createNewProject("Scale placeholders",640,480,Qt::black));
+        for (int i=0; i<3; ++i) QVERIFY(p->addObject("RibonScale")>=0);
+        QList<QList<QPair<QString,QString>>> properties;
+        QList<QRectF> bounds;
+        for (int i=0; i<3; ++i) {
+            auto *scale=dynamic_cast<RibbonScaleObject *>(p->getObjectAt(i).data()); QVERIFY(scale);
+            scale->left=25.125+i*60; scale->right=scale->left+45.625;
+            scale->top=8.25+i; scale->bottom=188.875+i; scale->yStart=25.5+i;
+            scale->lineWidth=i+1; scale->period=17+i; scale->color=QColor(20+i,40+i,60+i); scale->enabled=false;
+            properties.append(scale->getProperties());
+            bounds.append(scale->getBoundingRect());
+        }
+        // Исключённая из экспорта шкала не должна забирать признак первой.
+        QVERIFY(p->setObjectExportEnabled(2,false));
+        auto dom=p->buildCompiledFpgaXml();
+        auto compiled=FpgaCompiledDocument::fromDomDocument(dom,&error); QVERIFY2(compiled.isValid(),qPrintable(error));
+        QCOMPARE(compiled.objects.size(),2);
+        QCOMPARE(compiled.objects[0].iparams,FpgaScalePlaceholder::parameters(true));
+        QCOMPARE(compiled.objects[1].iparams,FpgaScalePlaceholder::parameters(false));
+        const auto scene=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(scene.document.isValid(),qPrintable(error));
+        QCOMPARE(scene.document.objects[0].startParamIndex,0); QCOMPARE(scene.document.objects[1].startParamIndex,3);
+        const auto path=temp.filePath("scales.xml"); QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage()));
+        QDomDocument saved; QVERIFY2(ProjectXmlFile::read(path,&saved,&error),qPrintable(error));
+        auto object=saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        for (; !object.isNull(); object=object.nextSiblingElement("object")) QVERIFY(!object.firstChildElement("parameters").isNull());
+        QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(),dom.toByteArray());
+        for (int i=0; i<3; ++i) {
+            QCOMPARE(p->getObjectAt(i)->getProperties(),properties[i]);
+            QCOMPARE(p->getObjectAt(i)->getBoundingRect(),bounds[i]);
+            QCOMPARE(p->getObjectAt(i)->isExportEnabled(),i!=2);
+        }
+
+        // Без геометрии заглушка не должна незаметно превращаться в другую шкалу.
+        object=saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        object.removeChild(object.firstChildElement("parameters"));
+        if (saved.firstChild().isProcessingInstruction()) saved.removeChild(saved.firstChild());
+        QVERIFY(ProjectXmlFile::write(path,saved,&error)); QVERIFY(!p->loadFromFile(path));
+        QVERIFY(p->lastErrorMessage().contains("параметры редактора"));
+        QCOMPARE(p->getObjectAt(0)->getBoundingRect(),bounds[0]);
+
+        // Старый односоставный XML без резервной геометрии продолжает открываться.
+        QVERIFY(p->createNewProject("Legacy scale",640,480,Qt::black)); QVERIFY(p->addObject("RibonScale")>=0);
+        const auto original=p->getObjectAt(0)->getProperties();
+        const auto legacy=testInit("RibonScale",p->getObjectAt(0)->serializeParams());
+        QVERIFY(p->saveToFile(path)); QVERIFY(ProjectXmlFile::read(path,&saved,&error));
+        auto scale=saved.documentElement().firstChildElement("objects").firstChildElement("RibonScale");
+        while (!scale.firstChild().isNull()) scale.removeChild(scale.firstChild());
+        auto init=saved.createElement("init"); init.appendChild(saved.createTextNode(legacy)); scale.appendChild(init);
+        object=saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        object.removeChild(object.firstChildElement("parameters"));
+        // ProjectXmlFile сам добавляет декларацию кодировки перед DOM.
+        if (saved.firstChild().isProcessingInstruction()) saved.removeChild(saved.firstChild());
+        QVERIFY(ProjectXmlFile::write(path,saved,&error)); QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+        QCOMPARE(p->getObjectAt(0)->getProperties(),original);
+        QCOMPARE(FpgaCompiledDocument::fromDomDocument(p->buildCompiledFpgaXml(),&error).objects[0].iparams,FpgaScalePlaceholder::parameters(true));
+    }
     void pipelineConfigMatchesPackets() {
         FpgaHardwareScene scene; scene.width=320; scene.height=240;
         scene.schemas.insert("rotationobject",FpgaSchemaRegistry::instance()->buildSchema("rotationobject"));
@@ -2594,6 +2697,11 @@ private slots:
         QCOMPARE(expanded.stages.size(),4); QCOMPARE(expanded.parameterCount(),6); QCOMPARE(expanded.stages.last().ramId,1);
         for(const auto &entry:QList<QPair<QString,int>>{{"rectangle_a",3},{"dashline",4},{"aviahorizont",5},{"RibonScale",6}}) {
             scene.objects={rectangle}; scene.objects[0].type=entry.first;
+            if (entry.second==6) {
+                QVERIFY(!FpgaPipelineConfig::fromScene(scene,&error).isValid());
+                FpgaPipelineConfig legacy; legacy.stages.append({6,1,0}); QVERIFY(legacy.isValid());
+                scene.objects[0].iparams=FpgaScalePlaceholder::parameters(true);
+            }
             QCOMPARE(FpgaPipelineConfig::fromScene(scene,&error).stages.first().type,entry.second);
         }
         scene.objects={};

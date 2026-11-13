@@ -434,7 +434,10 @@ QImage FpgaSimulator::renderFrame() const
         } else if (object.type == QStringLiteral("dashline")) {
             renderDashedLine(&frame, paramHex, document.schemas.value(QStringLiteral("dashline")));
         } else if (object.type == QStringLiteral("RibonScale")) {
-            renderRibbonScale(&frame, paramHex, document.schemas.value(QStringLiteral("RibonScale")));
+            // Новая трёхсловная заглушка не описывает геометрию старой схемы.
+            // Старые односоставные bundle по-прежнему можно просматривать.
+            if (object.iparams.size() == 1)
+                renderRibbonScale(&frame, paramHex, document.schemas.value(QStringLiteral("RibonScale")));
         }
     }
 

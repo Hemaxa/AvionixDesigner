@@ -8074,16 +8074,22 @@
             <init>00000000000000390A20AD478A000000A0B705</init>
         </rectangle_a>
         <RibonScale>
-            <init>0000000000000019A30251215A4AC3D5FFC31B</init>
+            <init>000001ff0074666600164ccd08c00dc011849f</init>
+            <init>00043700041400042800001f40000000000c07</init>
+            <init>0000000000000000000000107000106e00106c</init>
         </RibonScale>
         <rectangle_a>
             <init>000000000000015B03A0AD199A000000A0B705</init>
         </rectangle_a>
         <RibonScale>
-            <init>000000000000001943024C015AB14A480001FF</init>
+            <init>000001ff0074666600164ccd08c00dc011849e</init>
+            <init>00043700041400042800001f40000000000c07</init>
+            <init>0000000000000000000000107000106e00106c</init>
         </RibonScale>
         <RibonScale>
-            <init>000000000000001963024D215ABB4B28000001</init>
+            <init>000001ff0074666600164ccd08c00dc011849e</init>
+            <init>00043700041400042800001f40000000000c07</init>
+            <init>0000000000000000000000107000106e00106c</init>
         </RibonScale>
         <rectangle_a>
             <init>0000000000000033046269593A000000A0B705</init>
@@ -8944,12 +8950,14 @@
                 <flags export-enabled="true" imported-hardware="false" resize-locked="false" selection-locked="false" visible="true">
                     <restriction-hint></restriction-hint>
                 </flags>
+                <parameters enabled="true" color="#ff000000" left="1428" right="1498" top="173" bottom="617" line-width="2" period="24" start-y="203" />
             </object>
             <object export-tag="RibonScale" hardware-index="28" id="object-51" layer-id="1" type="RibonScale">
                 <name></name>
                 <flags export-enabled="true" imported-hardware="false" resize-locked="false" selection-locked="false" visible="true">
                     <restriction-hint></restriction-hint>
                 </flags>
+                <parameters enabled="true" color="#ffff0000" left="1316" right="1418" top="173" bottom="608" line-width="2" period="24" start-y="202" />
             </object>
             <object export-tag="rectangle_a" hardware-index="27" id="object-52" layer-id="1" type="rectangle">
                 <name></name>
@@ -8962,6 +8970,7 @@
                 <flags export-enabled="true" imported-hardware="false" resize-locked="false" selection-locked="false" visible="true">
                     <restriction-hint></restriction-hint>
                 </flags>
+                <parameters enabled="true" color="#ff8de1ff" left="490" right="598" top="173" bottom="649" line-width="2" period="24" start-y="205" />
             </object>
             <object export-tag="rectangle_a" hardware-index="25" id="object-54" layer-id="1" type="rectangle">
                 <name></name>

@@ -129,6 +129,8 @@ qt_add_executable(AvionixDesigner
     src/fpga/model/FpgaHardwareScene.h
     src/fpga/compiler/FpgaSceneCompiler.h
     src/fpga/compiler/FpgaSceneCompiler.cpp
+    src/fpga/compiler/FpgaScalePlaceholder.h
+    src/fpga/compiler/FpgaScalePlaceholder.cpp
     src/fpga/compiler/FpgaXmlExporter.h
     src/fpga/compiler/FpgaXmlExporter.cpp
     src/fpga/compiler/ImageResourceBuilder.h

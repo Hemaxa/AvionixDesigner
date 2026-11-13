@@ -716,7 +716,19 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
                 restricted = text->restrictedAtlasEditing;
                 editing.value("restricted-atlas-editing", restricted);
             }
-            if (reading && !restoreHardware(*ptr, hardware[reference], compiled, restricted, error)) return false;
+            const bool scaleParameters = type == "RibonScale" && (!reading || !object.firstChildElement("parameters").isNull());
+            if (reading && type == "RibonScale" && !scaleParameters
+                && !hardware[reference].firstChildElement("init").nextSiblingElement("init").isNull()) {
+                root.fail("У трёхсловной заглушки шкалы отсутствуют исходные параметры редактора."); return false;
+            }
+            if (reading && !scaleParameters && !restoreHardware(*ptr, hardware[reference], compiled, restricted, error)) return false;
+            if (scaleParameters) {
+                // Аппаратные init шкалы временно фиксированы. Сохраняем исходные
+                // координаты и оформление независимо от заглушки, без округления.
+                // Старые проекты без parameters восстанавливаются из прежнего init.
+                Fields parameters(meta.child("parameters"), reading, error);
+                objectFields(parameters, *ptr, resources);
+            }
             if (auto *text = dynamic_cast<TextObject *>(ptr.data())) {
                 Fields editing(options, reading, error);
                 editing.text("extra-characters", text->extraCharacters);

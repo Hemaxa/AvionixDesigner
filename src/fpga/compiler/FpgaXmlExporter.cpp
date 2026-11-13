@@ -1,4 +1,5 @@
 #include "FpgaXmlExporter.h"
+#include "FpgaScalePlaceholder.h"
 
 #include "ImageResourceBuilder.h"
 #include "FpgaSchemaRegistry.h"
@@ -818,6 +819,7 @@ QDomDocument FpgaXmlExporter::compile(const EditorProjectDocument &document,
         ++nextFontIndex;
     }
 
+    bool firstScale = true;
     for (int objIdx = objects.size() - 1; objIdx >= 0; --objIdx) {
         const auto &obj = objects[objIdx];
         if (!obj->isExportEnabled())
@@ -868,6 +870,17 @@ QDomDocument FpgaXmlExporter::compile(const EditorProjectDocument &document,
         const ParamSchema schema = registry->buildSchema(schemaName);
         if (tagName.isEmpty() || schema.isEmpty())
             continue;
+        if (tagName == QStringLiteral("RibonScale")) {
+            auto scaleEl = doc.createElement(tagName);
+            for (const auto &word : FpgaScalePlaceholder::parameters(firstScale)) {
+                auto initEl = doc.createElement("init");
+                initEl.appendChild(doc.createTextNode(word));
+                scaleEl.appendChild(initEl);
+            }
+            objectsEl.appendChild(scaleEl);
+            firstScale = false;
+            continue;
+        }
         objectsEl.appendChild(createObjectElement(doc, tagName, schema, obj));
     }
 
