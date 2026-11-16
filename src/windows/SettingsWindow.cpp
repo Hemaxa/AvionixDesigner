@@ -182,7 +182,9 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Сдвинуть выделение на 1 пиксель:", new QLabel("← / ↑ / → / ↓", this));
     hotkeysLayout->addRow("Сдвинуть с настраиваемым шагом:", new QLabel("Shift + ← / ↑ / → / ↓", this));
     hotkeysLayout->addRow("Двигать по одной оси (после начала перетаскивания):", new QLabel("Shift + мышь", this));
-    hotkeysLayout->addRow("Временно отключить привязки при перемещении:", new QLabel("Alt + мышь", this));
+    hotkeysLayout->addRow("Переместить копию выделения:", new QLabel("Alt/Option + перетаскивание (зажать до начала)", this));
+    hotkeysLayout->addRow("Отменить перетаскивание копии:", new QLabel("Esc", this));
+    hotkeysLayout->addRow("Временно отключить привязки при обычном перемещении:", new QLabel("Alt/Option (зажать после начала движения)", this));
     hotkeysLayout->addRow("Удалить объект:", new QLabel(QKeySequence(QKeySequence::Delete).toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Удалить объект (Backspace):", new QLabel(QKeySequence(Qt::Key_Backspace).toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Сгруппировать:", new QLabel(QKeySequence("Ctrl+G").toString(QKeySequence::NativeText), this));

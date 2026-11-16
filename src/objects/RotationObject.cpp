@@ -163,14 +163,29 @@ QRectF RotationObject::getBoundingRect() const
     QRectF bounds;
     bool hasBounds = false;
     for (const RotationObjectLayer &layer : layers) {
-        const QRectF layerBounds(layer.xRot + layer.left,
-                                 layer.yRot + layer.top,
-                                 layer.right - layer.left,
-                                 layer.bottom - layer.top);
+        QTransform transform; transform.translate(layer.xRot, layer.yRot);
+        transform.rotate(qRadiansToDegrees(qAtan2(layer.sinVal, layer.cosVal)));
+        const QRectF layerBounds = transform.mapRect(QRectF(layer.left, layer.top,
+                                 layer.right - layer.left, layer.bottom - layer.top));
         bounds = hasBounds ? bounds.united(layerBounds) : layerBounds;
         hasBounds = true;
     }
     return hasBounds ? bounds : QRectF();
+}
+
+QPolygonF RotationObject::selectionPolygon() const
+{
+    QTransform frame; frame.translate(xRot, yRot); frame.rotate(getAngleDegrees());
+    const auto inverse = frame.inverted();
+    QRectF bounds;
+    const auto layers = m_layers.isEmpty() ? QVector<RotationObjectLayer>{currentLayer()} : m_layers;
+    for (const auto &layer : layers) {
+        QTransform transform; transform.translate(layer.xRot, layer.yRot);
+        transform.rotate(qRadiansToDegrees(qAtan2(layer.sinVal, layer.cosVal)));
+        const auto polygon = transform.map(QPolygonF(QRectF(layer.left, layer.top, layer.right - layer.left, layer.bottom - layer.top)));
+        bounds = bounds.united(inverse.map(polygon).boundingRect());
+    }
+    return frame.map(QPolygonF(bounds));
 }
 
 bool RotationObject::contains(const QPointF &point) const

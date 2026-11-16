@@ -221,7 +221,7 @@ void ObjectListPanel::refreshList() {
 
     const QString name = objectDisplayName(obj);
     const QString typeText = typeLabelForObject(obj.data());
-    const QString text = QString("%1. %2").arg(index + 1).arg(name);
+    const QString text = name;
 
     QListWidgetItem *item = new QListWidgetItem();
     item->setData(KindRole, static_cast<int>(RowKind::Object));

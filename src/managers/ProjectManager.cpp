@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QSet>
+#include <QRegularExpression>
 #include <QImageReader>
 #include <QSvgRenderer>
 #include "ApplicationSettings.h"
@@ -94,6 +95,7 @@ bool ProjectManager::loadFromFile(const QString &fileName)
     m_document = state.document;
     m_objects = state.objects; m_objectTags = state.objectTags;
     m_groups = state.groups; m_nextGroupId = state.nextGroupId;
+    m_nextObjectNumber = state.nextObjectNumber;
     m_editorLayers = state.layers; m_nextLayerId = state.nextLayerId;
     m_activeLayerId = state.activeLayerId; m_showAllLayers = state.showAllLayers;
     m_showGrid = state.showGrid; m_snapToCanvas = state.snapToCanvas; m_snapToGrid = state.snapToGrid; m_snapToObjects = state.snapToObjects;
@@ -134,6 +136,7 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
     m_objectTags.clear();
     m_groups.clear();
     m_nextGroupId = 1;
+    m_nextObjectNumber = 1;
     resetEditorLayers();
     clearHistory();
     m_fonts.clear();
@@ -154,7 +157,7 @@ bool ProjectManager::createNewProject(const QString &projectName, int width, int
 ProjectManager::ProjectSnapshot ProjectManager::captureSnapshot() const
 {
     return {ObjectCloner::cloneScene(m_objects), m_objectTags, m_groups, m_nextGroupId,
-            m_editorLayers, m_nextLayerId, m_activeLayerId, m_showAllLayers};
+            m_editorLayers, m_nextLayerId, m_activeLayerId, m_showAllLayers, m_nextObjectNumber};
 }
 
 void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
@@ -163,6 +166,7 @@ void ProjectManager::restoreSnapshot(const ProjectSnapshot &snapshot)
     m_objectTags = snapshot.objectTags;
     m_groups = snapshot.groups;
     m_nextGroupId = snapshot.nextGroupId;
+    m_nextObjectNumber = snapshot.nextObjectNumber;
     m_editorLayers = snapshot.layers;
     m_nextLayerId = snapshot.nextLayerId;
     m_activeLayerId = snapshot.activeLayerId;
@@ -193,12 +197,21 @@ void ProjectManager::clearHistory()
 void ProjectManager::insertObjectAtFront(BaseObject *object, const QString &tagName)
 {
     object->setEditorLayerId(m_activeLayerId);
+    assignObjectName(object);
     m_objects.prepend(QSharedPointer<BaseObject>(object));
     m_objectTags.prepend(tagName);
     for (ObjectGroup &group : m_groups) {
         for (int &member : group.members)
             ++member;
     }
+}
+
+void ProjectManager::assignObjectName(BaseObject *object, bool copy)
+{
+    QString name = object->customName();
+    if (copy) name.remove(QRegularExpression(QStringLiteral("^\\d+\\.\\s+")));
+    if (name.isEmpty()) name = object->getDisplayName();
+    object->setCustomName(QStringLiteral("%1. %2").arg(m_nextObjectNumber++).arg(name));
 }
 
 bool ProjectManager::undo()
@@ -662,6 +675,7 @@ int ProjectManager::mergeStaticGroups(const QList<int> &indexes, QString *errorM
         return fail(report.errors.join('\n'));
 
     recordHistory();
+    assignObjectName(merged.data());
     QList<QSharedPointer<BaseObject>> objects;
     QStringList tags;
     QMap<int,int> oldToNew;
@@ -984,6 +998,7 @@ QList<int> ProjectManager::pasteObjects(std::optional<QPointF> position)
 
     recordHistory();
     const int pasteCount = m_clipboardObjects.size();
+    for (const auto &clone : clones) assignObjectName(clone.data(), true);
     for (ObjectGroup &group : m_groups) {
         for (int &member : group.members)
             member += pasteCount;
@@ -1017,6 +1032,46 @@ QList<int> ProjectManager::pasteObjects(std::optional<QPointF> position)
     emit projectChanged();
     emit logMessage(tr("Вставлено объектов: %1").arg(pastedIndexes.size()));
     return pastedIndexes;
+}
+
+QList<int> ProjectManager::duplicateObjects(const QList<int> &indexes)
+{
+    QList<int> selected;
+    for (int index : indexes) {
+        const auto source = getObjectAt(index);
+        if (!source || source->isSelectionLocked() || !source->canMove() || isSymmetryCopy(index)
+            || !isObjectVisibleInEditor(source.data())) return {};
+        if (!selected.contains(index)) selected.append(index);
+    }
+    std::sort(selected.begin(), selected.end());
+    if (selected.isEmpty()) return {};
+    QList<QSharedPointer<BaseObject>> copies;
+    QStringList tags;
+    QMap<int, int> copiedIndexes;
+    for (int index : selected) {
+        const auto copy = m_objects[index]->clone();
+        if (!copy) return {};
+        copiedIndexes.insert(index, copies.size());
+        copies.append(copy); tags.append(m_objectTags.value(index));
+    }
+    recordHistory();
+    const auto groups = m_groups;
+    for (auto &group : m_groups) for (int &member : group.members) member += copies.size();
+    for (const auto &group : groups) {
+        const bool complete = std::all_of(group.members.cbegin(), group.members.cend(), [&copiedIndexes](int member) {
+            return copiedIndexes.contains(member);
+        });
+        if (!complete || group.members.size() < 2) continue;
+        ObjectGroup copy{m_nextGroupId++, group.name, {}};
+        for (int member : group.members) copy.members.append(copiedIndexes.value(member));
+        m_groups.append(copy);
+    }
+    QList<int> result;
+    for (int i = 0; i < copies.size(); ++i) { assignObjectName(copies[i].data(), true); result.append(i); }
+    m_objects = copies + m_objects;
+    m_objectTags = tags + m_objectTags;
+    emit projectChanged();
+    return result;
 }
 
 bool ProjectManager::canPasteObjects() const
@@ -1073,6 +1128,7 @@ QList<int> ProjectManager::createSymmetry(const QList<int> &indexes, Qt::Orienta
         auto copy = QSharedPointer<SymmetryCopyObject>::create(source, axis);
         copy->setEditorLayerId(source->editorLayerId());
         copy->setCustomName((source->customName().isEmpty() ? source->getDisplayName() : source->customName()) + tr(" — копия"));
+        assignObjectName(copy.data(), true);
         copies.append(objects.size()); objects.append(copy); tags.append(QStringLiteral("symmetry-copy"));
     }
     for (auto &group : m_groups) for (int &member : group.members) member = remap.value(member);
@@ -1291,6 +1347,13 @@ void ProjectManager::finishObjectEdit(const QString &message)
     emit projectChanged();
     if (!message.isEmpty())
         emit logMessage(message);
+}
+
+void ProjectManager::cancelObjectEdit()
+{
+    if (m_undoStack.isEmpty()) return;
+    restoreSnapshot(m_undoStack.takeLast());
+    emit projectChanged();
 }
 
 bool ProjectManager::setObjectProperty(BaseObject *object, const QString &name, const QString &value)
@@ -1550,7 +1613,7 @@ int ProjectManager::duplicateEditorLayer(int id)
         for (int index : group.members) if (copiedIndexes.contains(index)) copy.members.append(copiedIndexes.value(index));
         if (copy.members.size() >= 2) { ++m_nextGroupId; m_groups.append(copy); }
     }
-    for (const auto &copy : copies) copy->setEditorLayerId(newId);
+    for (const auto &copy : copies) { copy->setEditorLayerId(newId); assignObjectName(copy.data(), true); }
     m_objects = copies + m_objects;
     m_objectTags = tags + m_objectTags;
     m_activeLayerId = newId;
@@ -1646,6 +1709,7 @@ bool ProjectManager::saveToFile(const QString &targetFile)
     state.objects = m_objects; state.objectTags = m_objectTags;
     state.layers = m_editorLayers; state.groups = m_groups;
     state.nextLayerId = m_nextLayerId; state.nextGroupId = m_nextGroupId;
+    state.nextObjectNumber = m_nextObjectNumber;
     state.activeLayerId = m_activeLayerId; state.showAllLayers = m_showAllLayers;
     state.showGrid = m_showGrid; state.snapToCanvas = m_snapToCanvas; state.snapToGrid = m_snapToGrid; state.snapToObjects = m_snapToObjects;
     state.gridStep = m_gridStep; state.gridColor = m_gridColor;

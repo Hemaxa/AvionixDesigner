@@ -491,14 +491,19 @@ private slots:
         QVERIFY(qAbs(rotation->getAngleDegrees()-90)<1.);QVERIFY(QLineF(rotation->rotationCenter(),pivot).length()<.01);
         viewport.grab().save(QCoreApplication::applicationDirPath()+"/rotation-pivot.png");
         QVERIFY(p->undo());rotation=dynamic_cast<RotationObject *>(p->getObjectAt(0).data());QVERIFY(qAbs(rotation->getAngleDegrees())<.001);QVERIFY(QLineF(rotation->rotationCenter(),pivot).length()<.01);
-        // У длинного повёрнутого объекта метка может совпасть с ручкой поворота.
+        // У длинного повёрнутого объекта ручка тоже поворачивается и остаётся снаружи.
         rotation->setEditorRotationPivot(std::nullopt);rotation->xRot=320;rotation->yRot=240;
         rotation->left=-100;rotation->right=100;rotation->top=-10;rotation->bottom=10;rotation->setRotation(90);
-        viewport.setSelectedIndex(0);const auto same=point(QPointF(320,230-24/scale));
+        viewport.setSelectedIndex(0);
+        const auto polygon=rotation->selectionPolygon();const auto edge=polygon[1]-polygon[0];
+        const auto handlePosition=(polygon[0]+polygon[1])/2+QPointF(edge.y(),-edge.x())*(24/scale/QLineF(polygon[0],polygon[1]).length());
+        const auto same=point(handlePosition);
         QTest::mouseClick(&viewport,Qt::LeftButton,EditorGestures::rotationPivotModifiers,same);
+        QVERIFY(!rotation->editorRotationPivot());
         const auto stationaryPivot=rotation->rotationCenter();QTest::mousePress(&viewport,Qt::LeftButton,Qt::NoModifier,same);
-        const auto far=same+QPoint(20,15);QMouseEvent overlap(QEvent::MouseMove,QPointF(far),QPointF(viewport.mapToGlobal(far)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&viewport,&overlap);
-        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,far);QVERIFY(qAbs(rotation->getAngleDegrees()-90)<.001);QCOMPARE(rotation->rotationCenter(),stationaryPivot);
+        QTransform further;further.rotate(45);const auto far=point(stationaryPivot+further.map(handlePosition-stationaryPivot));
+        QMouseEvent overlap(QEvent::MouseMove,QPointF(far),QPointF(viewport.mapToGlobal(far)),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&viewport,&overlap);
+        QTest::mouseRelease(&viewport,Qt::LeftButton,Qt::NoModifier,far);QVERIFY(qAbs(rotation->getAngleDegrees()-135)<1.);QCOMPARE(rotation->rotationCenter(),stationaryPivot);
         // Выбор точки на другом цветном слое и общий поворот нескольких слоёв.
         RotationObject multi;multi.left=-40;multi.right=40;multi.top=-30;multi.bottom=30;multi.xRot=120;multi.yRot=100;multi.cosVal=65536;
         multi.restoreHardwareLayers({{-40,-30,40,30,120,100,0,65536,Qt::red,true},{-40,-30,40,30,180,100,0,65536,Qt::green,true}});
@@ -518,7 +523,7 @@ private slots:
         QCOMPARE(p->getObjectCount(),4); QCOMPARE(p->symmetryAxes().size(),1);
         QCOMPARE(p->groupMembersForObject(0),(QList<int>{0,2}));
         auto *copy=dynamic_cast<SymmetryCopyObject *>(p->getObjectAt(1).data()); QVERIFY(copy);
-        QCOMPARE(copy->customName(),QStringLiteral("Левый прибор — копия")); QCOMPARE(copy->source(),p->getObjectAt(0));
+        QCOMPARE(copy->customName(),QStringLiteral("3. Левый прибор — копия")); QCOMPARE(copy->source(),p->getObjectAt(0));
         QCOMPARE(copy->getBoundingRect().center().x(),320-p->getObjectAt(0)->getBoundingRect().center().x());
         QVERIFY(!copy->isExportEnabled()); QVERIFY(!copy->canMove()); QVERIFY(!copy->canResize());
         QVERIFY(!p->setObjectExportEnabled(1,true)); copy->setExportEnabled(true); QVERIFY(!copy->isExportEnabled());
@@ -2294,6 +2299,136 @@ private slots:
         const auto report=FpgaResourceLimits::inspect(*source); QVERIFY(report.errors.isEmpty()); QVERIFY(!report.warnings.isEmpty());
         const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(),qPrintable(error)); QVERIFY(!bundle.warnings.isEmpty());
     }
+    void rotatedBoundsAndManipulators() {
+        QImage raster(120, 40, QImage::Format_ARGB32); raster.fill(Qt::white);
+        ImageObject image(ImageObject::Kind::Rotating); image.setRasterImage(raster, {}); image.x = 100; image.y = 100;
+        RotationObject rotation; rotation.xRot = 300; rotation.yRot = 200;
+        rotation.left = -60; rotation.right = 60; rotation.top = -20; rotation.bottom = 20;
+        for (double angle : {0., 30., 90., 137., 270.}) {
+            image.setRotation(angle); rotation.setRotation(angle);
+            const double radians = qDegreesToRadians(angle);
+            const double width = qAbs(120 * qCos(radians)) + qAbs(40 * qSin(radians));
+            const double height = qAbs(120 * qSin(radians)) + qAbs(40 * qCos(radians));
+            for (const auto *object : QList<const BaseObject *>{&image, &rotation}) {
+                const auto bounds = object->getBoundingRect();
+                QVERIFY(qAbs(bounds.width() - width) < .003); QVERIFY(qAbs(bounds.height() - height) < .003);
+                const auto polygon = object->selectionPolygon(); QCOMPARE(polygon.size(), 5);
+                const auto edge = polygon[1] - polygon[0];
+                QVERIFY(qAbs(edge.x() / 120 - qCos(radians)) < .0001);
+                QVERIFY(qAbs(edge.y() / 120 - qSin(radians)) < .0001);
+                QVERIFY(QLineF(bounds.center(), object->rotationCenter()).length() < .001);
+            }
+        }
+        image.setRotation(90);
+        QVERIFY(image.contains(QPointF(160, 65))); // За пределами исходного прямоугольника.
+        const auto oldFrame = image.selectionPolygon(); const auto fixedEdge = (oldFrame[0] + oldFrame[3]) / 2;
+        image.resizeBy(2, 0, 20, false);
+        QCOMPARE(image.width, 140.); QCOMPARE(image.height, 40.);
+        const auto newFrame = image.selectionPolygon();
+        QVERIFY(QLineF(fixedEdge, (newFrame[0] + newFrame[3]) / 2).length() < .001);
+
+        auto *p = ProjectManager::instance(); QTemporaryDir temp;
+        const auto png = temp.filePath("rotated.png"); QVERIFY(raster.save(png));
+        for (bool imported : {false, true}) {
+            p->createNewProject("Rotated handles", 640, 480, Qt::black);
+            if (imported) QVERIFY(p->importImage(png, true) >= 0); else QVERIFY(p->addObject("rotationobject") >= 0);
+            const auto object = p->getObjectAt(0);
+            if (auto *v = dynamic_cast<ImageObject *>(object.data())) { v->x = 240; v->y = 180; v->width = 120; v->height = 40; }
+            else { auto *raw = static_cast<RotationObject *>(object.data()); raw->xRot = 300; raw->yRot = 200; raw->left = -60; raw->right = 60; raw->top = -20; raw->bottom = 20; }
+            object->setRotation(45); p->setSnapToCanvas(false); p->setSnapToGrid(false); p->setSnapToObjects(false);
+            ViewportPanel viewport; viewport.resize(640, 480); viewport.show(); viewport.setSelectedIndex(0); QTest::qWait(5);
+            auto point = [](QPointF position) { return QPoint(qRound(16 + position.x() * .95), qRound(12 + position.y() * .95)); };
+            const auto polygon = object->selectionPolygon();
+            const auto middle = (polygon[1] + polygon[2]) / 2;
+            const auto direction = (polygon[1] - polygon[0]) / QLineF(polygon[0], polygon[1]).length();
+            const auto to = point(middle + direction * 25);
+            QTest::mousePress(&viewport, Qt::LeftButton, Qt::NoModifier, point(middle));
+            QMouseEvent move(QEvent::MouseMove, QPointF(to), QPointF(viewport.mapToGlobal(to)), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&viewport, &move); QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, to);
+            QVERIFY(QLineF(object->selectionPolygon()[0], object->selectionPolygon()[1]).length() > 140);
+            if (imported) viewport.grab().save(QCoreApplication::applicationDirPath() + "/rotated-selection.png");
+            QVERIFY(p->undo());
+            QVERIFY(qAbs(QLineF(p->getObjectAt(0)->selectionPolygon()[0], p->getObjectAt(0)->selectionPolygon()[1]).length() - 120) < .001);
+        }
+    }
+    void persistentObjectNames() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Names", 640, 480, Qt::black);
+        QVERIFY(p->addObject("rectangle") >= 0); const auto a = p->getObjectAt(0);
+        QVERIFY(p->addObject("rectangle") >= 0); const auto b = p->getObjectAt(0);
+        const auto aName = a->customName(), bName = b->customName();
+        QVERIFY(aName.startsWith("1. ")); QVERIFY(bName.startsWith("2. "));
+        QVERIFY(p->reorderObjects({1, 0})); QCOMPARE(a->customName(), aName); QCOMPARE(b->customName(), bName);
+        QVERIFY(p->renameObject(0, "Только имя"));
+        ObjectListPanel list; list.refreshList(); bool found = false;
+        for (auto *label : list.findChildren<QLabel *>("ObjectListRowLabel")) found |= label->text() == "Только имя";
+        QVERIFY(found);
+        QVERIFY(p->renameObject(0, "")); list.refreshList(); found = false;
+        for (auto *label : list.findChildren<QLabel *>("ObjectListRowLabel")) found |= label->text() == a->getDisplayName();
+        QVERIFY(found); // Автоматический номер не возвращается после его удаления.
+        QVERIFY(p->renameObject(0, "Только имя"));
+        QVERIFY(p->addObject("rectangle") >= 0); QVERIFY(p->getObjectAt(0)->customName().startsWith("3. "));
+        QVERIFY(p->removeObjects({0}));
+        QTemporaryDir temp; const auto file = temp.filePath("names.xml");
+        QVERIFY(p->saveToFile(file)); QVERIFY(p->loadFromFile(file));
+        QCOMPARE(p->getObjectAt(0)->customName(), QString("Только имя"));
+        QVERIFY(p->addObject("rectangle") >= 0); const auto name = p->getObjectAt(0)->customName(); QVERIFY(name.startsWith("4. "));
+        QVERIFY(p->undo()); QVERIFY(p->redo()); QCOMPARE(p->getObjectAt(0)->customName(), name);
+        QVERIFY(p->copyObjects({0})); QCOMPARE(p->pasteObjects().size(), 1); QVERIFY(p->getObjectAt(0)->customName().startsWith("5. "));
+        const int layer = p->duplicateEditorLayer(p->activeLayerId()); QVERIFY(layer > 1);
+        QSet<QString> names;
+        for (const auto &object : p->getObjects()) { QVERIFY(!names.contains(object->customName())); names.insert(object->customName()); }
+        QVERIFY(p->saveToFile(file));
+        QDomDocument old; QString error; QVERIFY(ProjectXmlFile::read(file, &old, &error));
+        const auto editor = old.documentElement().firstChildElement("editor");
+        editor.firstChildElement("workspace").removeAttribute("next-object-number");
+        editor.firstChildElement("scene").firstChildElement("object").firstChildElement("name").firstChild().setNodeValue("");
+        QDomDocument legacy; legacy.appendChild(legacy.importNode(old.documentElement(), true));
+        QVERIFY(ProjectXmlFile::write(file, legacy, &error)); QVERIFY2(p->loadFromFile(file), qPrintable(p->lastErrorMessage()));
+        const auto migrated = p->getObjectAt(0); QVERIFY(migrated->customName().startsWith("1. "));
+        const auto migratedName = migrated->customName(); QVERIFY(p->sendObjectsToBack({0})); QCOMPARE(migrated->customName(), migratedName);
+    }
+    void altDragDuplication() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Alt drag", 640, 480, Qt::black); QVERIFY(p->addObject("rectangle") >= 0);
+        auto source = p->getObjectAt(0); auto *r = static_cast<RectangleObject *>(source.data());
+        r->x = 60; r->y = 70; r->width = 80; r->height = 40; r->strokeColor = Qt::transparent;
+        p->setSnapToCanvas(false); p->setSnapToGrid(false); p->setSnapToObjects(false); QVERIFY(p->copyObjects({0}));
+        ViewportPanel viewport; viewport.resize(640, 480); viewport.show(); viewport.setSelectedIndex(0); QTest::qWait(5);
+        auto point = [](double x, double y) { return QPoint(qRound(16 + x * .95), qRound(12 + y * .95)); };
+        auto move = [&](QPoint position, Qt::KeyboardModifiers modifiers) {
+            QMouseEvent event(QEvent::MouseMove, QPointF(position), QPointF(viewport.mapToGlobal(position)), Qt::NoButton, Qt::LeftButton, modifiers);
+            QApplication::sendEvent(&viewport, &event);
+        };
+        QTest::mousePress(&viewport, Qt::LeftButton, Qt::AltModifier, point(100, 90));
+        move(point(101, 90), Qt::AltModifier); QCOMPARE(p->getObjectCount(), 1);
+        QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::AltModifier, point(101, 90)); QCOMPARE(r->x, 60.);
+        QTest::mousePress(&viewport, Qt::LeftButton, Qt::AltModifier, point(100, 90));
+        move(point(140, 120), Qt::AltModifier); QCOMPARE(p->getObjectCount(), 2);
+        QCOMPARE(r->x, 60.); QCOMPARE(r->y, 70.);
+        auto *copy = static_cast<RectangleObject *>(p->getObjectAt(0).data()); QVERIFY(copy != r);
+        QVERIFY(qAbs(copy->x - 100) < 1.5); QVERIFY(qAbs(copy->y - 100) < 1.5);
+        QVERIFY(copy->customName().startsWith("2. ")); QCOMPARE(viewport.getSelectedIndexes(), QList<int>{0});
+        move(point(160, 130), Qt::AltModifier); move(point(180, 140), Qt::NoModifier); QCOMPARE(p->getObjectCount(), 2);
+        QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, point(180, 140));
+        const auto copyBounds = copy->getBoundingRect();
+        QVERIFY(p->undo()); QCOMPARE(p->getObjectCount(), 1); QCOMPARE(p->getObjectAt(0)->getBoundingRect().topLeft(), QPointF(60, 70));
+        QVERIFY(p->redo()); QCOMPARE(p->getObjectCount(), 2); QCOMPARE(p->getObjectAt(0)->getBoundingRect(), copyBounds);
+        QVERIFY(p->undo()); viewport.setSelectedIndex(0);
+        QTest::mousePress(&viewport, Qt::LeftButton, Qt::AltModifier, point(100, 90));
+        move(point(140, 120), Qt::AltModifier); QCOMPARE(p->getObjectCount(), 2);
+        QTest::keyClick(&viewport, Qt::Key_Escape); QCOMPARE(p->getObjectCount(), 1); QVERIFY(!p->canRedo());
+        QTest::mouseRelease(&viewport, Qt::LeftButton, Qt::NoModifier, point(140, 120));
+        QCOMPARE(p->pasteObjects().size(), 1); QCOMPARE(static_cast<RectangleObject *>(p->getObjectAt(0).data())->x, 84.);
+        // Копирование группы сохраняет внутренние связи и исходные редакторские слои.
+        QVERIFY(p->groupObjects({0, 1}) >= 0); const int originalLayer = p->getObjectAt(0)->editorLayerId();
+        p->addEditorLayer(); p->setShowAllLayers(true);
+        const auto copies = p->duplicateObjects({0, 1}); QCOMPARE(copies, (QList<int>{0, 1}));
+        QCOMPARE(p->objectGroups().size(), 2); QCOMPARE(p->groupMembersForObject(0), copies);
+        QCOMPARE(p->getObjectAt(0)->editorLayerId(), originalLayer);
+        QVERIFY(p->setObjectSelectionLocked(0, true)); const int count = p->getObjectCount(); QVERIFY(p->duplicateObjects({0}).isEmpty()); QCOMPARE(p->getObjectCount(), count);
+        SettingsWindow settings; bool shortcut = false;
+        for (const auto *label : settings.findChildren<QLabel *>()) shortcut |= label->text().contains("Alt/Option + перетаскивание");
+        QVERIFY(shortcut);
+    }
     void transformModifiersAndMenus() {
         auto *p=ProjectManager::instance(); p->createNewProject("Modifiers",640,480,Qt::black); p->addObject("rectangle");
         p->setSnapToCanvas(false); p->setSnapToGrid(false); p->setSnapToObjects(false);
@@ -2313,7 +2448,10 @@ private slots:
         auto *image=dynamic_cast<ImageObject *>(p->getObjectAt(0).data()); image->x=200; image->y=150; image->width=100; image->height=50;
         viewport.setSelectedIndex(0);
         for (const auto modifier : {Qt::ShiftModifier,Qt::ControlModifier}) {
-            QTest::mousePress(&viewport,Qt::LeftButton,modifier,point(250,150-24/.95));
+            const auto polygon = image->selectionPolygon();
+            const auto edge = polygon[1] - polygon[0];
+            const auto handle = (polygon[0] + polygon[1]) / 2 + QPointF(edge.y(), -edge.x()) * (24 / .95 / QLineF(polygon[0], polygon[1]).length());
+            QTest::mousePress(&viewport,Qt::LeftButton,modifier,point(handle.x(),handle.y()));
             move(point(300,120),modifier); QTest::mouseRelease(&viewport,Qt::LeftButton,modifier,point(300,120));
             const double step=modifier==Qt::ShiftModifier?15.:90.;
             QVERIFY(qAbs(image->rotationDegrees/step-qRound(image->rotationDegrees/step))<.001);

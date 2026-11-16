@@ -13,6 +13,7 @@
 #include <cmath>
 #include <algorithm>
 #include <QPainter>
+#include <QApplication>
 #include <QWheelEvent>
 #include <QMouseEvent>
 #include <QKeyEvent>
@@ -29,6 +30,20 @@
 #include <QtMath>
 
 namespace {
+QVector<QPointF> selectionHandles(const QPolygonF &polygon)
+{
+    if (polygon.size() < 4) return {};
+    return {polygon[0], (polygon[0] + polygon[1]) / 2, polygon[1], (polygon[1] + polygon[2]) / 2,
+            polygon[2], (polygon[2] + polygon[3]) / 2, polygon[3], (polygon[3] + polygon[0]) / 2};
+}
+
+QPointF rotationHandle(const QPolygonF &polygon, double distance)
+{
+    const QPointF edge = polygon[1] - polygon[0];
+    const double length = std::hypot(edge.x(), edge.y());
+    return (polygon[0] + polygon[1]) / 2 + (length > 0 ? QPointF(edge.y(), -edge.x()) * (distance / length) : QPointF());
+}
+
 QPointF constrainedResizeDeltaToCanvas(const QRectF &bounds, int edgeFlags, const QPointF &delta, int canvasW, int canvasH)
 {
     QPointF constrained = delta;
@@ -69,7 +84,7 @@ ViewportPanel::ViewportPanel(QWidget *parent)
     setAcceptDrops(true);
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
-    setToolTip(tr("При перетаскивании: Shift — движение по одной оси, Alt — временно отключить привязки. Равные промежутки показываются автоматически при привязке к объектам. Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°. %1 внутри выделенного вращающегося объекта — поставить центр вращения.").arg(EditorGestures::rotationPivotShortcut()));
+    setToolTip(tr("Alt/Option перед перетаскиванием выделения — переместить копию. При перетаскивании: Shift — движение по одной оси, Alt/Option после начала обычного движения — временно отключить привязки. Равные промежутки показываются автоматически при привязке к объектам. Shift при изменении размера — сохранить пропорции. Shift при повороте — шаг 15°. Ctrl при повороте — шаг 90°. %1 внутри выделенного вращающегося объекта — поставить центр вращения.").arg(EditorGestures::rotationPivotShortcut()));
 
     // подключаемся к сигналу загрузки проекта
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, QOverload<>::of(&QWidget::update));
@@ -138,6 +153,17 @@ QPointF ViewportPanel::pastePosition() const
 
 void ViewportPanel::keyPressEvent(QKeyEvent *event)
 {
+    if (event->key() == Qt::Key_Escape && m_dragMode == Move && (m_dragDuplicatePending || m_dragDuplicating)) {
+        const bool duplicated = m_dragDuplicating;
+        const auto selection = m_dragOriginalSelection;
+        m_dragMode = None; m_dragDuplicatePending = m_dragDuplicating = false;
+        m_dragHistoryRecorded = m_dragEditedObjects = false;
+        m_dragStartObjectBounds.clear(); clearSnapGuides();
+        if (duplicated) ProjectManager::instance()->cancelObjectEdit();
+        setSelectedIndexes(selection);
+        emit objectSelected(m_selectedIndex); emit selectionChanged(m_selectedIndexes);
+        update(); event->accept(); return;
+    }
     if (m_dragMode == Move && (event->key() == Qt::Key_Shift || event->key() == Qt::Key_Alt)) {
         updateMoveDrag(event->modifiers() | (event->key() == Qt::Key_Shift ? Qt::ShiftModifier : Qt::AltModifier));
         event->accept();
@@ -258,8 +284,9 @@ double ViewportPanel::handleSizeInCanvas() const
     return 8.0 / currentTotalScale();
 }
 
-void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate)
+void ViewportPanel::drawManipulators(QPainter &painter, const QPolygonF &polygon, bool canResize, bool canRotate)
 {
+    if (polygon.size() < 4) return;
     painter.save();
 
     // Рамка выделения
@@ -267,7 +294,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
     dashPen.setCosmetic(true);
     painter.setPen(dashPen);
     painter.setBrush(Qt::NoBrush);
-    painter.drawRect(rect);
+    painter.drawPolygon(polygon);
 
     const double size = handleSizeInCanvas();
     const double half = size / 2.0;
@@ -281,21 +308,15 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QRectF &rect, bool
             painter.drawRect(QRectF(x - half, y - half, size, size));
         };
 
-        drawHandle(rect.left(), rect.top());
-        drawHandle(rect.center().x(), rect.top());
-        drawHandle(rect.right(), rect.top());
-        drawHandle(rect.right(), rect.center().y());
-        drawHandle(rect.right(), rect.bottom());
-        drawHandle(rect.center().x(), rect.bottom());
-        drawHandle(rect.left(), rect.bottom());
-        drawHandle(rect.left(), rect.center().y());
+        for (const auto &point : selectionHandles(polygon)) drawHandle(point.x(), point.y());
     }
 
     // Маркер поворота
     if (canRotate) {
-        painter.drawLine(QPointF(rect.center().x(), rect.top()), QPointF(rect.center().x(), rect.top() - size * 3));
+        const auto handle = rotationHandle(polygon, size * 3);
+        painter.drawLine((polygon[0] + polygon[1]) / 2, handle);
         painter.setBrush(m_selectionColor);
-        painter.drawEllipse(QPointF(rect.center().x(), rect.top() - size * 3), half, half);
+        painter.drawEllipse(handle, half, half);
     }
 
     painter.restore();
@@ -814,6 +835,8 @@ void ViewportPanel::clearSnapGuides()
 
 void ViewportPanel::updateMoveDrag(Qt::KeyboardModifiers modifiers)
 {
+    if (m_dragDuplicatePending) return;
+    if (m_dragDuplicating) modifiers &= ~Qt::AltModifier;
     const auto movable = movableSelection();
     if (movable.isEmpty()) return;
     const auto snap = snappedMoveDeltaForSelection(movable, m_dragStartBounds,
@@ -840,8 +863,9 @@ void ViewportPanel::ensureDragHistoryRecorded()
     m_dragEditedObjects = true;
 }
 
-int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, bool canResize, bool canRotate) const
+int ViewportPanel::hitTestManipulators(const QPointF &pos, const QPolygonF &polygon, bool canResize, bool canRotate) const
 {
+    if (polygon.size() < 4) return 0;
     const double baseSize = handleSizeInCanvas();
     const double size = baseSize * 1.5; // Чуть больше зона клика
     const double half = size / 2.0;
@@ -850,19 +874,16 @@ int ViewportPanel::hitTestManipulators(const QPointF &pos, const QRectF &rect, b
         return qAbs(pos.x() - x) <= half && qAbs(pos.y() - y) <= half;
     };
 
-    if (canRotate && isHit(rect.center().x(), rect.top() - baseSize * 3)) return 100; // Идентификаторы направлений курсора изменения размеров.
+    const auto handle = rotationHandle(polygon, baseSize * 3);
+    if (canRotate && isHit(handle.x(), handle.y())) return 100;
 
     if (!canResize)
         return 0;
 
-    if (isHit(rect.left(), rect.top())) return 1 | 4;         // Сверху слева
-    if (isHit(rect.center().x(), rect.top())) return 4;       // Сверху
-    if (isHit(rect.right(), rect.top())) return 2 | 4;        // Сверху справа
-    if (isHit(rect.right(), rect.center().y())) return 2;     // Справа
-    if (isHit(rect.right(), rect.bottom())) return 2 | 8;     // Снизу справа
-    if (isHit(rect.center().x(), rect.bottom())) return 8;    // Снизу
-    if (isHit(rect.left(), rect.bottom())) return 1 | 8;      // Снизу слева
-    if (isHit(rect.left(), rect.center().y())) return 1;      // Слева
+    const auto handles = selectionHandles(polygon);
+    const int flags[] = {1 | 4, 4, 2 | 4, 2, 2 | 8, 8, 1 | 8, 1};
+    for (int i = 0; i < handles.size(); ++i)
+        if (isHit(handles[i].x(), handles[i].y())) return flags[i];
 
     return 0; // Нет попадания
 }
@@ -946,9 +967,8 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
                 }
             }
 
-            QRectF rect = objects[i]->getBoundingRect();
             bool canRotate = objects[i]->supportsRotationHandle();
-            drawManipulators(painter, rect, singleSelection && objects[i]->canResize(), singleSelection && canRotate);
+            drawManipulators(painter, objects[i]->selectionPolygon(), singleSelection && objects[i]->canResize(), singleSelection && canRotate);
             if (singleSelection && canRotate) drawRotationPivot(painter, objects[i].data());
         }
     }
@@ -961,7 +981,7 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
         const QRectF groupRect = selectedObjectsRect();
         if (sameLayer && !groupRect.isNull()) {
             m_selectionColor = pm->editorLayerColor(layer);
-            drawManipulators(painter, groupRect, false, false);
+            drawManipulators(painter, QPolygonF(groupRect), false, false);
         }
     }
 
@@ -1013,11 +1033,16 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
     setFocus(Qt::MouseFocusReason);
     m_dragHistoryRecorded = false;
     m_dragEditedObjects = false;
+    m_dragDuplicatePending = m_dragDuplicating = false;
+    m_dragOriginalSelection = m_selectedIndexes;
 
     if (event->button() == Qt::LeftButton) {
         QPointF canvasPos = mapToCanvas(event->pos());
         m_lastMousePos = canvasPos;
         auto pm = ProjectManager::instance();
+        m_dragDuplicatePending = event->modifiers().testFlag(Qt::AltModifier)
+            && !(event->modifiers() & (Qt::ControlModifier | Qt::MetaModifier))
+            && !m_selectedIndexes.isEmpty() && selectedObjectContains(canvasPos);
         if (event->modifiers() == EditorGestures::rotationPivotModifiers) {
             m_dragMode = None;
             if (m_selectedIndex >= 0 && pm->setObjectRotationPivot(m_selectedIndex, canvasPos)) {
@@ -1048,7 +1073,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                         return;
                     }
                 }
-                const int handle = hitTestManipulators(canvasPos, object->getBoundingRect(), object->canResize(), object->supportsRotationHandle());
+                const int handle = hitTestManipulators(canvasPos, object->selectionPolygon(), object->canResize(), object->supportsRotationHandle());
                 if (handle == 100) {
                     m_dragMode = Rotate;
                     m_rotationCenter = object->rotationCenter();
@@ -1067,7 +1092,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
             }
         }
 
-        const bool additive = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier);
+        const bool additive = !m_dragDuplicatePending && (event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier));
         m_marqueeBaseSelection = additive ? m_selectedIndexes : QList<int>{};
         if (additive) {
             m_dragMode = None;
@@ -1238,6 +1263,17 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
     double dy = canvasPos.y() - m_lastMousePos.y();
 
     if (m_dragMode == Move) {
+        if (m_dragDuplicatePending) {
+            if (((canvasPos - m_dragStartCanvasPos) * currentTotalScale()).manhattanLength() < QApplication::startDragDistance()) return;
+            const auto start = m_dragStartCanvasPos;
+            const auto copies = ProjectManager::instance()->duplicateObjects(movableSelection());
+            m_dragDuplicatePending = false;
+            if (copies.isEmpty()) { m_dragMode = None; return; }
+            setSelectedIndexes(copies);
+            beginMoveDrag(start, {});
+            m_dragDuplicating = m_dragHistoryRecorded = m_dragEditedObjects = true;
+            emit objectSelected(m_selectedIndex); emit selectionChanged(m_selectedIndexes);
+        }
         m_dragPointerCanvasPos = canvasPos;
         updateMoveDrag(event->modifiers());
         return;
@@ -1247,14 +1283,18 @@ void ViewportPanel::mouseMoveEvent(QMouseEvent *event)
         if (m_dragMode == Resize) {
             if (qFuzzyIsNull(dx) && qFuzzyIsNull(dy))
                 return;
-            const QPointF constrainedDelta = constrainedResizeDeltaToCanvas(
+            const auto polygon = obj->selectionPolygon();
+            const auto bounds = obj->getBoundingRect();
+            const bool rotated = polygon.size() >= 4 && (QLineF(polygon[0], bounds.topLeft()).length() > 1e-6
+                || QLineF(polygon[1], bounds.topRight()).length() > 1e-6);
+            const QPointF constrainedDelta = rotated ? QPointF(dx, dy) : constrainedResizeDeltaToCanvas(
                 obj->getBoundingRect(),
                 m_resizeEdgeFlags,
                 QPointF(dx, dy),
                 ProjectManager::instance()->getCanvasWidth(),
                 ProjectManager::instance()->getCanvasHeight()
             );
-            const SnapResizeResult snap = snappedResizeDelta(
+            const SnapResizeResult snap = rotated ? SnapResizeResult{constrainedDelta, {}} : snappedResizeDelta(
                 m_selectedIndex,
                 obj->getBoundingRect(),
                 m_resizeEdgeFlags,
@@ -1361,6 +1401,8 @@ void ViewportPanel::mouseReleaseEvent(QMouseEvent *event)
     m_dragStartObjectBounds.clear();
     m_dragHistoryRecorded = false;
     m_dragEditedObjects = false;
+    m_dragDuplicatePending = m_dragDuplicating = false;
+    m_dragOriginalSelection.clear();
     update();
 }
 
