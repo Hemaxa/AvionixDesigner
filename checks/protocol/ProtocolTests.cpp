@@ -1945,7 +1945,7 @@ private slots:
     void textAddressLimitsAndInvalidXml() {
         QString error;
         auto source = FpgaCompiledDocument::fromDomDocument(textFixture("A"),&error);
-        const int capacity = FpgaResourceLimits::fontPixels;
+        const int capacity = FpgaResourceLimits::fontPixels();
         source.fonts[0].maskData = QString(capacity-6,'0') + "707377";
         auto &glyph=source.fonts[0].glyphs['A'];
         glyph.offset = capacity-6;
@@ -1953,7 +1953,8 @@ private slots:
         QCOMPARE(scene.memories.first().data.size(),capacity);
         QCOMPARE(BitParser::extract(scene.objects.first().iparams.first(),73,16),quint32(capacity-6));
         const auto full=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(full.document.isValid(),qPrintable(error));
-        QCOMPARE(full.packets.last().address,16384); QCOMPARE(full.packets.last().payloadSize,1);
+        QCOMPARE(full.packets.last().address,((capacity-1)/1024)*1024);
+        QCOMPARE(full.packets.last().payloadSize,((capacity-1)%1024)+1);
         FpgaSimulator simulator; simulator.loadBundle(full); QCOMPARE(simulator.renderFrame().pixelColor(12,21),QColor(0x12,0x34,0x56));
         source.fonts[0].maskData.append('0');
         QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains(QString::number(capacity)));
@@ -2103,6 +2104,50 @@ private slots:
         pixels->setValue(65536); elements->setValue(8);
         QVERIFY(QMetaObject::invokeMethod(&window,"saveSettings",Qt::DirectConnection));
         QCOMPARE(ApplicationSettings::staticGroupPixels(),65536); QCOMPARE(ApplicationSettings::staticGroupElements(),8);
+    }
+    void configurableSymbolLimits() {
+        QTemporaryDir temp;
+        const auto oldPath=qgetenv("AVIONIX_SETTINGS_FILE");
+        auto restore=qScopeGuard([&]{qputenv("AVIONIX_SETTINGS_FILE",oldPath);});
+        qputenv("AVIONIX_SETTINGS_FILE",temp.filePath("symbols.ini").toUtf8());
+        auto settings=ApplicationSettings::create();
+        QCOMPARE(ApplicationSettings::symbolPixels(),65536);
+        settings.setValue("fpga/symbolPixels",70000); settings.sync();
+        QCOMPARE(FpgaResourceLimits::fontPixels(),65536);
+        settings.setValue("fpga/symbolPixels",0); settings.sync();
+        QCOMPARE(FpgaResourceLimits::fontPixels(),1);
+        settings.setValue("fpga/symbolPixels",17); settings.sync();
+        QString error;
+        const auto source=FpgaCompiledDocument::fromDomDocument(textFixture("A"),&error);
+        const auto scene=FpgaSceneCompiler().compile(source,&error); QVERIFY2(scene.isValid(),qPrintable(error));
+        auto bundle=FpgaPacketCompiler().compile(scene,&error); QVERIFY2(bundle.document.isValid(),qPrintable(error));
+        FpgaSimulator simulator; simulator.loadBundle(bundle); QVERIFY(simulator.warnings().isEmpty());
+        settings.setValue("fpga/symbolPixels",16); settings.sync();
+        QVERIFY(!FpgaSceneCompiler().compile(source,&error).isValid()); QVERIFY(error.contains("17")); QVERIFY(error.contains("16"));
+        QVERIFY(!FpgaPacketCompiler().compile(scene,&error).document.isValid()); QVERIFY(error.contains("16"));
+        simulator.loadBundle(bundle); QVERIFY(!simulator.warnings().isEmpty());
+        // Обрезанная справа маска также расходует настроенный банк, а не старую константу.
+        auto clipped=source; clipped.width=12;
+        settings.setValue("fpga/symbolPixels",20); settings.sync();
+        QVERIFY(!FpgaSceneCompiler().compile(clipped,&error).isValid()); QVERIFY(error.contains("обрезанными"));
+        settings.setValue("fpga/symbolPixels",21); settings.sync();
+        const auto clippedScene=FpgaSceneCompiler().compile(clipped,&error); QVERIFY2(clippedScene.isValid(),qPrintable(error));
+        QCOMPARE(clippedScene.memories.first().data.size(),21);
+        // Лимит SYMBOLs не уменьшает независимый банк STATICGROUP.
+        auto staticScene=scene; staticScene.objects[0].type="staticgroup"; staticScene.memories[0].kind=FpgaMemoryKind::StaticMask;
+        settings.setValue("fpga/symbolPixels",1); settings.sync();
+        QVERIFY2(FpgaPacketCompiler().compile(staticScene,&error).document.isValid(),qPrintable(error));
+        SettingsWindow window;
+        auto *pixels=window.findChild<QSpinBox *>("SymbolPixelsSpin"); QVERIFY(pixels);
+        QCOMPARE(pixels->value(),1); QCOMPARE(pixels->maximum(),65536);
+        pixels->setValue(32768);
+        QVERIFY(QMetaObject::invokeMethod(&window,"saveSettings",Qt::DirectConnection));
+        QCOMPARE(ApplicationSettings::symbolPixels(),32768);
+        SettingsWindow reopened;
+        QCOMPARE(reopened.findChild<QSpinBox *>("SymbolPixelsSpin")->value(),32768);
+        QVERIFY(QMetaObject::invokeMethod(&reopened,"resetAllSettings",Qt::DirectConnection));
+        QCOMPARE(ApplicationSettings::symbolPixels(),65536);
+        QCOMPARE(reopened.findChild<QSpinBox *>("SymbolPixelsSpin")->value(),65536);
     }
     void editorHardwareDataAndExportToggle() {
         auto *p=ProjectManager::instance(); QTemporaryDir temp; QString error;

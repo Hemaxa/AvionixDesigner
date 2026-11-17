@@ -92,6 +92,19 @@ void SettingsWindow::createWidgets()
     fpgaLayout->addRow(QStringLiteral("Количество элементов:"), m_staticGroupElementsSpin);
     settingsLayout->addWidget(fpgaGroup);
 
+    auto *symbolsGroup = new QGroupBox(QStringLiteral("ПЛИС — SYMBOLs"), this);
+    auto *symbolsLayout = new QFormLayout(symbolsGroup);
+    symbolsLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    m_symbolPixelsSpin = new ExpressionSpinBox(this);
+    m_symbolPixelsSpin->setObjectName("SymbolPixelsSpin");
+    m_symbolPixelsSpin->setRange(1, 65536);
+    m_symbolPixelsSpin->setSuffix(QStringLiteral(" точек"));
+    m_symbolPixelsSpin->setToolTip(QStringLiteral(
+        "Ёмкость одного банка масок шрифта. Одна точка — 3 бита в ПЛИС и 1 байт при передаче. "
+        "Максимум 65536 точек при 16-битной адресации."));
+    symbolsLayout->addRow(QStringLiteral("Ёмкость памяти символов:"), m_symbolPixelsSpin);
+    settingsLayout->addWidget(symbolsGroup);
+
     auto *snapGroup = new QGroupBox(QStringLiteral("Сетка и привязки"), this);
     auto *formLayout = new QFormLayout(snapGroup);
     formLayout->setContentsMargins(18, 20, 18, 18);
@@ -374,6 +387,7 @@ void SettingsWindow::loadSettings()
     m_fastMoveStepSpin->setValue(ApplicationSettings::fastMoveStep());
     m_staticGroupPixelsSpin->setValue(ApplicationSettings::staticGroupPixels());
     m_staticGroupElementsSpin->setValue(ApplicationSettings::staticGroupElements());
+    m_symbolPixelsSpin->setValue(ApplicationSettings::symbolPixels());
 
     m_gridStepSpin->setValue(qBound(1, settings.value("gridStep", 10).toInt(), 1000));
     m_currentGridColor = QColor(settings.value("gridColor", "#3778b4c8").toString());
@@ -401,6 +415,7 @@ void SettingsWindow::saveSettings()
     settings.setValue("editor/fastMoveStep", m_fastMoveStepSpin->value());
     settings.setValue("fpga/staticGroupPixels", m_staticGroupPixelsSpin->value());
     settings.setValue("fpga/staticGroupElements", m_staticGroupElementsSpin->value());
+    settings.setValue("fpga/symbolPixels", m_symbolPixelsSpin->value());
     settings.setValue("gridStep", m_gridStepSpin->value());
     settings.setValue("gridColor", m_currentGridColor.name(QColor::HexArgb));
     settings.setValue("snapCanvasGuideColor", m_currentSnapCanvasColor.name(QColor::HexArgb));
