@@ -53,6 +53,7 @@ public:
     QString getDisplayName() const override;
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override;
+    QPolygonF selectionPolygon() const override;
     bool supportsRotationHandle() const override { return true; }
     QTransform rotationFrame() const override;
     QPointF rotationCenter() const override;

@@ -18,6 +18,7 @@ struct State
     QList<ProjectManager::ObjectGroup> groups;
     int nextLayerId = 2;
     int nextGroupId = 1;
+    int nextObjectNumber = 1;
     int activeLayerId = 1;
     bool showAllLayers = false;
     bool showGrid = false;

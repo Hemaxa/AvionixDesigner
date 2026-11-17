@@ -108,10 +108,10 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
                     font = &previous.value();
                 }
                 if (!fontBanks.contains(fontIndex)) {
-                    if (font->maskData.size() > FpgaResourceLimits::fontPixels)
+                    if (font->maskData.size() > FpgaResourceLimits::fontPixels())
                         return fail(QStringLiteral("Атлас «%1», %2 пкс занимает %3 ячеек SYMBOLs из %4. "
                                                    "Уменьшите размер шрифта или сократите алфавит.")
-                            .arg(font->name).arg(font->size).arg(font->maskData.size()).arg(FpgaResourceLimits::fontPixels));
+                            .arg(font->name).arg(font->size).arg(font->maskData.size()).arg(FpgaResourceLimits::fontPixels()));
                     if (scene.memories.size() >= memoryBankCount)
                         return fail(QStringLiteral("Сцена требует более 256 банков памяти; идентификатор банка имеет 8 бит."));
                     fontBanks.insert(fontIndex, scene.memories.size());
@@ -152,9 +152,9 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
                         if (!variants.contains(key)) {
                             QString &data = scene.memories[memId].data;
                             const int end = data.size() + visible.width() * glyph.height;
-                            if (end > FpgaResourceLimits::fontPixels)
+                            if (end > FpgaResourceLimits::fontPixels())
                                 return fail(QStringLiteral("Атлас «%1» с обрезанными у края экрана символами превышает %2 ячеек SYMBOLs.")
-                                    .arg(font->name).arg(FpgaResourceLimits::fontPixels));
+                                    .arg(font->name).arg(FpgaResourceLimits::fontPixels()));
                             variants.insert(key, data.size());
                             for (int y = 0; y < glyph.height; ++y)
                                 data.append(font->maskData.sliced(address + y * glyph.width, visible.width()));

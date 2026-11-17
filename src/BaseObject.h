@@ -8,6 +8,7 @@
 #include <QString>
 #include <QDomElement>
 #include <QSharedPointer>
+#include <QPolygonF>
 #include <optional>
 
 // ParamInfo - смещение и ширина одного поля битовой схемы.
@@ -61,6 +62,8 @@ public:
         return false;
     }
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
+    // Рамка выделения в координатах холста; у вращаемых объектов следует за углом.
+    virtual QPolygonF selectionPolygon() const { return QPolygonF(getBoundingRect()); }
     virtual bool supportsRotationHandle() const { return false; }
     virtual bool canMove() const { return true; }
     virtual bool canResize() const { return !m_resizeLocked; }

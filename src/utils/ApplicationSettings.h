@@ -30,4 +30,9 @@ inline int staticGroupElements()
 {
     return qBound(1, create().value("fpga/staticGroupElements", 8).toInt(), 65536);
 }
+
+inline int symbolPixels()
+{
+    return qBound(1, create().value("fpga/symbolPixels", 65536).toInt(), 65536);
+}
 }

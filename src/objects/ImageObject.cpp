@@ -959,7 +959,12 @@ QList<QPair<QString, QString>> ImageObject::getProperties() const
 
 QRectF ImageObject::getBoundingRect() const
 {
-    return QRectF(x, y, width, height);
+    return isRotationObject() ? selectionPolygon().boundingRect() : QRectF(x, y, width, height);
+}
+
+QPolygonF ImageObject::selectionPolygon() const
+{
+    return isRotationObject() ? rotationFrame().map(QPolygonF(QRectF(0, 0, 1, 1))) : QPolygonF(QRectF(x, y, width, height));
 }
 
 bool ImageObject::contains(const QPointF &point) const
@@ -1002,6 +1007,25 @@ void ImageObject::resizeBy(int edgeFlags, double dx, double dy, bool proportiona
     if (!canResize())
         return;
 
+    if (isRotationObject()) {
+        QTransform rotation; rotation.rotate(rotationDegrees);
+        const QPointF local = rotation.inverted().map(QPointF(dx, dy));
+        const QRectF before(-width / 2, -height / 2, width, height);
+        QRectF after;
+        if (proportional) after = proportionalResizeRect(before, edgeFlags, local.x(), local.y()).rect;
+        else {
+            after = before;
+            if (edgeFlags & 1) after.setLeft(qMin(after.right() - 1, after.left() + local.x()));
+            if (edgeFlags & 2) after.setRight(qMax(after.left() + 1, after.right() + local.x()));
+            if (edgeFlags & 4) after.setTop(qMin(after.bottom() - 1, after.top() + local.y()));
+            if (edgeFlags & 8) after.setBottom(qMax(after.top() + 1, after.bottom() + local.y()));
+        }
+        const QPointF center = QPointF(x + width / 2, y + height / 2) + rotation.map(after.center());
+        width = after.width(); height = after.height();
+        x = center.x() - width / 2; y = center.y() - height / 2;
+        emit changed();
+        return;
+    }
     if (proportional) {
         const auto rect = proportionalResizeRect(QRectF(x, y, width, height), edgeFlags, dx, dy).rect;
         x = rect.x(); y = rect.y(); width = rect.width(); height = rect.height();

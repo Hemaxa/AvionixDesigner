@@ -598,6 +598,8 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
     }
     QSet<int> referencedHardware;
     auto workspace = root.child("workspace"); Fields w(workspace, reading, error);
+    if (!reading || workspace.hasAttribute("next-object-number")) w.value("next-object-number", state.nextObjectNumber);
+    if (state.nextObjectNumber <= 0 || state.nextObjectNumber == INT_MAX) root.fail("Некорректный счётчик имён объектов.");
     QString projectName = state.document.projectName(); QColor background = state.document.backgroundColor();
     int width = state.document.canvasWidth(), height = state.document.canvasHeight();
     w.text("project-name", projectName); w.value("canvas-width", width); w.value("canvas-height", height); w.value("background", background);
@@ -886,6 +888,18 @@ bool read(const QDomElement &editor, State *result, QString *error)
 {
     QString message; State state;
     if (!result || !process(editor, state, true, message)) { if (error) *error = message; return false; }
+    if (!editor.firstChildElement("workspace").hasAttribute("next-object-number")) {
+        // Закрепляем прежние номера строк один раз при открытии старого проекта.
+        state.nextObjectNumber = state.objects.size() + 1;
+        const QRegularExpression numberedName(QStringLiteral("^(\\d+)\\.\\s"));
+        for (int i = 0; i < state.objects.size(); ++i) {
+            const auto &object = state.objects[i];
+            if (object->customName().isEmpty()) object->setCustomName(QStringLiteral("%1. %2").arg(i + 1).arg(object->getDisplayName()));
+            const auto match = numberedName.match(object->customName());
+            bool ok = false; const int number = match.captured(1).toInt(&ok);
+            if (ok && number > 0 && number < INT_MAX - 1) state.nextObjectNumber = qMax(state.nextObjectNumber, number + 1);
+        }
+    }
     *result = state;
     if (error) error->clear();
     return true;

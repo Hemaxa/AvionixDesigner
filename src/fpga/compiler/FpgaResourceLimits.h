@@ -11,8 +11,7 @@ namespace FpgaResourceLimits {
 inline int staticParameters() { return ApplicationSettings::staticGroupElements(); }
 inline int staticPixels() { return ApplicationSettings::staticGroupPixels(); }
 constexpr int rotationTiles = 2048;
-// SYMBOLs использует bram[BD:0] с BD = 16384 в поставляемом RTL.
-constexpr int fontPixels = 16385;
+inline int fontPixels() { return ApplicationSettings::symbolPixels(); }
 
 // Report - ошибки экспорта и предупреждения об уменьшении растров.
 struct Report

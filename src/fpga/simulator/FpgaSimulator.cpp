@@ -387,7 +387,7 @@ void FpgaSimulator::decodePackets()
             const QByteArray payload = bytes.mid(12, length);
             const bool font = memId < m_bundle.document.memories.size()
                 && m_bundle.document.memories[memId].kind == FpgaMemoryKind::FontAtlas;
-            const int capacity = font ? FpgaResourceLimits::fontPixels : FpgaResourceLimits::staticPixels();
+            const int capacity = font ? FpgaResourceLimits::fontPixels() : FpgaResourceLimits::staticPixels();
             if (type == static_cast<quint8>(FpgaPacketType::StaticMemory)
                 && (address + length > capacity
                     || std::any_of(payload.cbegin(), payload.cend(), [](char v) { return quint8(v) > 7; }))) {

@@ -8,6 +8,7 @@
 #include <QList>
 #include <QColor>
 #include <QMap>
+#include <QPolygonF>
 
 // ViewportPanel - панель рабочей области приложения.
 class ViewportPanel : public BasePanel
@@ -104,6 +105,9 @@ private:
     QMap<int, QRectF> m_dragStartObjectBounds;
     bool m_dragHistoryRecorded = false;
     bool m_dragEditedObjects = false;
+    bool m_dragDuplicatePending = false;
+    bool m_dragDuplicating = false;
+    QList<int> m_dragOriginalSelection;
     bool m_proportionalResize = false;
     bool m_rotationSnapping = false;
     QPointF m_rotationCenter;
@@ -121,7 +125,7 @@ private:
     double handleSizeInCanvas() const;
 
     // Отрисовка манипуляторов
-    void drawManipulators(QPainter &painter, const QRectF &rect, bool canResize, bool canRotate);
+    void drawManipulators(QPainter &painter, const QPolygonF &polygon, bool canResize, bool canRotate);
     void drawDashedLineEndpointManipulators(QPainter &painter, const class DashedLineObject *line);
     void drawGrid(QPainter &painter, int canvasW, int canvasH, double totalScale);
     void drawSnapGuides(QPainter &painter, int canvasW, int canvasH);
@@ -133,7 +137,7 @@ private:
                                             const QPointF &delta, Qt::KeyboardModifiers modifiers) const;
     SnapPointResult snappedPoint(const QList<int> &excludedIndexes, const QPointF &point) const;
     SnapResizeResult snappedResizeDelta(int objectIndex, const QRectF &bounds, int edgeFlags, const QPointF &delta) const;
-    int hitTestManipulators(const QPointF &canvasPos, const QRectF &rect, bool canResize, bool canRotate) const;
+    int hitTestManipulators(const QPointF &canvasPos, const QPolygonF &polygon, bool canResize, bool canRotate) const;
     int hitTestDashedLineEndpoints(const QPointF &canvasPos, const class DashedLineObject *line) const;
     QRectF selectedObjectsRect() const;
     bool selectedObjectContains(const QPointF &canvasPos) const;

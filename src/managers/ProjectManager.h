@@ -100,6 +100,8 @@ public:
     bool copyObjects(const QList<int> &indexes);
     // вставляет объекты из внутреннего буфера и возвращает индексы новых объектов
     QList<int> pasteObjects(std::optional<QPointF> position = std::nullopt);
+    // Независимые копии в исходных координатах, без изменения буфера обмена.
+    QList<int> duplicateObjects(const QList<int> &indexes);
     // проверяет, есть ли объекты для вставки
     bool canPasteObjects() const;
     // отменяет последнее изменение проекта
@@ -119,6 +121,7 @@ public:
     bool setObjectExportEnabled(int index, bool enabled);
     // фиксирует начало интерактивного редактирования объекта для истории действий
     void recordObjectEdit();
+    void cancelObjectEdit();
     // завершает интерактивное редактирование объекта и записывает сообщение истории
     void finishObjectEdit(const QString &message = QString());
     // меняет свойство объекта через единую точку, чтобы сохранить историю действий
@@ -255,6 +258,7 @@ private:
         int nextLayerId = 2;
         int activeLayerId = 1;
         bool showAllLayers = false;
+        int nextObjectNumber = 1;
     };
 
     ProjectManager();
@@ -264,6 +268,7 @@ private:
     void restoreSnapshot(const ProjectSnapshot &snapshot);
     void clearHistory();
     void insertObjectAtFront(BaseObject *object, const QString &tagName);
+    void assignObjectName(BaseObject *object, bool copy = false);
     void syncNextGroupId();
     void resetEditorLayers();
     void notifyEditorLayersChanged();
@@ -277,6 +282,7 @@ private:
     QStringList m_objectTags;
     QList<ObjectGroup> m_groups;
     int m_nextGroupId = 1;
+    int m_nextObjectNumber = 1;
     QList<EditorLayer> m_editorLayers;
     int m_nextLayerId = 2;
     int m_activeLayerId = 1;

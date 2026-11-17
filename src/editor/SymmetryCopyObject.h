@@ -34,6 +34,7 @@ public:
     QString getDisplayName() const override { return (m_source ? m_source->getDisplayName() : QStringLiteral("Объект")) + QStringLiteral(" — копия"); }
     QList<QPair<QString, QString>> getProperties() const override;
     QRectF getBoundingRect() const override { return m_source ? reflection().mapRect(m_source->getBoundingRect()) : QRectF(); }
+    QPolygonF selectionPolygon() const override { return m_source ? reflection().map(m_source->selectionPolygon()) : QPolygonF(); }
     bool contains(const QPointF &point) const override { return m_source && m_source->contains(reflection().map(point)); }
     bool canMove() const override { return false; }
     bool canResize() const override { return false; }

@@ -50,6 +50,7 @@ private:
     QSpinBox *m_fastMoveStepSpin;
     QSpinBox *m_staticGroupPixelsSpin;
     QSpinBox *m_staticGroupElementsSpin;
+    QSpinBox *m_symbolPixelsSpin;
 
     QSpinBox *m_gridStepSpin;
     QPushButton *m_gridColorButton;

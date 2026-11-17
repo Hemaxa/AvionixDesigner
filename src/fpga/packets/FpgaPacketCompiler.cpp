@@ -101,8 +101,8 @@ FpgaPacketBundle FpgaPacketCompiler::compile(const FpgaHardwareScene &document, 
     for (const auto &memory : document.memories) {
         if (memory.kind == FpgaMemoryKind::StaticMask && memory.data.size() > FpgaResourceLimits::staticPixels())
             return fail(QStringLiteral("Статическая память превышает %1 адресуемых ячеек.").arg(FpgaResourceLimits::staticPixels()));
-        if (memory.kind == FpgaMemoryKind::FontAtlas && memory.data.size() > FpgaResourceLimits::fontPixels)
-            return fail(QStringLiteral("Атлас превышает %1 ячеек SYMBOLs.").arg(FpgaResourceLimits::fontPixels));
+        if (memory.kind == FpgaMemoryKind::FontAtlas && memory.data.size() > FpgaResourceLimits::fontPixels())
+            return fail(QStringLiteral("Атлас превышает %1 ячеек SYMBOLs.").arg(FpgaResourceLimits::fontPixels()));
         for (const auto level : memory.data)
             if (level < QLatin1Char('0') || level > QLatin1Char('7'))
                 return fail(QStringLiteral("Растр должен содержать только уровни маски 0…7."));
