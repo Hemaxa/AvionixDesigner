@@ -1893,6 +1893,54 @@ private slots:
         QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),73,16),quint32(0));
         QCOMPARE(BitParser::extract(disabled.document.objects.first().iparams.first(),0,1),quint32(0));
     }
+    void newTextReservesPositionsForUartUpdates() {
+        auto *project = ProjectManager::instance();
+        project->createNewProject("Text reserve", 640, 160, Qt::black);
+        const int index = project->addObject("text");
+        auto *text = dynamic_cast<TextObject *>(project->getObjectAt(index).data());
+        QVERIFY(text);
+        QVERIFY(text->setObjectProperty("Текст", "A"));
+
+        QString error;
+        const auto original = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY2(original.document.isValid(), qPrintable(error));
+        QCOMPARE(original.document.textFields.first().capacity, 15);
+        QCOMPARE(original.document.objects.first().iparams.size(), 15);
+        const auto configuration = FpgaPipelineConfig::fromScene(original.document);
+
+        QTemporaryDir temp;
+        const auto path = temp.filePath("text-reserve.xml");
+        QVERIFY(project->saveToFile(path));
+        QVERIFY2(project->loadFromFile(path), qPrintable(project->lastErrorMessage()));
+        text = dynamic_cast<TextObject *>(project->getObjectAt(index).data());
+        QVERIFY(text);
+        QCOMPARE(text->symbolCapacity, 15);
+
+        for (const auto &value : {QString("AA"), QString(15, 'A'), QString("A"), QString()}) {
+            QVERIFY(text->setObjectProperty("Текст", value));
+            const auto updated = FpgaProjectPacketBuilder::buildCurrentProject(&error, &original.document);
+            QVERIFY2(updated.document.isValid(), qPrintable(error));
+            QCOMPARE(FpgaPipelineConfig::fromScene(updated.document), configuration);
+            QCOMPARE(updated.document.memories.first().data, original.document.memories.first().data);
+            const auto &parameters = updated.document.objects.first().iparams;
+            QCOMPARE(parameters.size(), 15);
+            for (int i = 0; i < parameters.size(); ++i)
+                QCOMPARE(BitParser::extract(parameters[i], 0, 1), quint32(i < value.size()));
+        }
+
+        QVERIFY(text->setObjectProperty("Текст", QString(16, 'A')));
+        QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error, &original.document).document.isValid());
+        QVERIFY(error.contains("15") && error.contains("16"));
+
+        // Явно выбранный автоматический режим по-прежнему использует длину строки.
+        QVERIFY(text->setObjectProperty("Текст", "A"));
+        QVERIFY(text->setObjectProperty("Позиции ПЛИС (0 — авто)", "0"));
+        QVERIFY(project->saveToFile(path));
+        QVERIFY2(project->loadFromFile(path), qPrintable(project->lastErrorMessage()));
+        const auto automatic = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY2(automatic.document.isValid(), qPrintable(error));
+        QCOMPARE(automatic.document.textFields.first().capacity, 1);
+    }
     void textUartUpdatesKeepAtlasAndPositions() {
         QString error;
         const auto original = compileTextFixture(textFixture(), &error);
