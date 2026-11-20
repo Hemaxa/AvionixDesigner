@@ -99,6 +99,8 @@ qt_add_executable(AvionixDesigner
     src/objects/DashedLineObject.cpp
     src/objects/RibbonScaleObject.h
     src/objects/RibbonScaleObject.cpp
+    src/objects/PitchScaleObject.h
+    src/objects/PitchScaleObject.cpp
     src/objects/RotationObject.h
     src/objects/RotationObject.cpp
     src/objects/StaticGroupObject.h
@@ -138,6 +140,7 @@ qt_add_executable(AvionixDesigner
     src/fpga/compiler/FpgaResourceLimits.h
     src/fpga/compiler/FpgaResourceLimits.cpp
     src/fpga/model/Layer3dFormat.h
+    src/fpga/model/PitchScaleFormat.h
     src/fpga/packets/FpgaPacket.h
     src/fpga/packets/FpgaPacket.cpp
     src/fpga/packets/FpgaPacketCompiler.h

@@ -21,6 +21,9 @@
 #include "RectangleObject.h"
 #include "DashedLineObject.h"
 #include "RibbonScaleObject.h"
+#include "PitchScaleObject.h"
+#include "CanvasGeometry.h"
+#include "fpga/model/PitchScaleFormat.h"
 #include "AviaHorizonObject.h"
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include <QColorDialog>
@@ -209,7 +212,7 @@ private slots:
     }
     void polymorphicClonesPreserveState() {
         auto *p = ProjectManager::instance();
-        for (const auto &type : {"rectangle", "rectangle_a", "dashline", "RibonScale", "rotationobject",
+        for (const auto &type : {"rectangle", "rectangle_a", "dashline", "RibonScale", "speed_scale", "pitch_scale", "rotationobject",
                                   "staticgroup", "aviahorizont", "layer3d", "text"}) {
             p->createNewProject("Clone",640,480,Qt::black);
             QVERIFY(p->addObject(type) >= 0);
@@ -2941,6 +2944,177 @@ private slots:
                 QCOMPARE(scroll->verticalScrollBar()->maximum(),0);
         }
         window.grab().save(QCoreApplication::applicationDirPath()+"/workspace.png");
+    }
+    void pitchScalePythonPackets() {
+        QFile file(QFileInfo(QString::fromUtf8(PROTOCOL_VECTOR_FILE)).absolutePath() + "/pitch-vectors.json");
+        QVERIFY2(file.open(QIODevice::ReadOnly), "Run packet_reference to generate pitch-scale Python vectors.");
+        const auto vectors = QJsonDocument::fromJson(file.readAll()).array();
+        QVERIFY(vectors.size() >= 130);
+        for (const auto &value : vectors) {
+            const auto v = value.toObject();
+            PitchScaleObject pitch;
+            pitch.enabled = v["enable"].toInt(); pitch.scaleMode = v["mode"].toInt();
+            pitch.centerX = v["cx"].toDouble(); pitch.centerY = v["cy"].toDouble();
+            pitch.pitchAngle = v["pitch"].toDouble(); pitch.rotationAngle = v["rotation"].toDouble();
+            const auto hex = testInit("pitch_scale", pitch.serializeParams());
+            QCOMPARE(hex.toLower(), v["payload"].toString());
+            FpgaHardwareScene scene; scene.width = 1920; scene.height = 1080;
+            scene.schemas.insert("pitch_scale", FpgaSchemaRegistry::instance()->buildSchema("pitch_scale"));
+            FpgaHardwareObject object; object.type = "pitch_scale"; object.iparams = {hex};
+            object.startParamIndex = v["param_id"].toInt(); scene.objects = {object};
+            QString error;
+            const auto bundle = FpgaPacketCompiler().compile(scene, &error);
+            QVERIFY2(bundle.document.isValid(), qPrintable(error));
+            QCOMPARE(bundle.packets.size(), 1); QCOMPARE(bundle.packets[0].payloadSize, 19);
+            QCOMPARE(bundle.packets[0].bytes.toHex(), v["packet"].toString().toLatin1());
+            PitchScaleObject restored;
+            restored.parse(hex, scene.schemas.value("pitch_scale"));
+            QCOMPARE(testInit("pitch_scale", restored.serializeParams()), hex);
+        }
+    }
+    void pitchScaleProjectAndPipeline() {
+        auto *p = ProjectManager::instance(); QString error; QTemporaryDir temp;
+        QVERIFY(p->createNewProject("Two scales", 1920, 1080, QColor("#303840")));
+        for (const auto &type : {"speed_scale", "pitch_scale", "speed_scale", "pitch_scale"}) QVERIFY(p->addObject(type) >= 0);
+        auto pitch = qSharedPointerDynamicCast<PitchScaleObject>(p->getObjectAt(0)); QVERIFY(pitch);
+        QCOMPARE(testInit("pitch_scale", pitch->serializeParams()).toLower(), QString("00000000000000000000000000000000870f01"));
+        QVERIFY(p->setObjectProperty(pitch.data(), "Режим шкалы", "Логарифмическая"));
+        QVERIFY(p->setObjectProperty(pitch.data(), "Тангаж (°)", "-10.5"));
+        QVERIFY(p->setObjectProperty(pitch.data(), "Угол (°)", "-30"));
+        QCOMPARE(testInit("pitch_scale", pitch->serializeParams()).toLower(), QString("000000000000000000000003c403eb00870f03"));
+        QVERIFY(p->undo());
+        QCOMPARE(qSharedPointerDynamicCast<PitchScaleObject>(p->getObjectAt(0))->rotationAngle, 0.);
+        QVERIFY(p->redo()); pitch = qSharedPointerDynamicCast<PitchScaleObject>(p->getObjectAt(0));
+        QCOMPARE(pitch->rotationAngle, -30.);
+        pitch->moveBy(.125, .375); // Метаданные сохраняют дробную позицию до упаковки в целые пиксели.
+        const auto properties = pitch->getProperties();
+        const auto before = p->buildCompiledFpgaXml();
+        const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY2(bundle.document.isValid(), qPrintable(error));
+        QVERIFY(bundle.document.memories.isEmpty()); QCOMPARE(bundle.packets.size(), 8);
+        for (int i = 0; i < bundle.packets.size(); ++i) {
+            QCOMPARE(bundle.packets[i].type, FpgaPacketType::Parameter);
+            QCOMPARE(bundle.packets[i].objId, i);
+        }
+        QCOMPARE(bundle.document.objects[0].type, QString("speed_scale"));
+        QCOMPARE(bundle.document.objects[0].iparams, FpgaScalePlaceholder::parameters(true));
+        QCOMPARE(bundle.document.objects[1].startParamIndex, 3);
+        QCOMPARE(bundle.document.objects[2].iparams, FpgaScalePlaceholder::parameters(false));
+        QCOMPARE(bundle.document.objects[3].startParamIndex, 7);
+        const auto config = FpgaPipelineConfig::fromScene(bundle.document, &error);
+        QVERIFY2(config.isValid(), qPrintable(error)); QCOMPARE(config.parameterCount(), 8);
+        QCOMPARE(config.stages.size(), 4);
+        for (int i = 0; i < 4; ++i) {
+            QCOMPARE(config.stages[i].type, i % 2 ? 8 : 6);
+            QCOMPARE(config.stages[i].parameterCount, i % 2 ? 1 : 3);
+            QCOMPARE(config.stages[i].ramId, 0);
+        }
+        QVERIFY(config.systemVerilog().contains("TYPE_PITCHSCALE = 8"));
+        QVERIFY(p->saveToFile(temp.filePath("scales.xml")));
+        QVERIFY2(p->loadFromFile(temp.filePath("scales.xml")), qPrintable(p->lastErrorMessage()));
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), before.toByteArray());
+        QCOMPARE(p->getObjectAt(0)->getProperties(), properties);
+
+        // Отключённая от экспорта шкала сохраняется без банков и аппаратного объекта.
+        QVERIFY(p->setObjectExportEnabled(0, false));
+        QVERIFY(p->saveToFile(temp.filePath("disabled.xml")));
+        QVERIFY(p->loadFromFile(temp.filePath("disabled.xml")));
+        QCOMPARE(p->getObjectAt(0)->getProperties(), properties); QVERIFY(!p->getObjectAt(0)->isExportEnabled());
+        const auto disabled = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY2(disabled.document.isValid(), qPrintable(error)); QCOMPARE(disabled.packets.size(), 7);
+    }
+    void pitchScaleValidationAndMovement() {
+        auto *p = ProjectManager::instance();
+        QVERIFY(p->createNewProject("Pitch on small canvas", 640, 480, Qt::black));
+        QVERIFY(p->addObject("pitch_scale") >= 0);
+        auto pitch = qSharedPointerDynamicCast<PitchScaleObject>(p->getObjectAt(0)); QVERIFY(pitch);
+        QCOMPARE(pitch->centerX, 320.); QCOMPARE(pitch->centerY, 240.);
+        QVERIFY(!pitch->canResize()); QVERIFY(pitch->supportsRotationHandle());
+        for (const auto &invalid : QList<QPair<QString, QString>>{{"Тангаж (°)", "90.1"}, {"Тангаж (°)", "-90.1"},
+            {"Угол (°)", "180.1"}, {"Центр X", "4096"}, {"Центр Y", "-1"}, {"Режим шкалы", "2"}, {"Тангаж (°)", "nan"}}) {
+            const auto params = pitch->serializeParams();
+            QVERIFY(!pitch->setObjectProperty(invalid.first, invalid.second)); QCOMPARE(pitch->serializeParams(), params);
+        }
+        QVERIFY(p->setObjectProperty(pitch.data(), "Тангаж (°)", "7"));
+        QCOMPARE(pitch->centerY, 240.); // Не выравнивать длинную лестницу по верхнему краю.
+        pitch->moveBy(12, 15); CanvasGeometry::keepInside(pitch.data(), 640, 480);
+        QCOMPARE(pitch->centerX, 332.); QCOMPARE(pitch->centerY, 255.);
+        ViewportPanel viewport; viewport.setSelectedIndexes({0});
+        QTest::keyClick(&viewport, Qt::Key_Down);
+        QCOMPARE(pitch->centerY, 256.);
+
+        const auto baseline = p->buildCompiledFpgaXml(); QString error;
+        auto invalid = baseline.cloneNode(true).toDocument();
+        auto object = invalid.documentElement().firstChildElement("objects").firstChildElement("pitch_scale");
+        object.appendChild(object.firstChildElement("init").cloneNode(true));
+        QVERIFY(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error));
+        invalid = baseline.cloneNode(true).toDocument();
+        object = invalid.documentElement().firstChildElement("objects").firstChildElement("pitch_scale");
+        object.appendChild(invalid.createElement("data"));
+        QVERIFY(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error));
+        invalid = baseline.cloneNode(true).toDocument();
+        object = invalid.documentElement().firstChildElement("objects").firstChildElement("pitch_scale");
+        QString hex = object.firstChildElement("init").text();
+        BitParser::inject(hex, PitchScaleFormat::pitchOffset, 16, 90 * 128 + 1);
+        object.firstChildElement("init").firstChild().setNodeValue(hex);
+        QVERIFY(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error));
+        pitch->pitchAngle = 100; // Проверить до inject(), который маскирует значения.
+        QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid()); QVERIFY(!error.isEmpty());
+    }
+    void pitchScalePreviewAndSimulator() {
+        const QColor background("#303840");
+        QImage contact(1920, 480, QImage::Format_ARGB32); contact.fill(background);
+        for (int mode : {0, 1}) for (double angle : {0., 20., -90., 180.}) {
+            PitchScaleObject pitch; pitch.centerX = 320; pitch.centerY = 240;
+            pitch.pitchAngle = 7; pitch.scaleMode = mode; pitch.rotationAngle = angle;
+            FpgaHardwareScene scene; scene.width = 640; scene.height = 480; scene.backgroundColor = background;
+            scene.schemas.insert("pitch_scale", FpgaSchemaRegistry::instance()->buildSchema("pitch_scale"));
+            FpgaHardwareObject object; object.type = "pitch_scale"; object.iparams = {testInit("pitch_scale", pitch.serializeParams())};
+            scene.objects = {object}; QString error;
+            const auto bundle = FpgaPacketCompiler().compile(scene, &error); QVERIFY2(bundle.document.isValid(), qPrintable(error));
+            FpgaSimulator sim; sim.loadBundle(bundle); const auto rendered = sim.renderFrame();
+            QImage editor(640, 480, QImage::Format_ARGB32); editor.fill(background);
+            { QPainter painter(&editor); pitch.draw(painter); }
+            QCOMPARE(rendered, editor); QVERIFY(rendered != QImage());
+            if (angle == 0) {
+                const auto tickColor = rendered.pixelColor(380, mode == 0 ? 288 : 340);
+                QVERIFY(tickColor != background && tickColor != Qt::black); // Риска +5° при тангаже +7°.
+            }
+            QCOMPARE(rendered.pixelColor(320, 240), background); // Центральный разрыв прозрачен.
+            pitch.enabled = false;
+            QImage disabled(640, 480, QImage::Format_ARGB32); disabled.fill(background);
+            { QPainter painter(&disabled); pitch.draw(painter); }
+            QImage empty(640, 480, QImage::Format_ARGB32); empty.fill(background); QCOMPARE(disabled, empty);
+            if (angle == 0 || (mode == 1 && angle == 20)) {
+                const int panel = mode == 0 ? 0 : (angle == 0 ? 1 : 2);
+                QPainter painter(&contact); painter.drawImage(panel * 640, 0, editor);
+            }
+        }
+        QVERIFY(std::abs(PitchScaleObject::tickOffset(-17, 1) - 440.4) < .001);
+        QVERIFY(std::abs(PitchScaleObject::tickOffset(13, 1) + 380.8) < .1);
+        // В линейном режиме все шаги одинаковы; в логарифмическом сжимаются вдали от центра.
+        QCOMPARE(PitchScaleObject::tickOffset(20, 0), 2 * PitchScaleObject::tickOffset(10, 0));
+        QVERIFY(std::abs(PitchScaleObject::tickOffset(20, 1)) < 2 * std::abs(PitchScaleObject::tickOffset(10, 1)));
+        QVERIFY(contact.save(QCoreApplication::applicationDirPath() + "/pitch-scales.png"));
+
+        MainWindow window; window.showNormal(); window.resize(1400, 900);
+        auto *p = ProjectManager::instance();
+        QVERIFY(p->createNewProject("Pitch scale preview", 1920, 1080, background));
+        QVERIFY(p->addObject("pitch_scale") >= 0);
+        auto pitch = p->getObjectAt(0);
+        QVERIFY(p->setObjectProperty(pitch.data(), "Режим шкалы", "Логарифмическая"));
+        QVERIFY(p->setObjectProperty(pitch.data(), "Тангаж (°)", "7"));
+        QVERIFY(p->setObjectProperty(pitch.data(), "Угол (°)", "20"));
+        QTest::qWait(10);
+        auto *viewport = window.findChild<ViewportPanel *>(); QVERIFY(viewport);
+        viewport->setSelectedIndexes({0}); viewport->selectionChanged({0}); QTest::qWait(10);
+        auto *library = window.findChild<ObjectLibraryPanel *>(); QVERIFY(library);
+        QSet<QString> titles;
+        for (auto *button : library->findChildren<QToolButton *>()) titles.insert(button->statusTip());
+        QVERIFY(titles.contains("Шкала скорости")); QVERIFY(titles.contains("Шкала тангажа"));
+        QVERIFY(!QIcon(":/icons/icons/library/pitchscale.svg").isNull());
+        QVERIFY(!QIcon(":/icons/icons/library/speedscale.svg").isNull());
+        QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/pitch-workspace.png"));
     }
     void ribbonScalePlaceholderPackets() {
         // Проверяем все шесть присланных кадров, включая FCS. В двух сценах

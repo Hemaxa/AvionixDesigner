@@ -8,6 +8,7 @@
 #include "DashedLineObject.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
+#include "PitchScaleObject.h"
 #include "ApplicationSettings.h"
 #include "EditorGestures.h"
 #include <cmath>
@@ -193,7 +194,7 @@ void ViewportPanel::keyPressEvent(QKeyEvent *event)
     const auto movable = movableSelection();
     if (movable.isEmpty()) { event->accept(); return; }
     QRectF bounds;
-    for (int index : movable) bounds = bounds.isNull() ? project->getObjectAt(index)->getBoundingRect() : bounds.united(project->getObjectAt(index)->getBoundingRect());
+    for (int index : movable) bounds = bounds.isNull() ? project->getObjectAt(index)->canvasConstraintRect() : bounds.united(project->getObjectAt(index)->canvasConstraintRect());
     delta = CanvasGeometry::constrainMove(bounds, delta,
         project->getCanvasWidth(), project->getCanvasHeight());
     delta = project->constrainSymmetryMove(movable, delta);
@@ -537,7 +538,14 @@ ViewportPanel::SnapResult ViewportPanel::snappedMoveDeltaForSelection(
     const QSet<int> selectedSet(m_selectedIndexes.begin(), m_selectedIndexes.end());
     const auto targets = options.objectsEnabled ? snapTargetRectsForSelection(selectedSet) : QList<QRectF>{};
     auto result = ObjectSnapper::snapMove(originalRect, delta, targets, options);
-    result.delta = CanvasGeometry::constrainMove(originalRect, result.delta,
+    QRectF constraintRect;
+    for (int index : objectIndexes) {
+        const auto object = project->getObjectAt(index);
+        if (!object) continue;
+        const auto bounds = object->canvasConstraintRect().translated(-m_dragLastAppliedDelta);
+        constraintRect = constraintRect.isNull() ? bounds : constraintRect.united(bounds);
+    }
+    result.delta = CanvasGeometry::constrainMove(constraintRect, result.delta,
         project->getCanvasWidth(), project->getCanvasHeight());
     result.delta = m_dragLastAppliedDelta + project->constrainSymmetryMove(
         objectIndexes, result.delta - m_dragLastAppliedDelta);
@@ -1081,6 +1089,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                     if (QLineF(canvasPos, m_rotationCenter).length() < 1e-9) { m_dragMode = None; return; }
                     if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data())) m_rotationStartAngle = rotation->getAngleDegrees();
                     else if (const auto *image = dynamic_cast<const ImageObject *>(object.data())) m_rotationStartAngle = image->rotationDegrees;
+                    else if (const auto *pitch = dynamic_cast<const PitchScaleObject *>(object.data())) m_rotationStartAngle = pitch->rotationAngle;
                     m_rotationStartPointerAngle = qRadiansToDegrees(qAtan2(canvasPos.y() - m_rotationCenter.y(), canvasPos.x() - m_rotationCenter.x()));
                     return;
                 }

@@ -2,6 +2,8 @@
 
 #include "FpgaSchemaRegistry.h"
 #include "fpga/model/Layer3dFormat.h"
+#include "fpga/model/PitchScaleFormat.h"
+#include "BitParser.h"
 #include <QDomDocument>
 #include <QRegularExpression>
 #include <QSet>
@@ -132,6 +134,15 @@ QList<FpgaSchemaField> ribbonScaleFields()
     };
 }
 
+QList<FpgaSchemaField> pitchScaleFields()
+{
+    using namespace PitchScaleFormat;
+    return {{"enable", enableOffset, 1}, {"scale_mode", modeOffset, 1},
+        {"center_x", xOffset, coordinateBits}, {"center_y", yOffset, coordinateBits},
+        {"pitch_angle", pitchOffset, angleBits}, {"rotation_angle", rotationOffset, angleBits},
+        {"padding", paddingOffset, paddingBits}};
+}
+
 QList<FpgaSchemaField> fontGlyphFields()
 {
     return {
@@ -225,11 +236,20 @@ bool FpgaSchemaRegistry::validateXml(const QDomDocument &document, QString *erro
             return fail(QStringLiteral("В проекте допускается только один layer3d."));
         if (object.firstChildElement("init").isNull())
             return fail(QStringLiteral("У объекта <%1> отсутствует <init>.").arg(name));
+        if (name == "pitch_scale" && !object.firstChildElement("init").nextSiblingElement("init").isNull())
+            return fail(QStringLiteral("PITCH_SCALE должен содержать одно 150-битное слово init."));
         for (auto child = object.firstChildElement(); !child.isNull(); child = child.nextSiblingElement()) {
             const QString tag = child.tagName();
             if (tag == QStringLiteral("init")) {
                 if (!initPattern.match(child.text().trimmed()).hasMatch())
                     return fail(QStringLiteral("Некорректное 150-битное слово <init> объекта <%1>.").arg(name));
+                if (name == "pitch_scale") {
+                    const auto hex = child.text().trimmed();
+                    const int pitch = BitParser::extractSigned(hex, PitchScaleFormat::pitchOffset, PitchScaleFormat::angleBits);
+                    const int rotation = BitParser::extractSigned(hex, PitchScaleFormat::rotationOffset, PitchScaleFormat::angleBits);
+                    if (pitch < -90 * 128 || pitch > 90 * 128 || rotation < -180 * 128 || rotation > 180 * 128)
+                        return fail(QStringLiteral("Углы PITCH_SCALE выходят за диапазоны Python: тангаж ±90°, поворот ±180°."));
+                }
             } else if (tag == QStringLiteral("data")) {
                 if (name != "staticgroup" && name != "rotationobject" && name != "font" && name != "text")
                     return fail(QStringLiteral("Объект <%1> не поддерживает <data>.").arg(name));
@@ -257,8 +277,10 @@ QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schema
         return aviaHorizonFields();
     if (schemaName == "dashline")
         return dashedLineFields();
-    if (schemaName == "RibonScale")
+    if (schemaName == "RibonScale" || schemaName == "speed_scale")
         return ribbonScaleFields();
+    if (schemaName == "pitch_scale")
+        return pitchScaleFields();
     if (schemaName == "font")
         return fontGlyphFields();
     if (schemaName == "text")
@@ -278,7 +300,7 @@ ParamSchema FpgaSchemaRegistry::buildSchema(const QString &schemaName) const
 
 QStringList FpgaSchemaRegistry::orderedSchemaNames() const
 {
-    return {"layer3d", "rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviahorizont", "dashline", "RibonScale", "font", "text"};
+    return {"layer3d", "rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviahorizont", "dashline", "RibonScale", "speed_scale", "pitch_scale", "font", "text"};
 }
 
 QStringList FpgaSchemaRegistry::defaultSchemaNames() const
@@ -291,7 +313,8 @@ QList<EditorObjectDescriptor> FpgaSchemaRegistry::editorObjectCatalog() const
     return {
         {"rectangle", QStringLiteral("Прямоугольник"), QStringLiteral(":/icons/icons/library/rectangle.svg"), true, true},
         {"dashline", QStringLiteral("Штриховая линия"), QStringLiteral(":/icons/icons/library/dashedline.svg"), true, true},
-        {"RibonScale", QStringLiteral("Ленточная шкала"), QStringLiteral(":/icons/icons/library/ribonscale.svg"), true, true},
+        {"speed_scale", QStringLiteral("Шкала скорости"), QStringLiteral(":/icons/icons/library/speedscale.svg"), true, true},
+        {"pitch_scale", QStringLiteral("Шкала тангажа"), QStringLiteral(":/icons/icons/library/pitchscale.svg"), true, true},
         {"aviahorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
         {"layer3d", QStringLiteral("3D вид"), QStringLiteral(":/icons/icons/library/three-d-view.svg"), true, true},
         {"text", QStringLiteral("Текст"), QStringLiteral(":/icons/icons/library/text.svg"), true, true},

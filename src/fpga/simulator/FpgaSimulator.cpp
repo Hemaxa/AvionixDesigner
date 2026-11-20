@@ -3,6 +3,7 @@
 #include "fpga/simulator/FpgaSimulator.h"
 
 #include "BitParser.h"
+#include "PitchScaleObject.h"
 #include "fpga/packets/FpgaPacketFramer.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include "RectanglePainting.h"
@@ -433,7 +434,12 @@ QImage FpgaSimulator::renderFrame() const
             renderAviaHorizon(&frame, paramHex, document.schemas.value(QStringLiteral("aviahorizont")));
         } else if (object.type == QStringLiteral("dashline")) {
             renderDashedLine(&frame, paramHex, document.schemas.value(QStringLiteral("dashline")));
-        } else if (object.type == QStringLiteral("RibonScale")) {
+        } else if (object.type == QStringLiteral("pitch_scale")) {
+            PitchScaleObject pitch;
+            pitch.parse(paramHex, document.schemas.value(QStringLiteral("pitch_scale")));
+            QPainter painter(&frame);
+            pitch.draw(painter);
+        } else if (object.type == QStringLiteral("RibonScale") || object.type == QStringLiteral("speed_scale")) {
             // Новая трёхсловная заглушка не описывает геометрию старой схемы.
             // Старые односоставные bundle по-прежнему можно просматривать.
             if (object.iparams.size() == 1)

@@ -5,6 +5,7 @@
 #include "RectangleObject.h"
 #include "DashedLineObject.h"
 #include "RibbonScaleObject.h"
+#include "PitchScaleObject.h"
 #include "AviaHorizonObject.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
@@ -267,7 +268,8 @@ QString objectType(BaseObject *object)
     if (dynamic_cast<TextObject *>(object)) return "text";
     if (dynamic_cast<RectangleObject *>(object)) return "rectangle";
     if (dynamic_cast<DashedLineObject *>(object)) return "dashline";
-    if (dynamic_cast<RibbonScaleObject *>(object)) return "RibonScale";
+    if (dynamic_cast<RibbonScaleObject *>(object)) return "speed_scale";
+    if (dynamic_cast<PitchScaleObject *>(object)) return "pitch_scale";
     if (dynamic_cast<AviaHorizonObject *>(object)) return "aviahorizont";
     if (dynamic_cast<ThreeDViewObject *>(object)) return "layer3d";
     if (dynamic_cast<ImageObject *>(object)) return "image";
@@ -281,7 +283,8 @@ QSharedPointer<BaseObject> createObject(const QDomElement &n)
     const QString type = n.attribute("type");
     if (type == "rectangle") return QSharedPointer<RectangleObject>::create();
     if (type == "dashline") return QSharedPointer<DashedLineObject>::create();
-    if (type == "RibonScale") return QSharedPointer<RibbonScaleObject>::create();
+    if (type == "RibonScale" || type == "speed_scale") return QSharedPointer<RibbonScaleObject>::create();
+    if (type == "pitch_scale") return QSharedPointer<PitchScaleObject>::create();
     if (type == "aviahorizont") return QSharedPointer<AviaHorizonObject>::create();
     if (type == "layer3d") return QSharedPointer<ThreeDViewObject>::create();
     if (type == "text") return QSharedPointer<TextObject>::create();
@@ -340,6 +343,11 @@ void objectFields(Fields &a, BaseObject &object, Resources &resources)
     } else if (auto *v = dynamic_cast<RibbonScaleObject *>(&object)) {
         a.value("enabled", v->enabled); a.value("color", v->color); a.value("left", v->left); a.value("right", v->right);
         a.value("top", v->top); a.value("bottom", v->bottom); a.value("line-width", v->lineWidth); a.value("period", v->period); a.value("start-y", v->yStart);
+    } else if (auto *v = dynamic_cast<PitchScaleObject *>(&object)) {
+        a.value("enabled", v->enabled); a.value("scale-mode", v->scaleMode);
+        a.value("center-x", v->centerX); a.value("center-y", v->centerY);
+        a.value("pitch-angle", v->pitchAngle); a.value("rotation-angle", v->rotationAngle);
+        if (!v->hasValidParameters()) a.fail("Параметры шкалы тангажа выходят за диапазоны Python.");
     } else if (auto *v = dynamic_cast<AviaHorizonObject *>(&object)) {
         a.value("enabled", v->enabled); a.value("earth-color", v->earthColor); a.value("sky-color", v->skyColor); a.value("line-color", v->horizonLineColor);
         a.value("line-width", v->lineWidth); a.value("center-x", v->xCenter); a.value("center-y", v->yCenter);
@@ -702,7 +710,8 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
             copySources.insert(index, relation.attribute("source")); usedAxes.insert(axisId);
             ptr = QSharedPointer<SymmetryCopyObject>::create(QSharedPointer<BaseObject>{}, axes.value(axisId));
         }
-        if (!ptr || type.isEmpty() || (tag != type && !(type == "rectangle" && tag == "rectangle_a"))) { root.fail("Неизвестный тип объекта редактора или неверный export-tag."); return false; }
+        if (!ptr || type.isEmpty() || (tag != type && !(type == "rectangle" && tag == "rectangle_a")
+            && !(type == "speed_scale" && tag == "RibonScale"))) { root.fail("Неизвестный тип объекта редактора или неверный export-tag."); return false; }
         if (type == "layer3d" && ++threeDCount > 1) root.fail("В редакторе допускается один 3D-вид.");
         Fields meta(object, reading, error);
         int layer = ptr->editorLayerId(); QString name = ptr->customName(), hint = ptr->editRestrictionHint();
@@ -735,15 +744,16 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
                 restricted = text->restrictedAtlasEditing;
                 editing.value("restricted-atlas-editing", restricted);
             }
-            const bool scaleParameters = type == "RibonScale" && (!reading || !object.firstChildElement("parameters").isNull());
-            if (reading && type == "RibonScale" && !scaleParameters
+            const bool speedScale = type == "RibonScale" || type == "speed_scale";
+            const bool scaleParameters = (speedScale || type == "pitch_scale") && (!reading || !object.firstChildElement("parameters").isNull());
+            if (reading && speedScale && !scaleParameters
                 && !hardware[reference].firstChildElement("init").nextSiblingElement("init").isNull()) {
                 root.fail("У трёхсловной заглушки шкалы отсутствуют исходные параметры редактора."); return false;
             }
             if (reading && !scaleParameters && !restoreHardware(*ptr, hardware[reference], compiled, restricted, error)) return false;
             if (scaleParameters) {
-                // Аппаратные init шкалы временно фиксированы. Сохраняем исходные
-                // координаты и оформление независимо от заглушки, без округления.
+                // У скорости аппаратный init фиксирован; у тангажа сохраняем также
+                // дробное положение центра редактора до аппаратного округления.
                 // Старые проекты без parameters восстанавливаются из прежнего init.
                 Fields parameters(meta.child("parameters"), reading, error);
                 objectFields(parameters, *ptr, resources);

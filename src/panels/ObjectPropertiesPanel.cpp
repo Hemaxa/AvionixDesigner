@@ -116,6 +116,12 @@ public:
         }
 
         const QString propertyName = index.siblingAtColumn(0).data().toString();
+        if (propertyName == QStringLiteral("Режим шкалы")) {
+            auto *combo = new QComboBox(parent);
+            combo->setObjectName("PropertyValueCombo");
+            combo->addItems({QStringLiteral("Линейная"), QStringLiteral("Логарифмическая")});
+            return combo;
+        }
         if (propertyName == QStringLiteral("Положение")) {
             auto *combo = new QComboBox(parent);
             combo->setObjectName("PropertyValueCombo");

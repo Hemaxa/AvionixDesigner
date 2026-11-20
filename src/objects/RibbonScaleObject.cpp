@@ -66,7 +66,7 @@ QString RibbonScaleObject::getTypeName() const
 
 QString RibbonScaleObject::getDisplayName() const
 {
-    return "Ленточная шкала";
+    return "Шкала скорости";
 }
 
 QList<QPair<QString, QString>> RibbonScaleObject::getProperties() const

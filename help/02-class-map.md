@@ -39,7 +39,8 @@
 | --- | --- |
 | `RectangleObject` | Прямоугольник с заливкой, внешней обводкой и прозрачностью; экспорт `rectangle`/`rectangle_a` |
 | `DashedLineObject` | Линия по двум концам, толщина, период, длина и фаза штрихов; XML-тип `dashline` |
-| `RibbonScaleObject` | Ленточная шкала; XML-имя `RibonScale` сохраняет аппаратное написание |
+| `RibbonScaleObject` | Шкала скорости `speed_scale`, аппаратная заглушка; чтение прежнего `RibonScale` |
+| `PitchScaleObject` | Шкала тангажа `pitch_scale`, одно слово параметров и общий рисунок редактора/симулятора |
 | `AviaHorizonObject` | Небо, земля и линия горизонта, параметры положения и поворота |
 | `RotationObject`, `RotationObjectLayer` | Аппаратный вращающийся объект, его маска и набор init-состояний |
 | `StaticGroupObject`, `GroupState` | Несколько состояний/прямоугольников с адресами в общей статической маске |

@@ -62,6 +62,9 @@ public:
         return false;
     }
     virtual QRectF getBoundingRect() const = 0;  //возвращает ограничивающий прямоугольник (занимаемое пространство)
+    // Ограничение положения на холсте. У процедурных шкал ограничивается центр,
+    // поскольку их риски могут уходить за экран и обрезаться его границами.
+    virtual QRectF canvasConstraintRect() const { return getBoundingRect(); }
     // Рамка выделения в координатах холста; у вращаемых объектов следует за углом.
     virtual QPolygonF selectionPolygon() const { return QPolygonF(getBoundingRect()); }
     virtual bool supportsRotationHandle() const { return false; }

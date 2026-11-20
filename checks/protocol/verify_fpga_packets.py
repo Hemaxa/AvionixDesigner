@@ -214,6 +214,32 @@ def generate_vectors(ref, output):
     output.write_text(json.dumps(vectors,indent=2))
 
 
+def generate_pitch_vectors(ref, output):
+    """Независимые векторы по pack_pitch_scale/signed_q9_7 из pitch_scale_control_raw.py.
+
+    Не импортируем Tk/pyserial и не требуем наличия пульта настройки в установленном приложении.
+    """
+    cases = [(1, 0, 960, 540, 0, 0), (1, 1, 960, 540, -10.5, -30),
+             (0, 0, 0, 0, -90, -180), (1, 1, 4095, 4095, 90, 180)]
+    for value in [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]:
+        cases.append((1, 0, 960.5, 541.5, value / 128, value / 128))
+    rng = random.Random(20261120)
+    for _ in range(128):
+        cases.append((rng.randrange(2), rng.randrange(2), rng.randrange(4096), rng.randrange(4096),
+                      rng.uniform(-90, 90), rng.uniform(-180, 180)))
+    vectors = []
+    for i, (enable, mode, cx, cy, pitch, rotation) in enumerate(cases):
+        word = (enable | (mode << 1) | (round(cx) << 2) | (round(cy) << 14)
+                | ((round(pitch * 128) & 0xffff) << 26)
+                | ((round(rotation * 128) & 0xffff) << 42))
+        payload = word.to_bytes(19, 'big')
+        param_id = i * 397 % 65536
+        vectors.append(dict(enable=enable, mode=mode, cx=cx, cy=cy, pitch=pitch, rotation=rotation,
+                            param_id=param_id, payload=payload.hex(),
+                            packet=ref['pack_parameters'](param_id, payload).hex()))
+    output.write_text(json.dumps(vectors, indent=2))
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app',type=Path,required=True)
@@ -238,6 +264,7 @@ def main():
         print(f'{name}: identical complete BIN, {len(actual)} bytes, {len(frames(actual))} packets')
     verify_rejected_xml(args.app, args.output/'reference-right.xml', args.output)
     generate_vectors(ref,args.output/'position-vectors.json')
+    generate_pitch_vectors(ref,args.output/'pitch-vectors.json')
     print('Generated Python position vectors for AvionixProtocolTests.')
 
 

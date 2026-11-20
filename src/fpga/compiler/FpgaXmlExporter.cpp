@@ -870,7 +870,7 @@ QDomDocument FpgaXmlExporter::compile(const EditorProjectDocument &document,
         const ParamSchema schema = registry->buildSchema(schemaName);
         if (tagName.isEmpty() || schema.isEmpty())
             continue;
-        if (tagName == QStringLiteral("RibonScale")) {
+        if (tagName == QStringLiteral("RibonScale") || tagName == QStringLiteral("speed_scale")) {
             auto scaleEl = doc.createElement(tagName);
             for (const auto &word : FpgaScalePlaceholder::parameters(firstScale)) {
                 auto initEl = doc.createElement("init");
