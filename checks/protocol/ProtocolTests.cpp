@@ -9,6 +9,10 @@
 #include "ImageObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "OptimizedStaticImageObject.h"
+#include "StaticImageEditorPanel.h"
+#include "StaticImageCanvas.h"
+#include "editor/StaticImageDocument.h"
 #include "TextObject.h"
 #include "text/TextLayout.h"
 #include "text/FontRasterizer.h"
@@ -583,10 +587,10 @@ private slots:
         svg.write("<svg xmlns='http://www.w3.org/2000/svg' width='30' height='20'><path fill='#ff0000' d='M0 0H30V5H5V20H0Z'/></svg>"); svg.close();
         auto render=[](BaseObject *object) { QImage image(256,192,QImage::Format_ARGB32); image.fill(Qt::transparent); QPainter painter(&image); painter.setRenderHint(QPainter::Antialiasing); object->draw(painter); painter.end(); return image; };
         auto difference=[](const QImage &first,const QImage &second) { const auto a=first.convertToFormat(QImage::Format_ARGB32_Premultiplied), b=second.convertToFormat(QImage::Format_ARGB32_Premultiplied); int difference=0; for(int y=0;y<a.height();++y) for(int x=0;x<a.width();++x) { const auto ca=a.pixel(x,y), cb=b.pixel(x,y); for(int d:{qAbs(qAlpha(ca)-qAlpha(cb)),qAbs(qRed(ca)-qRed(cb)),qAbs(qGreen(ca)-qGreen(cb)),qAbs(qBlue(ca)-qBlue(cb))}) difference=qMax(difference,d); } return difference; };
-        for(const auto orientation:{Qt::Vertical,Qt::Horizontal}) for(const auto &type:QStringList{"rectangle","dashline","RibonScale","staticgroup","rotationobject","rotation-layers","image","rotating-image","svg"}) {
+        for(const auto orientation:{Qt::Vertical,Qt::Horizontal}) for(const auto &type:QStringList{"rectangle","dashline","RibonScale","staticgroup","optimized","rotationobject","rotation-layers","image","rotating-image","svg"}) {
             p->createNewProject(type,256,192,Qt::black);
             if(type=="image" || type=="rotating-image" || type=="svg") QVERIFY(p->importImage(type=="svg"?svg.fileName():png,type=="rotating-image")>=0);
-            else QVERIFY(p->addObject(type=="rotation-layers"?"rotationobject":type)>=0);
+            else QVERIFY(p->addObject(type=="rotation-layers"?"rotationobject":(type=="optimized"?"staticgroup":type))>=0);
             auto source=p->getObjectAt(0); source->setExportEnabled(false);
             if(auto *v=dynamic_cast<RectangleObject *>(source.data())) { v->x=20;v->y=30;v->width=40;v->height=25;v->strokeWidth=3;v->strokeColor=Qt::green;v->fillColor=Qt::red; }
             if(auto *v=dynamic_cast<DashedLineObject *>(source.data())) { v->x0=20;v->y0=30;v->x1=65;v->y1=47;v->lineWidth=3;v->dashPeriod=16;v->dashLength=7;v->dashPhase=5; }
@@ -597,6 +601,7 @@ private slots:
                 if(type=="rotation-layers") v->restoreHardwareLayers({{-2,-1,1,1,40,60,39441,52339,Qt::red,true},{-2,-1,1,1,60,50,-39441,52339,Qt::green,true}});
             }
             if(auto *v=dynamic_cast<ImageObject *>(source.data())) { v->x=20;v->y=30; if(v->isRotationObject()) v->setRotation(29); }
+            if(type=="optimized"){QString error;QVERIFY2(p->applyStaticImageDocument(0,StaticImageDocument::fromObject(*source),&error),qPrintable(error));source=p->getObjectAt(0);}
             const auto original=render(source.data());
             QCOMPARE(p->createSymmetry({0},orientation),(QList<int>{1}));
             const auto mirrored=render(p->getObjectAt(1).data());
@@ -1671,6 +1676,150 @@ private slots:
         ImageObject rotating(ImageObject::Kind::Rotating); rotating.setRasterImage(source, {});
         QCOMPARE(rotating.maskComponents().size(), 1); // Вращающиеся изображения сохраняют прежнее разбиение.
     }
+    void staticPartitionPreservesHardwarePixels() {
+        auto *p=ProjectManager::instance(); QVERIFY(p->createNewProject("Static partition",320,240,QColor("#102030")));
+        QVERIFY(p->addObject("staticgroup")>=0);
+        auto source=p->getObjectAt(0);auto *group=static_cast<StaticGroupObject *>(source.data());
+        QImage a(16,12,QImage::Format_ARGB32),b(8,6,QImage::Format_ARGB32);b.fill(Qt::yellow);
+        for(int y=0;y<12;++y)for(int x=0;x<16;++x){QColor color("#33aacc");color.setAlpha(qRound(((x+y)%8)*255.0/7));a.setPixelColor(x,y,color);}
+        group->states={{50,60,16,12,0,QColor("#33aacc"),true},{54,63,8,6,192,Qt::yellow,true}};group->maskImages={a,b};group->groupNumber=2;
+        QString error;const auto original=FpgaProjectPacketBuilder::buildCurrentProject(&error);QVERIFY2(error.isEmpty(),qPrintable(error));
+        FpgaSimulator before;before.loadBundle(original);const auto frame=before.renderFrame();
+        auto document=StaticImageDocument::fromObject(*source,&error);QVERIFY2(document.validate(&error),qPrintable(error));
+        const auto preview=document.render();QCOMPARE(document.originalCells,qint64(240));
+        QVERIFY(document.split(0,Qt::Vertical,8));
+        QVERIFY(document.split(document.regionAt(QPointF(2,8)),Qt::Horizontal,6));
+        QVERIFY(document.split(document.regionAt(QPointF(12,8)),Qt::Horizontal,6));
+        QCOMPARE(document.regions.size(),4);QCOMPARE(document.cells(),qint64(240));QCOMPARE(document.render(),preview);
+        QVERIFY2(p->applyStaticImageDocument(0,document,&error),qPrintable(error));
+        const auto optimized=qSharedPointerDynamicCast<OptimizedStaticImageObject>(p->getObjectAt(0));QVERIFY(optimized);
+        QVERIFY(!optimized->canResize());QCOMPARE(optimized->x,50.);QCOMPARE(optimized->y,60.);
+        const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error);QVERIFY2(error.isEmpty(),qPrintable(error));
+        QCOMPARE(bundle.document.memories.size(),4);QCOMPARE(bundle.document.objects.size(),4);
+        FpgaSimulator after;after.loadBundle(bundle);QCOMPARE(after.renderFrame(),frame);
+        auto invalid=document;QVERIFY(!invalid.mergeRegions({0,1,2})); // Г-образная область не является прямоугольником.
+        QVERIFY(document.mergeRegions({0,1,2,3}));QCOMPARE(document.regions.size(),1);QCOMPARE(document.render(),preview);
+        QVERIFY(p->undo());QVERIFY(p->getObjectAt(0)->canResize());QVERIFY(!p->getObjectAt(0)->isStaticImageEditing());
+        QVERIFY(p->redo());QVERIFY(p->getObjectAt(0)->isStaticImageOptimized());
+        QCOMPARE(p->createSymmetry({0},Qt::Vertical),QList<int>{1});
+        auto copy=qSharedPointerDynamicCast<SymmetryCopyObject>(p->getObjectAt(1));QVERIFY(copy);
+        QVERIFY2(p->applyStaticImageDocument(0,document,&error),qPrintable(error));QCOMPARE(copy->source(),p->getObjectAt(0));
+        QTemporaryDir temp;QVERIFY2(p->saveToFile(temp.filePath("optimized-copy.xml")),qPrintable(p->lastErrorMessage()));
+        QVERIFY2(p->loadFromFile(temp.filePath("optimized-copy.xml")),qPrintable(p->lastErrorMessage()));
+        copy=qSharedPointerDynamicCast<SymmetryCopyObject>(p->getObjectAt(1));QVERIFY(copy);QCOMPARE(copy->source(),p->getObjectAt(0));
+    }
+    void staticOptimizationXmlAndMemory() {
+        auto *p=ProjectManager::instance();QTemporaryDir temp;QString error;
+        QVERIFY(p->createNewProject("Optimized XML",320,240,QColor("#243447")));
+        QVERIFY(p->addObject("layer3d")>=0);QVERIFY(p->addObject("rectangle")>=0);QVERIFY(p->addObject("staticgroup")>=0);
+        auto *group=static_cast<StaticGroupObject *>(p->getObjectAt(0).data());
+        QImage mask(32,32,QImage::Format_ARGB32);mask.fill(Qt::transparent);
+        {QPainter painter(&mask);painter.fillRect(2,2,4,4,Qt::white);painter.fillRect(26,26,4,4,Qt::white);}
+        group->states={{20,30,32,32,0,Qt::white,true}};group->maskImages={mask};
+        FpgaSimulator before;before.loadBundle(FpgaProjectPacketBuilder::buildCurrentProject(&error));QVERIFY(error.isEmpty());
+        auto document=StaticImageDocument::fromObject(*group,&error);
+        QVERIFY(document.split(0,Qt::Vertical,8));QVERIFY(document.split(document.regionAt(QPointF(16,16)),Qt::Vertical,24));
+        for(double x:{4.,16.,28.}){QVERIFY(document.split(document.regionAt(QPointF(x,16)),Qt::Horizontal,8));QVERIFY(document.split(document.regionAt(QPointF(x,16)),Qt::Horizontal,24));}
+        QCOMPARE(document.regions.size(),9);document.excludeEmpty();QCOMPARE(document.exportedRegions().size(),2);QCOMPARE(document.cells(),qint64(128));
+        QVERIFY2(p->applyStaticImageDocument(0,document,&error),qPrintable(error));
+        const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error);QVERIFY2(error.isEmpty(),qPrintable(error));
+        QCOMPARE(bundle.document.memories.size(),2);QCOMPARE(bundle.document.memories[0].data.size()+bundle.document.memories[1].data.size(),128);
+        FpgaSimulator after;after.loadBundle(bundle);QCOMPARE(after.renderFrame(),before.renderFrame());
+        const QString path=temp.filePath("optimized.xml");QVERIFY2(p->saveToFile(path),qPrintable(p->lastErrorMessage()));
+        QDomDocument saved;QVERIFY(ProjectXmlFile::read(path,&saved,&error));
+        const auto hardware=saved.documentElement().firstChildElement("objects");QCOMPARE(hardware.elementsByTagName("staticgroup").size(),2);
+        auto object=saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        QCOMPARE(object.attribute("type"),QString("optimized-static"));QCOMPARE(object.firstChildElement("hardware-references").elementsByTagName("ref").size(),2);
+        QVERIFY2(p->loadFromFile(path),qPrintable(p->lastErrorMessage()));
+        auto restored=qSharedPointerDynamicCast<OptimizedStaticImageObject>(p->getObjectAt(0));QVERIFY(restored);
+        QCOMPARE(restored->document.regions.size(),9);QCOMPARE(restored->document.originalCells,qint64(1024));QVERIFY(!restored->canResize());
+        QCOMPARE(restored->document.render(),document.render());
+        QVERIFY(!p->setObjectProperty(restored.data(),"Ширина","64"));
+        restored->moveBy(1.5,2.5);const auto groups=restored->hardwareGroups();QCOMPARE(groups[0]->states[0].x,22);QCOMPARE(groups[1]->states[0].x,46);
+        restored->moveBy(-1.5,-2.5);
+        // Ссылки и сохранённые маски проверяются до замены текущей сцены.
+        for(int corrupt=0;corrupt<3;++corrupt){
+            auto bad=saved.cloneNode(true).toDocument();
+            auto meta=bad.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+            auto refs=meta.firstChildElement("hardware-references");
+            if(corrupt==0)refs.firstChildElement("ref").setAttribute("index",9999);
+            if(corrupt==1)refs.lastChildElement("ref").setAttribute("index",refs.firstChildElement("ref").attribute("index"));
+            if(corrupt==2){auto data=bad.documentElement().firstChildElement("objects").firstChildElement("staticgroup").firstChildElement("data");data.firstChild().setNodeValue(QString("0"));}
+            if(bad.firstChild().isProcessingInstruction())bad.removeChild(bad.firstChild());
+            const auto broken=temp.filePath(QString("broken-%1.xml").arg(corrupt));QVERIFY(ProjectXmlFile::write(broken,bad,&error));
+            QVERIFY(!p->loadFromFile(broken));QCOMPARE(p->getObjectAt(0).data(),restored.data());
+        }
+        const auto copy=p->duplicateObjects({0});QCOMPARE(copy.size(),1);QVERIFY(p->getObjectAt(0)->isStaticImageOptimized());
+        auto duplicate=qSharedPointerDynamicCast<OptimizedStaticImageObject>(p->getObjectAt(0));duplicate->document.regions[0].masks[0].color=Qt::blue;
+        QCOMPARE(restored->document.regions[0].masks[0].color,QColor(Qt::white));
+        QVERIFY(p->removeObjects({0}));
+        QVERIFY(p->setObjectExportEnabled(0,false));QVERIFY(p->saveToFile(path));QVERIFY(p->loadFromFile(path));
+        QVERIFY(p->getObjectAt(0)->isStaticImageOptimized());QVERIFY(!p->getObjectAt(0)->isExportEnabled());
+    }
+    void staticMaskUnionAndEmptyExport() {
+        StaticImageDocument document;document.size=QSize(6,2);document.originalCells=16;
+        StaticImageRegion region;region.name="Part";region.rect=QRect(0,0,6,2);
+        region.masks={{{0,0,4,2},Qt::black,QByteArray::fromHex("0001070000070000"),true},{{2,0,4,2},Qt::cyan,QByteArray::fromHex("0703020000000407"),true}};
+        document.regions={region};QVERIFY(document.validate());QVERIFY(document.mergeMasks(0,{0,1},Qt::cyan));
+        QCOMPARE(document.regions[0].masks.size(),1);QCOMPARE(document.regions[0].masks[0].color,QColor(Qt::cyan));
+        QCOMPARE(document.regions[0].masks[0].data,QByteArray::fromHex("000107030200000700000407"));
+        auto *p=ProjectManager::instance();QVERIFY(p->createNewProject("Empty optimized",80,80,Qt::black));QVERIFY(p->addObject("staticgroup")>=0);
+        auto empty=StaticImageDocument::fromObject(*p->getObjectAt(0));empty.regions[0].excluded=true;QString error;
+        QVERIFY2(p->applyStaticImageDocument(0,empty,&error),qPrintable(error));
+        const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error);QVERIFY2(error.isEmpty(),qPrintable(error));QVERIFY(bundle.packets.isEmpty());QVERIFY(bundle.document.memories.isEmpty());
+        QTemporaryDir temp;QVERIFY(p->saveToFile(temp.filePath("empty.xml")));QVERIFY2(p->loadFromFile(temp.filePath("empty.xml")),qPrintable(p->lastErrorMessage()));
+        QVERIFY(p->getObjectAt(0)->isStaticImageOptimized());
+    }
+    void staticEditorGesturesAndSelection() {
+        auto *p=ProjectManager::instance();QVERIFY(p->createNewProject("Static editor gestures",320,240,Qt::black));QVERIFY(p->addObject("staticgroup")>=0);
+        auto source=p->getObjectAt(0);auto *group=static_cast<StaticGroupObject *>(source.data());
+        QImage a(16,32,QImage::Format_ARGB32);a.fill(Qt::white);QImage b(16,32,QImage::Format_ARGB32);b.fill(QColor("#00c8f0"));
+        group->states={{20,30,16,32,0,Qt::white,true},{36,30,16,32,512,QColor("#00c8f0"),true}};group->maskImages={a,b};
+        StaticImageEditorPanel editor;editor.resize(1100,740);editor.show();editor.setSelectedObjects({0});QTest::qWait(5);
+        QVERIFY(editor.draft());QVERIFY(!editor.editing());editor.beginEditing();QVERIFY(!source->canResize());
+        QVERIFY(!p->isObjectPropertyEditable(source.data(),"Состояние 0: Ширина"));
+        auto *canvas=editor.findChild<StaticImageCanvas *>("StaticPartitionCanvas");QVERIFY(canvas);
+        auto move=[](QWidget *widget,QPoint point,bool pressed=false){QMouseEvent event(QEvent::MouseMove,QPointF(point),QPointF(widget->mapToGlobal(point)),Qt::NoButton,pressed?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(widget,&event);};
+        auto point=[&](double x,double y){return canvas->imageTransform().map(QPointF(x,y)).toPoint();};
+        // В маски можно войти до создания разрезов; двойной щелчок не ставит крестик.
+        QTest::mouseDClick(canvas,Qt::LeftButton,Qt::NoModifier,point(8,16));QTest::qWait(190);
+        auto *part=editor.findChild<StaticImageCanvas *>("StaticMaskCanvas");QVERIFY(part);
+        auto *shape=editor.findChild<QToolButton *>("StaticMaskShapeBuilder");QVERIFY(shape);shape->click();
+        const auto start=part->imageTransform().map(QPointF(8,16)).toPoint(),end=part->imageTransform().map(QPointF(24,16)).toPoint();
+        QTest::mousePress(part,Qt::LeftButton,Qt::NoModifier,start);move(part,end,true);QTest::mouseRelease(part,Qt::LeftButton,Qt::NoModifier,end);
+        QCOMPARE(editor.draft()->regions[0].masks.size(),1);QCOMPARE(editor.draft()->regions[0].masks[0].color,QColor("#00c8f0"));
+        editor.findChild<QToolButton *>("StaticDraftUndo")->click();QCOMPARE(editor.draft()->regions[0].masks.size(),2);
+        editor.findChild<QToolButton *>("StaticDraftRedo")->click();QCOMPARE(editor.draft()->regions[0].masks.size(),1);
+        editor.findChild<QPushButton *>("StaticPartBack")->click();QTest::qWait(190);editor.findChild<QToolButton *>("StaticShapeBuilder")->click();
+        auto cut=[&](Qt::Orientation orientation,int coordinate,QPointF anchor){
+            move(canvas,canvas->imageTransform().map(anchor).toPoint());
+            const QPoint position=orientation==Qt::Vertical?QPoint(point(coordinate,0).x(),10):QPoint(10,point(0,coordinate).y());
+            QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,position);
+            const QPoint finish=orientation==Qt::Vertical?point(coordinate,anchor.y()):point(anchor.x(),coordinate);
+            move(canvas,finish,true);QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,finish);
+        };
+        cut(Qt::Vertical,16,{8,16});QCOMPARE(editor.draft()->regions.size(),2);
+        cut(Qt::Horizontal,8,{8,16});QCOMPARE(editor.draft()->regions.size(),3);
+        // Свободная сторона Т-стыка продолжает линию; следующий щелчок убирает продолжение.
+        const auto junction=point(16,8)+QPoint(3,0);move(canvas,junction);
+        QTest::mouseClick(canvas,Qt::LeftButton,Qt::NoModifier,junction);QCOMPARE(editor.draft()->regions.size(),4);
+        move(canvas,junction);QTest::mouseClick(canvas,Qt::LeftButton,Qt::NoModifier,junction);QCOMPARE(editor.draft()->regions.size(),3);
+        editor.grab().save(QCoreApplication::applicationDirPath()+"/static-editor-partitions.png");
+        // Shape builder захватывает несколько прямоугольников одним непрерывным жестом.
+        editor.findChild<QToolButton *>("StaticShapeBuilder")->click();
+        QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,point(8,4));move(canvas,point(8,20),true);move(canvas,point(24,20),true);
+        QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,point(24,20));QCOMPARE(editor.draft()->regions.size(),1);
+        editor.findChild<QToolButton *>("StaticShapeBuilder")->click();
+        QTest::mouseClick(canvas,Qt::LeftButton,Qt::NoModifier,point(8,16));
+        QTRY_VERIFY_WITH_TIMEOUT(editor.draft()->regions[0].excluded,QApplication::doubleClickInterval()+250);
+        QTest::mouseDClick(canvas,Qt::LeftButton,Qt::NoModifier,point(8,16));QTest::qWait(QApplication::doubleClickInterval()+20);
+        QVERIFY(editor.draft()->regions[0].excluded);
+        editor.grab().save(QCoreApplication::applicationDirPath()+"/static-editor-masks.png");
+        editor.cancelEditing();QVERIFY(source->canResize());QCOMPARE(editor.draft()->regions[0].masks.size(),2);QVERIFY(!source->isStaticImageOptimized());
+        editor.beginEditing();
+        QVERIFY(p->addObject("speed_scale")>=0);editor.setSelectedObjects({0});QVERIFY(!editor.draft());
+        editor.setSelectedObjects({1});QVERIFY(editor.editing());QVERIFY(!source->canResize());editor.cancelEditing();QVERIFY(source->canResize());
+    }
     void staticLayerControlsAndHardwareGroups() {
         auto *p = ProjectManager::instance(); p->createNewProject("Layer controls", 80, 80, Qt::black);
         QTemporaryDir temp;
@@ -1680,29 +1829,28 @@ private slots:
         ObjectPropertiesPanel properties; properties.resize(290, 650); properties.show(); properties.showObjectProperties(0);
         QTest::qWait(5);
         auto *table = properties.findChild<QTableWidget *>(); QVERIFY(table);
-        int row = -1;
         for (int i = 0; i < table->rowCount(); ++i)
-            if (table->item(i, 0)->text() == "Слой 3: Цвет") row = i;
-        QVERIFY(row >= 0);
-        auto *editor = table->cellWidget(row, 0); QVERIFY(editor);
-        auto *combo = editor->findChild<QComboBox *>("StaticLayerOrderCombo"); QVERIFY(combo);
-        QCOMPARE(combo->count(), 3); QCOMPARE(combo->currentIndex(), 2); QVERIFY(combo->isEnabled());
-        QCOMPARE(table->item(row, 1)->text(), QString("Цвет")); QVERIFY(!table->item(row, 1)->icon().isNull());
-        QVERIFY(editor->rect().contains(QRect(combo->pos(), combo->size())));
-        combo->setCurrentIndex(0); QVERIFY(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0)));
-        auto *image = static_cast<ImageObject *>(p->getObjectAt(0).data()); QCOMPARE(image->maskComponents().first().layerIndex, 2);
-        for (int i = 0; i < table->rowCount(); ++i)
-            if (table->item(i, 0)->text() == "Слой 3: Цвет") row = i;
+            QVERIFY(!table->item(i, 0)->text().endsWith(": Цвет") && !table->item(i, 0)->text().endsWith(": Порядок"));
+        StaticImageEditorPanel editor; editor.resize(1000, 700); editor.show(); editor.setSelectedObjects({0});
+        QVERIFY(editor.draft()); QCOMPARE(editor.draft()->regions[0].masks.size(), 3);
+        editor.beginEditing(); QVERIFY(editor.editing()); QVERIFY(!p->getObjectAt(0)->canResize());
+        auto *canvas = editor.findChild<StaticImageCanvas *>("StaticPartitionCanvas"); QVERIFY(canvas);
+        QTest::mouseDClick(canvas, Qt::LeftButton, Qt::NoModifier, canvas->imageTransform().map(QPointF(6, 6)).toPoint()); QTest::qWait(190);
+        auto *list = editor.findChild<QListWidget *>("StaticMaskList"); QVERIFY(list); QCOMPARE(list->count(), 3);
+        QVERIFY(list->model()->moveRow({}, 2, {}, 0)); QTest::qWait(5);
+        QCOMPARE(editor.draft()->regions[0].masks.first().rect, QRect(5, 5, 2, 2));
+        editor.findChild<QToolButton *>("StaticDraftUndo")->click();QCOMPARE(editor.draft()->regions[0].masks.first().rect,QRect(0,0,12,12));
+        editor.findChild<QToolButton *>("StaticDraftRedo")->click();QCOMPARE(editor.draft()->regions[0].masks.first().rect,QRect(5,5,2,2));
+        list->setCurrentRow(0);
         QTimer::singleShot(0, [] {
             auto *dialog = qobject_cast<QColorDialog *>(QApplication::activeModalWidget()); QVERIFY(dialog);
-            QCOMPARE(dialog->currentColor(), QColor(Qt::black));
             dialog->setCurrentColor(Qt::blue); dialog->accept();
         });
-        QVERIFY(QMetaObject::invokeMethod(&properties, "onCellDoubleClicked", Q_ARG(int, row), Q_ARG(int, 1)));
-        QCOMPARE(image->maskComponents().first().color, QColor(Qt::blue));
-        QCOMPARE(image->maskComponents()[1].color, QColor(Qt::black));
-        properties.grab().save(QCoreApplication::applicationDirPath() + "/static-layer-controls.png");
-        QVERIFY(p->undo()); QVERIFY(p->redo());
+        editor.findChild<QPushButton *>("StaticMaskColor")->click();
+        QCOMPARE(editor.draft()->regions[0].masks.first().color, QColor(Qt::blue));
+        editor.grab().save(QCoreApplication::applicationDirPath() + "/static-layer-controls.png");
+        QVERIFY(editor.applyEditing()); QVERIFY(p->getObjectAt(0)->isStaticImageOptimized());
+        QVERIFY(p->undo()); QVERIFY(p->getObjectAt(0)->canResize()); QVERIFY(p->redo());
         p->createNewProject("Hardware group", 80, 80, Qt::black); QVERIFY(p->addObject("staticgroup") >= 0);
         auto object = p->getObjectAt(0); auto *group = static_cast<StaticGroupObject *>(object.data());
         QImage a(2, 2, QImage::Format_ARGB32); a.fill(Qt::red);
@@ -1716,6 +1864,49 @@ private slots:
         QCOMPARE(simulator.renderFrame().pixelColor(0, 0), QColor(Qt::blue));
         QVERIFY(p->undo()); group = static_cast<StaticGroupObject *>(p->getObjectAt(0).data());
         QCOMPARE(group->states.first().color, QColor(Qt::red)); QCOMPARE(group->maskImages.first(), a);
+    }
+    void staticEditorDockFollowsSelection() {
+        MainWindow window;window.showNormal();window.resize(1200,800);
+        auto *p=ProjectManager::instance();QVERIFY(p->createNewProject("Static editor",640,480,QColor("#17212b")));QVERIFY(p->addObject("staticgroup")>=0);
+        auto source=p->getObjectAt(0);auto *group=static_cast<StaticGroupObject *>(source.data());source->setCustomName("Самолёт · статическое изображение");
+        QImage mask(180,128,QImage::Format_ARGB32);mask.fill(Qt::transparent);
+        QPolygonF plane;for(const auto point:QList<QPointF>{{90,10},{98,55},{160,80},{160,90},{98,80},{98,110},{108,118},{108,122},{90,116},{72,122},{72,118},{82,110},{82,80},{20,90},{20,80},{82,55}})plane.append(point);
+        {QPainter painter(&mask);painter.setPen(Qt::NoPen);painter.setBrush(Qt::white);painter.drawPolygon(plane);}
+        group->states={{50,50,180,128,0,QColor("#8bdff2"),true}};group->maskImages={mask};
+        auto *viewport=window.findChild<ViewportPanel *>();QVERIFY(viewport);
+        auto *dock=window.findChild<QDockWidget *>("StaticImageEditorDock");QVERIFY(dock);dock->hide();
+        viewport->setSelectedIndexes({0});viewport->selectionChanged({0});QVERIFY(!dock->isVisible());
+        dock->show();dock->resize(1120,760);QTest::qWait(10);
+        auto *editor=dock->findChild<StaticImageEditorPanel *>();QVERIFY(editor);QVERIFY(editor->draft());QCOMPARE(editor->draft()->size,QSize(180,128));
+        editor->beginEditing();QVERIFY(!source->canResize());
+        QVERIFY(window.findChild<QLabel *>("StaticOptimizationBadge"));
+        auto *canvas=editor->findChild<StaticImageCanvas *>("StaticPartitionCanvas");QVERIFY(canvas);
+        const auto transform=canvas->imageTransform();const auto cutX=transform.map(QPointF(64,0)).x();
+        QTest::mouseMove(canvas,transform.map(QPointF(40,60)).toPoint());
+        QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,QPoint(qRound(cutX),10));
+        QTest::mouseMove(canvas,transform.map(QPointF(64,64)).toPoint());QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,transform.map(QPointF(64,64)).toPoint());
+        QCOMPARE(editor->draft()->regions.size(),2);
+        canvas->setFocus();QTest::keySequence(canvas,QKeySequence::Undo);QTest::qWait(5);
+        QCOMPARE(editor->draft()->regions.size(),1);QCOMPARE(p->getObjectCount(),1); // Горячая клавиша действует на черновик, не на сцену.
+        QTest::keySequence(canvas,QKeySequence::Redo);QTest::qWait(5);QCOMPARE(editor->draft()->regions.size(),2);
+        QTest::mouseMove(canvas,transform.map(QPointF(40,60)).toPoint());
+        const auto cutY=transform.map(QPointF(0,40)).y();
+        QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,QPoint(10,qRound(cutY)));
+        QTest::mouseMove(canvas,transform.map(QPointF(40,40)).toPoint());QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,transform.map(QPointF(40,40)).toPoint());
+        QCOMPARE(editor->draft()->regions.size(),3);
+        editor->findChild<QToolButton *>("StaticExcludeEmpty")->click();
+        dock->grab().save(QCoreApplication::applicationDirPath()+"/static-editor-window.png");
+        QTest::mouseDClick(canvas,Qt::LeftButton,Qt::NoModifier,canvas->imageTransform().map(QPointF(90,70)).toPoint());QTest::qWait(190);
+        dock->grab().save(QCoreApplication::applicationDirPath()+"/static-editor-part.png");
+        editor->findChild<QPushButton *>("StaticPartBack")->click();QTest::qWait(190);
+        QVERIFY(p->addObject("rectangle")>=0);viewport->setSelectedIndexes({0});viewport->selectionChanged({0});QVERIFY(!editor->draft());
+        viewport->setSelectedIndexes({1});viewport->selectionChanged({1});QVERIFY(editor->editing());QCOMPARE(editor->draft()->regions.size(),3);
+        QVERIFY(editor->applyEditing());QVERIFY(p->getObjectAt(1)->isStaticImageOptimized());QVERIFY(!p->getObjectAt(1)->canResize());
+        auto *properties=window.findChild<ObjectPropertiesPanel *>();QVERIFY(properties);
+        auto *table=properties->findChild<QTableWidget *>();QVERIFY(table);
+        for(int i=0;i<table->rowCount();++i)QVERIFY(!table->item(i,0)->text().endsWith(": Цвет"));
+        QVERIFY(p->undo());QVERIFY(p->getObjectAt(1)->canResize());QVERIFY(!p->getObjectAt(1)->isStaticImageEditing());
+        dock->hide();
     }
     void imageKindsAndMasks() {
         auto *p = ProjectManager::instance();

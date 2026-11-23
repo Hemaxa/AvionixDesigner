@@ -759,3 +759,15 @@ QDialog#UartStreamingDialog QSpinBox,
 QDialog#UartStreamingDialog QPushButton {
     min-height: 32px; max-height: 32px; padding: 0 10px;
 }
+
+/* Постоянное окно статических масок использует ту же палитру, что и рабочая область. */
+#StaticImageEditorPanel #StaticEditorTitle { font-size: 16px; font-weight: 600; padding: 2px 0; }
+#StaticImageEditorPanel #StaticEditorStats { background: #121922; border: 1px solid #22303c; border-radius: 6px; padding: 12px; color: #9fb3c1; }
+#StaticImageEditorPanel #StaticEditorHint { color: #9fb3c1; min-height: 30px; }
+#StaticImageEditorPanel QToolButton { background: #121922; border: 1px solid #22303c; border-radius: 6px; padding: 4px; }
+#StaticImageEditorPanel QToolButton:hover { border-color: #00c8f0; }
+#StaticImageEditorPanel QToolButton:checked { background: #063847; border-color: #00c8f0; }
+#StaticImageEditorPanel QPushButton { min-height: 30px; padding: 4px 12px; }
+#StaticImageEditorPanel #StaticApplyEditing { background: #00c8f0; color: #061116; }
+#StaticImageEditorPanel #StaticApplyEditing:disabled { background: #17212b; color: #9fb3c1; }
+#StaticImageEditorPanel #StaticMaskList { background: #121922; border: 1px solid #22303c; border-radius: 6px; }

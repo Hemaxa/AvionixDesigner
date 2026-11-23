@@ -43,6 +43,8 @@ qt_add_executable(AvionixDesigner
     src/editor/ObjectCloner.cpp
     src/editor/CanvasGeometry.h
     src/editor/CanvasGeometry.cpp
+    src/editor/StaticImageDocument.h
+    src/editor/StaticImageDocument.cpp
     src/editor/ProjectXmlFile.h
     src/editor/ProjectXmlFile.cpp
     src/editor/EqualSpacing.h
@@ -75,6 +77,10 @@ qt_add_executable(AvionixDesigner
     src/panels/ObjectListPanel.cpp
     src/panels/ObjectPropertiesPanel.h
     src/panels/ObjectPropertiesPanel.cpp
+    src/panels/StaticImageCanvas.h
+    src/panels/StaticImageCanvas.cpp
+    src/panels/StaticImageEditorPanel.h
+    src/panels/StaticImageEditorPanel.cpp
     src/panels/ObjectLibraryPanel.h
     src/panels/ObjectLibraryPanel.cpp
     src/panels/ViewportSettingsPanel.h
@@ -105,6 +111,8 @@ qt_add_executable(AvionixDesigner
     src/objects/RotationObject.cpp
     src/objects/StaticGroupObject.h
     src/objects/StaticGroupObject.cpp
+    src/objects/OptimizedStaticImageObject.h
+    src/objects/OptimizedStaticImageObject.cpp
     src/objects/ImageObject.h
     src/objects/ImageObject.cpp
     src/objects/AviaHorizonObject.h

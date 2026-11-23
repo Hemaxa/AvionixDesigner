@@ -24,6 +24,7 @@ class ViewportSettingsPanel;
 class FpgaStreamingPanel;
 class FpgaSimulatorPanel;
 class AircraftPositionPanel;
+class StaticImageEditorPanel;
 
 // MainWindow - главное окно приложения, которое собирает рабочее пространство и служебные панели.
 class MainWindow : public QMainWindow
@@ -127,6 +128,8 @@ private:
     FpgaStreamingPanel *m_fpgaStreaming = nullptr;
     FpgaSimulatorPanel *m_fpgaSimulator = nullptr;
     AircraftPositionPanel *m_aircraftPosition = nullptr;
+    StaticImageEditorPanel *m_staticImageEditor = nullptr;
+    QDockWidget *m_staticImageEditorDock = nullptr;
 
     QDockWidget *m_objectListDock = nullptr;
     QDockWidget *m_objectPropertiesDock = nullptr;

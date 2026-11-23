@@ -44,6 +44,8 @@
 | `AviaHorizonObject` | Небо, земля и линия горизонта, параметры положения и поворота |
 | `RotationObject`, `RotationObjectLayer` | Аппаратный вращающийся объект, его маска и набор init-состояний |
 | `StaticGroupObject`, `GroupState` | Несколько состояний/прямоугольников с адресами в общей статической маске |
+| `OptimizedStaticImageObject` | Один неподлежащий масштабированию объект сцены с несколькими аппаратными staticgroup |
+| `StaticImageDocument`, `StaticImageRegion`, `StaticImageMask` | Разбиение, исключения, порядок и точные уровни масок 0…7 |
 | `ImageObject`, `ImageColorLayer`, `ImageMaskComponent` | Исходное изображение, цветовые слои и выделенные компоненты масок; статический или вращающийся режим |
 | `TextObject` | Текст с атласом и резервом символов; наследует `StaticGroupObject` для предпросмотра |
 | `ThreeDViewObject` | Область 3D-вида и аппаратные координаты/курс/высота/`yscreen`; XML-тип `layer3d` |

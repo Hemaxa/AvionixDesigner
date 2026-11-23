@@ -7,6 +7,7 @@
 #include "StaticGroupObject.h"
 #include "TextObject.h"
 #include "PitchScaleObject.h"
+#include "OptimizedStaticImageObject.h"
 #include "RasterGeometry.h"
 
 #include <QtMath>
@@ -15,6 +16,17 @@ namespace FpgaResourceLimits {
 Report inspect(const BaseObject &object)
 {
     Report report;
+    if (const auto *optimized = dynamic_cast<const OptimizedStaticImageObject *>(&object)) {
+        QString error;
+        if (!optimized->document.validate(&error)) report.errors.append(error);
+        report.errors += optimized->document.hardwareErrors();
+        if (!qIsFinite(optimized->x) || !qIsFinite(optimized->y) || optimized->x < 0 || optimized->y < 0
+            || optimized->x > 4095 || optimized->y > 4095) report.errors.append(QStringLiteral("Положение статического изображения выходит за 0…4095."));
+        else for (int index : optimized->document.exportedRegions()) for (const auto &mask : optimized->document.regions[index].masks)
+            if (qRound(optimized->x) + mask.rect.x() > 4095 || qRound(optimized->y) + mask.rect.y() > 4095)
+                report.errors.append(QStringLiteral("Координаты части статического изображения выходят за 12-битные поля."));
+        report.errors.removeDuplicates(); return report;
+    }
     if (const auto *pitch = dynamic_cast<const PitchScaleObject *>(&object)) {
         if (!pitch->hasValidParameters())
             report.errors.append(QStringLiteral("PITCH_SCALE: центр должен быть 0…4095, тангаж ±90°, поворот ±180°, режим 0 или 1."));

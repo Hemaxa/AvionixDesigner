@@ -28,6 +28,8 @@
 #include "PitchScaleObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "OptimizedStaticImageObject.h"
+#include "fpga/FpgaProjectPacketBuilder.h"
 #include "ImageObject.h"
 #include "AviaHorizonObject.h"
 #include "ThreeDViewObject.h"
@@ -1373,6 +1375,7 @@ bool ProjectManager::setObjectProperty(BaseObject *object, const QString &name, 
 
 bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QString &name) const
 {
+    if (object && object->isStaticImageEditing() && name != "X" && name != "Y") return false;
     for (const auto &candidate : m_objects) {
         if (candidate.data() != object) continue;
         const auto probe = candidate->clone();
@@ -1381,6 +1384,44 @@ bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QS
             if (property.first == name) return probe->setObjectProperty(name, property.second);
     }
     return false;
+}
+
+bool ProjectManager::applyStaticImageDocument(int index, const StaticImageDocument &document, QString *error)
+{
+    if (error) error->clear();
+    auto fail = [&](const QString &message) { if (error) *error = message; return false; };
+    const auto source = getObjectAt(index);
+    if (!StaticImageDocument::supports(source.data()) || source->isSelectionLocked()) return fail(tr("Статическое изображение недоступно для редактирования."));
+    QString validation;
+    if (!document.validate(&validation)) return fail(validation);
+    const auto errors = document.hardwareErrors();
+    if (!errors.isEmpty()) return fail(errors.join('\n'));
+    auto optimized = QSharedPointer<OptimizedStaticImageObject>::create();
+    const auto origin = StaticImageDocument::objectOrigin(*source);
+    optimized->x = origin.x(); optimized->y = origin.y(); optimized->document = document;
+    optimized->setCustomName(source->customName()); optimized->setEditorLayerId(source->editorLayerId());
+    optimized->setViewVisible(source->isViewVisible()); optimized->setExportEnabled(source->isExportEnabled());
+    optimized->setResizeLocked(true);
+    optimized->setEditRestrictionHint(tr("Оптимизированное статическое изображение. Размер зафиксирован; маски редактируются в отдельном окне."));
+    // Проверяем весь будущий аппаратный каскад до изменения истории и сигналов сцены.
+    const auto tag = m_objectTags[index];
+    m_objects[index] = optimized; m_objectTags[index] = "optimized-static";
+    QString compilationError;
+    const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&compilationError);
+    if (compilationError.isEmpty() && source->isExportEnabled() && !bundle.document.objects.isEmpty()) {
+        bool stages = false;
+        for (const auto &object : bundle.document.objects) stages |= object.type != "layer3d";
+        if (stages) FpgaPipelineConfig::fromScene(bundle.document, &compilationError);
+    }
+    m_objects[index] = source; m_objectTags[index] = tag;
+    if (!compilationError.isEmpty()) return fail(compilationError);
+    source->setStaticImageEditing(false);
+    recordHistory(); m_objects[index] = optimized; m_objectTags[index] = "optimized-static";
+    for (const auto &object : m_objects)
+        if (auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data()); copy && copy->source() == source)
+            copy->bindSource(optimized);
+    finishObjectEdit(tr("Применено редактирование статического изображения"));
+    return true;
 }
 
 bool ProjectManager::setObjectRotationPivot(int index, const QPointF &canvasPosition)
@@ -1419,6 +1460,10 @@ bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> 
     QList<QSharedPointer<BaseObject>> changed;
     for (const auto &object : objects) {
         if (!object || !m_objects.contains(object)) return false;
+        if (object->isStaticImageEditing() && name != "X" && name != "Y") {
+            m_lastErrorMessage = tr("Размер и содержимое зафиксированы в окне редактирования статического изображения.");
+            return false;
+        }
         const auto properties = object->getProperties();
         const auto it = std::find_if(properties.cbegin(), properties.cend(), [&name](const auto &p) { return p.first == name; });
         if (it == properties.cend()) return false;

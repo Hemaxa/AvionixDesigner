@@ -10,6 +10,7 @@
 #include "TextObject.h"
 #include "ExpressionSpinBox.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
+#include "editor/StaticImageDocument.h"
 
 #include <QColorDialog>
 #include <QComboBox>
@@ -18,7 +19,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <algorithm>
-#include <limits>
 #include <QMessageBox>
 #include <QScrollArea>
 #include <QSet>
@@ -39,8 +39,7 @@
 namespace {
 bool isStaticImage(const QSharedPointer<BaseObject> &object)
 {
-    if (const auto *image = dynamic_cast<const ImageObject *>(object.data())) return !image->isRotationObject();
-    return dynamic_cast<const StaticGroupObject *>(object.data()) && !dynamic_cast<const TextObject *>(object.data());
+    return StaticImageDocument::supports(object.data());
 }
 
 bool isLayerColor(const QString &name)
@@ -49,50 +48,16 @@ bool isLayerColor(const QString &name)
         && name.endsWith(QStringLiteral(": Цвет"));
 }
 
-QString layerOrderProperty(const QString &colorProperty)
-{
-    return colorProperty.left(colorProperty.indexOf(':') + 1) + QStringLiteral(" Порядок");
-}
-
 // PropertyValueDelegate - выбор редакторов свойств и размещение составного поля прозрачности.
 class PropertyValueDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
-    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
-    {
-        const auto *table = qobject_cast<QTableWidget *>(parent());
-        const auto *editor = table ? table->cellWidget(index.row(), 0) : nullptr;
-        if (!editor || editor->objectName() != QStringLiteral("StaticLayerEditor")) {
-            QStyledItemDelegate::paint(painter, option, index);
-            return;
-        }
-        QStyleOptionViewItem item(option);
-        initStyleOption(&item, index);
-        const auto *style = item.widget ? item.widget->style() : table->style();
-        if (index.column() == 0) {
-            // Под прозрачным составным полем рисуем фон строки без служебного имени свойства.
-            item.text.clear();
-            item.features &= ~QStyleOptionViewItem::HasDisplay;
-            style->drawControl(QStyle::CE_ItemViewItem, &item, painter, item.widget);
-            return;
-        }
-        const auto icon = item.icon;
-        item.icon = QIcon();
-        item.features &= ~QStyleOptionViewItem::HasDecoration;
-        style->drawControl(QStyle::CE_ItemViewItem, &item, painter, item.widget);
-        const QRect text = style->subElementRect(QStyle::SE_ItemViewItemText, &item, item.widget);
-        // Сохраняем прежний кружочек, располагая его после подписи «Цвет».
-        icon.paint(painter, QRect(text.left() + item.fontMetrics.horizontalAdvance(item.text) + 8,
-                                 text.center().y() - 8, 16, 16));
-    }
-
     void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         if (editor->objectName() == QStringLiteral("TransparencyEditor")
-            || editor->objectName() == QStringLiteral("PropertyFieldEditor")
-            || editor->objectName() == QStringLiteral("StaticLayerEditor")) {
+            || editor->objectName() == QStringLiteral("PropertyFieldEditor")) {
             // У составного поля свои отступы: используем всю высоту обычной строки,
             // без повторного вычитания padding из стиля ячейки.
             editor->setGeometry(option.rect);
@@ -373,10 +338,11 @@ QList<QPair<QString, QString>> ObjectPropertiesPanel::commonProperties() const
     const bool sameLayer = std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [layer](const auto &o) { return o->editorLayerId() == layer; });
     if (!sameLayer) m_mixedProperties.insert(tr("Слой"));
     props.append({tr("Слой"), sameLayer ? ProjectManager::instance()->editorLayerName(layer) : tr("Разные значения")});
-    // Порядок блока редактируется рядом с его цветом в одной строке.
-    if (std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), isStaticImage))
+    // Цвета и порядок статических масок находятся в отдельном окне редактирования.
+    if (std::any_of(m_currentObjects.cbegin(), m_currentObjects.cend(), isStaticImage))
         props.erase(std::remove_if(props.begin(), props.end(), [](const auto &property) {
-            return property.first.endsWith(QStringLiteral(": Порядок"));
+            return property.first.endsWith(QStringLiteral(": Порядок")) || property.first.endsWith(QStringLiteral(": Цвет"))
+                || property.first == QStringLiteral("Цвет маски") || property.first == QStringLiteral("Автоцвет");
         }), props.end());
     return props;
 }
@@ -400,32 +366,6 @@ void ObjectPropertiesPanel::populateTable(const QList<QPair<QString, QString>> &
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
         m_tableWidget->setItem(i, 0, nameItem);
         m_tableWidget->setItem(i, 1, new QTableWidgetItem());
-        if (isLayerColor(props[i].first) && std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), isStaticImage)) {
-            auto *editor = new QWidget(m_tableWidget);
-            editor->setObjectName("StaticLayerEditor");
-            auto *layout = new QHBoxLayout(editor);
-            layout->setContentsMargins(13, 3, 6, 3);
-            layout->setSpacing(6);
-            layout->addWidget(new QLabel(tr("Слой"), editor));
-            auto *combo = new QComboBox(editor);
-            combo->setObjectName("StaticLayerOrderCombo");
-            combo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-            combo->setMinimumContentsLength(2);
-            combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-            combo->setToolTip(tr("1 — передний план (индекс параметра 0). Больший номер — дальше от переднего плана."));
-            combo->setPlaceholderText(tr("Разные"));
-            const auto orderProperty = layerOrderProperty(props[i].first);
-            combo->setEnabled(std::all_of(m_currentObjects.cbegin(), m_currentObjects.cend(), [&orderProperty](const auto &object) {
-                return ProjectManager::instance()->isObjectPropertyEditable(object.data(), orderProperty);
-            }));
-            layout->addWidget(combo);
-            layout->addStretch();
-            nameItem->setSizeHint(editor->sizeHint());
-            m_tableWidget->setCellWidget(i, 0, editor);
-            connect(combo, &QComboBox::activated, this, [this, combo, orderProperty](int index) {
-                if (!m_updating && index >= 0) applyProperty(orderProperty, combo->itemData(index).toString());
-            });
-        }
         if (props[i].first == tr("Слой")) {
             auto *editor = new QWidget(m_tableWidget);
             editor->setObjectName("PropertyFieldEditor");
@@ -508,28 +448,6 @@ void ObjectPropertiesPanel::updateValueItem(int row, const QString &name, const 
             painter.drawEllipse(1, 1, 14, 14); painter.end();
             item->setIcon(QIcon(pixmap));
         }
-    }
-    if (auto *editor = m_tableWidget->cellWidget(row, 0); editor && editor->objectName() == QStringLiteral("StaticLayerEditor")) {
-        auto *combo = editor->findChild<QComboBox *>("StaticLayerOrderCombo");
-        const QSignalBlocker blocker(combo);
-        int count = std::numeric_limits<int>::max();
-        for (const auto &object : m_currentObjects) {
-            const auto *image = dynamic_cast<const ImageObject *>(object.data());
-            const int blocks = image ? image->colorLayers().size() : static_cast<const StaticGroupObject *>(object.data())->states.size();
-            count = qMin(count, blocks);
-        }
-        if (combo->count() != count) {
-            combo->clear();
-            for (int position = 1; position <= count; ++position) combo->addItem(QString::number(position), position);
-        }
-        const auto orderProperty = layerOrderProperty(name);
-        int position = -1;
-        if (!m_mixedProperties.contains(orderProperty))
-            for (const auto &property : m_currentObjects.first()->getProperties())
-                if (property.first == orderProperty) { position = property.second.toInt() - 1; break; }
-        combo->setCurrentIndex(position);
-        item->setText(mixed ? tr("Разные цвета") : tr("Цвет"));
-        item->setToolTip(mixed ? tr("Разные значения") : value);
     }
 }
 

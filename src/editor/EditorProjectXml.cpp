@@ -10,6 +10,7 @@
 #include "ImageObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "OptimizedStaticImageObject.h"
 #include "TextObject.h"
 #include "ThreeDViewObject.h"
 #include "ObjectReflection.h"
@@ -264,6 +265,7 @@ public:
 
 QString objectType(BaseObject *object)
 {
+    if (dynamic_cast<OptimizedStaticImageObject *>(object)) return "optimized-static";
     if (dynamic_cast<SymmetryCopyObject *>(object)) return "symmetry-copy";
     if (dynamic_cast<TextObject *>(object)) return "text";
     if (dynamic_cast<RectangleObject *>(object)) return "rectangle";
@@ -281,6 +283,7 @@ QString objectType(BaseObject *object)
 QSharedPointer<BaseObject> createObject(const QDomElement &n)
 {
     const QString type = n.attribute("type");
+    if (type == "optimized-static") return QSharedPointer<OptimizedStaticImageObject>::create();
     if (type == "rectangle") return QSharedPointer<RectangleObject>::create();
     if (type == "dashline") return QSharedPointer<DashedLineObject>::create();
     if (type == "RibonScale" || type == "speed_scale") return QSharedPointer<RibbonScaleObject>::create();
@@ -332,7 +335,45 @@ void rotationLayer(Fields &a, RotationObjectLayer &v)
 
 void objectFields(Fields &a, BaseObject &object, Resources &resources)
 {
-    if (auto *v = dynamic_cast<RectangleObject *>(&object)) {
+    if (auto *v = dynamic_cast<OptimizedStaticImageObject *>(&object)) {
+        a.value("x", v->x); a.value("y", v->y);
+        int width = v->document.size.width(), height = v->document.size.height(), original = int(v->document.originalCells);
+        a.value("width", width); a.value("height", height); a.value("original-cells", original); a.value("next-id", v->document.nextId);
+        auto list = a.child("regions");
+        auto regionFields = [&](Fields &r, StaticImageRegion &region) {
+            r.value("id", region.id); r.text("name", region.name); r.value("excluded", region.excluded);
+            int x = region.rect.x(), y = region.rect.y(), w = region.rect.width(), h = region.rect.height();
+            r.value("x", x); r.value("y", y); r.value("width", w); r.value("height", h);
+            region.rect = QRect(x, y, w, h);
+            auto masks = r.child("masks");
+            auto maskFields = [&](Fields &m, StaticImageMask &mask) {
+                int mx = mask.rect.x(), my = mask.rect.y(), mw = mask.rect.width(), mh = mask.rect.height();
+                m.value("x", mx); m.value("y", my); m.value("width", mw); m.value("height", mh);
+                m.value("color", mask.color); m.value("enabled", mask.enabled);
+                QImage image = a.reading ? QImage() : mask.image(); resources.image(m.child("image"), image);
+                if (a.reading) {
+                    if (image.size() != QSize(mw, mh)) m.fail("Размер сохранённой маски не совпадает с init.");
+                    mask = StaticImageMask::fromImage(QRect(mx, my, mw, mh), mask.color, image, mask.enabled);
+                }
+            };
+            if (a.reading) {
+                region.masks.clear();
+                for (auto n = masks.firstChildElement("mask"); !n.isNull(); n = n.nextSiblingElement("mask")) {
+                    if (region.masks.size() >= 65536) { r.fail("Слишком много масок в части."); break; }
+                    StaticImageMask mask; Fields m(n, true, a.error); maskFields(m, mask); region.masks.append(mask);
+                }
+            } else for (auto &mask : region.masks) { Fields m(append(masks, "mask"), false, a.error); maskFields(m, mask); }
+        };
+        if (a.reading) {
+            v->document.size = QSize(width, height); v->document.originalCells = original; v->document.regions.clear();
+            for (auto n = list.firstChildElement("region"); !n.isNull(); n = n.nextSiblingElement("region")) {
+                if (v->document.regions.size() >= 4096) { a.fail("Слишком много областей разбиения."); break; }
+                StaticImageRegion region; Fields r(n, true, a.error); regionFields(r, region); v->document.regions.append(region);
+            }
+        } else for (auto &region : v->document.regions) { Fields r(append(list, "region"), false, a.error); regionFields(r, region); }
+        QString validation;
+        if (!v->document.validate(&validation) || !qIsFinite(v->x) || !qIsFinite(v->y)) a.fail(validation.isEmpty() ? "Некорректное положение статического изображения." : validation);
+    } else if (auto *v = dynamic_cast<RectangleObject *>(&object)) {
         a.value("enabled", v->enabled); a.value("x", v->x); a.value("y", v->y); a.value("width", v->width); a.value("height", v->height);
         a.value("fill", v->fillColor); a.value("stroke", v->strokeColor); a.value("stroke-width", v->strokeWidth);
         a.value("alpha", v->alpha); a.value("explicit-alpha", v->explicitAlpha);
@@ -595,13 +636,18 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
         compiled = FpgaCompiledDocument::fromDomDocument(editor.ownerDocument(), &error);
         if (!error.isEmpty()) return false;
     }
-    QMap<BaseObject *, int> hardwareIndex;
+    QMap<BaseObject *, QList<int>> hardwareIndex;
     if (!reading) {
         int next = 0;
         for (const auto &ptr : state.objects)
-            if (dynamic_cast<ThreeDViewObject *>(ptr.data()) && ptr->isExportEnabled()) hardwareIndex.insert(ptr.data(), next++);
+            if (dynamic_cast<ThreeDViewObject *>(ptr.data()) && ptr->isExportEnabled()) hardwareIndex.insert(ptr.data(), {next++});
         for (int i = state.objects.size() - 1; i >= 0; --i)
-            if (state.objects[i]->isExportEnabled() && !dynamic_cast<ThreeDViewObject *>(state.objects[i].data())) hardwareIndex.insert(state.objects[i].data(), next++);
+            if (state.objects[i]->isExportEnabled() && !dynamic_cast<ThreeDViewObject *>(state.objects[i].data())) {
+                const auto *optimized = dynamic_cast<OptimizedStaticImageObject *>(state.objects[i].data());
+                const int count = optimized ? optimized->document.exportedRegions().size() : 1;
+                QList<int> indexes; for (int j = 0; j < count; ++j) indexes.append(next++);
+                hardwareIndex.insert(state.objects[i].data(), indexes);
+            }
         if (next != hardware.size()) { error = "Не удалось сопоставить объекты редактора с аппаратным XML."; return false; }
     }
     QSet<int> referencedHardware;
@@ -729,8 +775,43 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
                 relation.setAttribute("axis-id", copy->axis()->id);
                 relation.setAttribute("source", QStringLiteral("object-%1").arg(state.objects.indexOf(copy->source()) + 1));
             }
+        } else if (type == "optimized-static") {
+            auto *optimized = static_cast<OptimizedStaticImageObject *>(ptr.data());
+            Fields parameters(meta.child("parameters"), reading, error); objectFields(parameters, *ptr, resources);
+            if (!error.isEmpty()) return false;
+            Fields references(meta.child("hardware-references"), reading, error);
+            QList<int> indexes = reading ? QList<int>() : (exported ? hardwareIndex.value(ptr.data()) : QList<int>());
+            if (reading) for (auto n = references.node.firstChildElement("ref"); !n.isNull(); n = n.nextSiblingElement("ref")) {
+                Fields r(n, true, error); int value = -1; r.value("index", value); indexes.append(value);
+            }
+            else for (int value : indexes) append(references.node, "ref").setAttribute("index", value);
+            const auto groups = optimized->hardwareGroups();
+            if (indexes.size() != (exported ? groups.size() : 0)) { root.fail("Число аппаратных ссылок оптимизированного изображения не совпадает с частями."); return false; }
+            for (int i = 0; i < indexes.size(); ++i) {
+                const int reference = indexes[i];
+                if (reference < 0 || reference >= hardware.size() || referencedHardware.contains(reference)
+                    || hardware[reference].tagName() != "staticgroup") { root.fail("Некорректная ссылка на часть статического изображения."); return false; }
+                referencedHardware.insert(reference);
+                if (reading) {
+                    const auto &actual = compiled.objects[reference];
+                    const auto schema = compiled.schemas.value("staticgroup");
+                    QStringList words;
+                    for (int state = 0; state < groups[i]->states.size(); ++state) {
+                        QString word(38, '0'); const auto values = groups[i]->serializeState(state);
+                        for (auto it = values.cbegin(); it != values.cend(); ++it) {
+                            const auto f = schema.value(it.key()); BitParser::inject(word, f.offset, f.size, it.value());
+                        }
+                        words.append(word.toUpper());
+                    }
+                    QString data;
+                    const auto region = optimized->document.exportedRegions()[i];
+                    for (const auto &mask : optimized->document.regions[region].masks) for (char value : mask.data) data.append(QChar('0' + value));
+                    QStringList actualWords; for (const auto &word : actual.iparams) actualWords.append(word.toUpper());
+                    if (words != actualWords || data != actual.data) { root.fail("Аппаратные данные части не совпадают с метаданными редактора."); return false; }
+                }
+            }
         } else if (exported) {
-            int reference = reading ? -1 : hardwareIndex.value(ptr.data(), -1);
+            int reference = reading ? -1 : hardwareIndex.value(ptr.data()).value(0, -1);
             meta.value("hardware-index", reference);
             const QString expected = type == "image" ? (object.attribute("kind") == "rotating" ? "rotationobject" : "staticgroup") : tag;
             if (reference < 0 || reference >= hardware.size() || referencedHardware.contains(reference)

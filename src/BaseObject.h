@@ -69,7 +69,11 @@ public:
     virtual QPolygonF selectionPolygon() const { return QPolygonF(getBoundingRect()); }
     virtual bool supportsRotationHandle() const { return false; }
     virtual bool canMove() const { return true; }
-    virtual bool canResize() const { return !m_resizeLocked; }
+    virtual bool canResize() const { return !m_resizeLocked && !m_staticImageEditing; }
+    virtual bool isStaticImageOptimized() const { return false; }
+    bool isStaticImageEditing() const { return m_staticImageEditing; }
+    // Временный замок черновика окна; в историю и XML не переносится.
+    void setStaticImageEditing(bool active) { m_staticImageEditing = active; emit changed(); }
     virtual bool isImportedHardwareObject() const { return m_importedHardwareObject; }
     virtual void setImportedHardwareObject(bool imported) { m_importedHardwareObject = imported; }
     virtual void setResizeLocked(bool locked) { m_resizeLocked = locked; }
@@ -139,6 +143,7 @@ private:
     int m_editorLayerId = 1;
     bool m_selectionLocked = false;
     bool m_resizeLocked = false;
+    bool m_staticImageEditing = false;
     bool m_importedHardwareObject = false;
     bool m_viewVisible = true;
     bool m_exportEnabled = true;

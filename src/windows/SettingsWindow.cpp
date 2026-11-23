@@ -234,7 +234,7 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Привязка к объектам:", new QLabel(QKeySequence("Shift+O").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Цвет фона:", new QLabel(QKeySequence("Ctrl+Alt+C").toString(QKeySequence::NativeText), this));
     const QStringList panelNames = {"Слои", "Список объектов", "Свойства объекта", "Библиотека объектов",
-        "Настройки рабочей области", "Управление ПЛИС", "Симулятор ПЛИС", "Позиционирование самолета"};
+        "Настройки рабочей области", "Управление ПЛИС", "Симулятор ПЛИС", "Позиционирование самолета", "Редактирование статических изображений"};
     for (int i = 0; i < panelNames.size(); ++i)
         hotkeysLayout->addRow(QStringLiteral("Показать / скрыть: %1").arg(panelNames[i]), new QLabel(QKeySequence(QStringLiteral("Ctrl+Alt+%1").arg(i + 1)).toString(QKeySequence::NativeText), this));
 

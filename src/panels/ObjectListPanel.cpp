@@ -42,6 +42,7 @@ QString typeLabelForObject(const BaseObject *object) {
   const QString typeName = object->getTypeName();
   static const QMap<QString, QString> labels = {
       {QStringLiteral("StaticGroup"), QStringLiteral("staticgroup")},
+      {QStringLiteral("OptimizedStaticImage"), QStringLiteral("staticgroup")},
       {QStringLiteral("RotationObject"), QStringLiteral("rotationobject")},
       {QStringLiteral("DashedLine"), QStringLiteral("dashline")},
       {QStringLiteral("RibbonScale"), QStringLiteral("speed_scale")},
@@ -287,6 +288,14 @@ void ObjectListPanel::refreshList() {
       });
     }
 
+    if (obj->isStaticImageOptimized() || obj->isStaticImageEditing()) {
+      auto *badge = new QLabel(rowWidget);
+      badge->setObjectName("StaticOptimizationBadge");
+      badge->setPixmap(QIcon(":/icons/icons/static-editor/optimized.svg").pixmap(22, 22));
+      badge->setFixedSize(24, 30);
+      badge->setToolTip(obj->isStaticImageEditing() ? tr("Редактируется в отдельном окне; размер зафиксирован") : tr("Оптимизировано; размер зафиксирован"));
+      rowLayout->addWidget(badge, 0, Qt::AlignVCenter);
+    }
     auto *exportCheck = addExportControls(rowWidget, rowLayout, typeText,
         QStringLiteral("Экспортировать в XML"), obj->isExportEnabled());
     if (pm->isSymmetryCopy(index)) {
