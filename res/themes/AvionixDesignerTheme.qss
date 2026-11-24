@@ -762,12 +762,33 @@ QDialog#UartStreamingDialog QPushButton {
 
 /* Постоянное окно статических масок использует ту же палитру, что и рабочая область. */
 #StaticImageEditorPanel #StaticEditorTitle { font-size: 16px; font-weight: 600; padding: 2px 0; }
-#StaticImageEditorPanel #StaticEditorStats { background: #121922; border: 1px solid #22303c; border-radius: 6px; padding: 12px; color: #9fb3c1; }
-#StaticImageEditorPanel #StaticEditorHint { color: #9fb3c1; min-height: 30px; }
-#StaticImageEditorPanel QToolButton { background: #121922; border: 1px solid #22303c; border-radius: 6px; padding: 4px; }
-#StaticImageEditorPanel QToolButton:hover { border-color: #00c8f0; }
+#StaticImageEditorPanel #StaticSectionTitle { font-weight: 600; background: transparent; border: none; }
+#StaticImageEditorPanel #StaticEditorStats { background: #121922; border: 1px solid #22303c; border-radius: 8px; }
+#StaticImageEditorPanel #StaticStatCaption { color: #9fb3c1; background: transparent; border: none; }
+#StaticImageEditorPanel #StaticStatValue { color: #edf7fb; font-weight: 600; background: transparent; border: none; }
+#StaticImageEditorPanel #StaticStatValue[saving="true"] { color: #00c8f0; }
+#StaticImageEditorPanel #StaticStatValue[growth="true"] { color: #ffd28a; }
+#StaticImageEditorPanel #StaticEditorNote { color: #9fb3c1; background: transparent; font-size: 12px; }
+#StaticImageEditorPanel #StaticStatsScroll { background: transparent; border: none; }
+#StaticImageEditorPanel #StaticStatsScroll > QWidget > QWidget { background: transparent; }
+#StaticImageEditorPanel #StaticEditorHint { color: #9fb3c1; padding: 4px 0; }
+#StaticImageEditorPanel #StaticEditorHint[severity="warning"] { color: #ffd28a; }
+#StaticImageEditorPanel #StaticEditorHint[severity="error"] { color: #ffb2ac; }
+#StaticImageEditorPanel QToolButton,
+#StaticImageEditorPanel QPushButton[staticTool="true"] {
+    background: #121922; border: 1px solid #22303c; border-radius: 6px;
+    padding: 0; min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px;
+}
+#StaticImageEditorPanel QToolButton:hover,
+#StaticImageEditorPanel QPushButton[staticTool="true"]:hover { border-color: #00c8f0; background: #17212b; }
 #StaticImageEditorPanel QToolButton:checked { background: #063847; border-color: #00c8f0; }
+#StaticImageEditorPanel QToolButton:disabled,
+#StaticImageEditorPanel QPushButton[staticTool="true"]:disabled { border-color: #22303c; background: #0f141a; }
+#StaticImageEditorPanel QToolButton:focus,
+#StaticImageEditorPanel QPushButton[staticTool="true"]:focus { border-color: #00c8f0; }
 #StaticImageEditorPanel QPushButton { min-height: 30px; padding: 4px 12px; }
 #StaticImageEditorPanel #StaticApplyEditing { background: #00c8f0; color: #061116; }
 #StaticImageEditorPanel #StaticApplyEditing:disabled { background: #17212b; color: #9fb3c1; }
-#StaticImageEditorPanel #StaticMaskList { background: #121922; border: 1px solid #22303c; border-radius: 6px; }
+#StaticImageEditorPanel #StaticMaskList { background: #121922; border: 1px solid #22303c; border-radius: 8px; padding: 4px; }
+#StaticImageEditorPanel QSplitter::handle { background: transparent; }
+#StaticImageEditorPanel QSplitter::handle:hover { background: #22303c; }

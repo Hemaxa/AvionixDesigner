@@ -1770,6 +1770,112 @@ private slots:
         QTemporaryDir temp;QVERIFY(p->saveToFile(temp.filePath("empty.xml")));QVERIFY2(p->loadFromFile(temp.filePath("empty.xml")),qPrintable(p->lastErrorMessage()));
         QVERIFY(p->getObjectAt(0)->isStaticImageOptimized());
     }
+    void staticEditorTargetedCutsAndHover() {
+        StaticImageDocument document;
+        document.size = QSize(90, 30);
+        StaticImageRegion region;
+        region.rect = QRect(0, 0, 90, 30);
+        document.regions = {region};
+        QVERIFY(document.split(0, Qt::Vertical, 30));
+        QVERIFY(document.split(1, Qt::Vertical, 60));
+        StaticImageCanvas canvas;
+        canvas.resize(760, 430); canvas.show(); canvas.setDocument(&document); canvas.setEditable(true);
+        QSignalSpy cuts(&canvas, &StaticImageCanvas::splitRequested);
+        auto point = [&](int x, int y) { return canvas.imageTransform().map(QPointF(x, y)).toPoint(); };
+        auto move = [&](QPoint p, Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+            QMouseEvent event(QEvent::MouseMove, QPointF(p), QPointF(canvas.mapToGlobal(p)),
+                              Qt::NoButton, Qt::LeftButton, modifiers);
+            QApplication::sendEvent(&canvas, &event);
+        };
+        // The same horizontal guide can reach the rightmost of three columns.
+        move(point(15, 15));
+        QPoint handle(qRound(canvas.verticalRulerRect().center().x()), point(0, 15).y());
+        QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, handle);
+        move(point(75, 15));
+        QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::NoModifier, point(75, 15));
+        QCOMPARE(cuts.size(), 1); QCOMPARE(cuts[0][0].toInt(), 2);
+        QCOMPARE(cuts[0][1].value<Qt::Orientation>(), Qt::Horizontal); QCOMPARE(cuts[0][2].toInt(), 15);
+        // Shift keeps the original column even when the pointer crosses another one.
+        move(point(15, 15));
+        QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, handle);
+        move(point(75, 15), Qt::ShiftModifier);
+        QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::ShiftModifier, point(75, 15));
+        QCOMPARE(cuts.size(), 2); QCOMPARE(cuts[1][0].toInt(), 0);
+        // A local shortcut needs no trip to the ruler.
+        move(point(75, 10)); QTest::keyPress(&canvas, Qt::Key_H);
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::NoModifier, point(75, 10));
+        // Refreshing the preview after a cut must preserve a physically held shortcut.
+        canvas.setDocument(&document);
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::NoModifier, point(75, 20));
+        QTest::keyRelease(&canvas, Qt::Key_H);
+        QCOMPARE(cuts.size(), 4); QCOMPARE(cuts[2][0].toInt(), 2); QCOMPARE(cuts[2][2].toInt(), 10);
+        QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, handle);
+        move(point(75, 20)); QTest::keyClick(&canvas, Qt::Key_Escape);
+        QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::NoModifier, point(75, 20));
+        QCOMPARE(cuts.size(), 4);
+        canvas.setDocument(&document);
+        const auto before = canvas.grab().toImage();
+        move(point(75, 15)); QVERIFY(canvas.grab().toImage() != before);
+        QEvent leave(QEvent::Leave); QApplication::sendEvent(&canvas, &leave);
+        QCOMPARE(canvas.grab().toImage(), before);
+        const auto box = canvas.imageTransform().mapRect(QRectF(QPointF(), QSizeF(document.size)));
+        QCOMPARE(canvas.horizontalRulerRect().bottom(), box.top());
+        QCOMPARE(canvas.verticalRulerRect().right(), box.left());
+        // Dropping outside the image cancels, and a one-pixel region cannot be cut.
+        QTest::mousePress(&canvas, Qt::LeftButton, Qt::NoModifier, handle);
+        move(QPoint(2, 2)); QTest::mouseRelease(&canvas, Qt::LeftButton, Qt::NoModifier, QPoint(2, 2));
+        QCOMPARE(cuts.size(), 4);
+        document.size = QSize(1, 1); document.regions = {region}; document.regions[0].rect = QRect(0, 0, 1, 1);
+        canvas.setDocument(&document); move(point(0, 0)); QTest::keyPress(&canvas, Qt::Key_V);
+        QTest::mouseClick(&canvas, Qt::LeftButton, Qt::NoModifier, point(0, 0)); QTest::keyRelease(&canvas, Qt::Key_V);
+        QCOMPARE(cuts.size(), 4);
+    }
+    void staticEditorMaskOrderAndCompactLayout() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Mask order", 80, 80, Qt::black);
+        QVERIFY(p->addObject("staticgroup") >= 0);
+        auto *group = static_cast<StaticGroupObject *>(p->getObjectAt(0).data());
+        group->states.clear(); group->maskImages.clear();
+        const QList<QColor> colors{Qt::red, Qt::green, Qt::blue, Qt::white};
+        for (int i = 0; i < colors.size(); ++i) {
+            QImage image(8, 8, QImage::Format_ARGB32); image.fill(Qt::white);
+            group->states.append({i * 8, 0, 8, 8, i * 64, colors[i], true}); group->maskImages.append(image);
+        }
+        StaticImageEditorPanel editor; editor.resize(680, 460); editor.show(); editor.setSelectedObjects({0});
+        editor.beginEditing(); QTest::qWait(10);
+        auto *canvas = editor.findChild<StaticImageCanvas *>("StaticPartitionCanvas"); QVERIFY(canvas);
+        editor.grab().save(QCoreApplication::applicationDirPath() + "/static-editor-compact.png");
+        for (auto *button : editor.findChildren<QAbstractButton *>())
+            if (button->isVisible()) QVERIFY(editor.rect().contains(button->mapTo(&editor, QPoint()) + button->rect().bottomRight()));
+        QTest::mouseDClick(canvas, Qt::LeftButton, Qt::NoModifier, canvas->imageTransform().map(QPointF(4, 4)).toPoint());
+        QTest::qWait(190);
+        auto *list = editor.findChild<QListWidget *>("StaticMaskList"); QVERIFY(list); QCOMPARE(list->count(), 4);
+        list->setCurrentRow(3);
+        editor.findChild<QToolButton *>("StaticMaskTop")->click();
+        QTRY_COMPARE(editor.draft()->regions[0].masks.first().color, QColor(Qt::white));
+        QCOMPARE(list->currentRow(), 0);
+        editor.findChild<QToolButton *>("StaticMaskBottom")->click();
+        QTRY_COMPARE(editor.draft()->regions[0].masks.last().color, QColor(Qt::white));
+        QCOMPARE(list->currentRow(), 3);
+        // Preserve relative order when moving a noncontiguous selection to either end.
+        list->clearSelection(); list->item(1)->setSelected(true); list->item(3)->setSelected(true);
+        editor.findChild<QToolButton *>("StaticMaskTop")->click();
+        QTRY_COMPARE(editor.draft()->regions[0].masks[0].color, QColor(Qt::green));
+        QCOMPARE(editor.draft()->regions[0].masks[1].color, QColor(Qt::white));
+        editor.findChild<QToolButton *>("StaticDraftUndo")->click();
+        QCOMPARE(editor.draft()->regions[0].masks[0].color, QColor(Qt::red));
+        editor.findChild<QToolButton *>("StaticDraftRedo")->click();
+        QCOMPARE(editor.draft()->regions[0].masks[0].color, QColor(Qt::green));
+        list->clearSelection();
+        list->setCurrentRow(3, QItemSelectionModel::ClearAndSelect);
+        QCOMPARE(list->selectedItems().size(), 1);
+        QCOMPARE(list->currentItem()->data(Qt::UserRole + 1).value<QColor>(), QColor(Qt::blue));
+        QTest::keyClick(list, Qt::Key_Up, Qt::AltModifier | Qt::ShiftModifier);
+        QTRY_COMPARE(editor.draft()->regions[0].masks.first().color, QColor(Qt::blue));
+        editor.grab().save(QCoreApplication::applicationDirPath() + "/static-editor-compact-masks.png");
+        for (auto *button : editor.findChildren<QAbstractButton *>())
+            if (button->isVisible()) QVERIFY(editor.rect().contains(button->mapTo(&editor, QPoint()) + button->rect().bottomRight()));
+        editor.cancelEditing();
+    }
     void staticEditorGesturesAndSelection() {
         auto *p=ProjectManager::instance();QVERIFY(p->createNewProject("Static editor gestures",320,240,Qt::black));QVERIFY(p->addObject("staticgroup")>=0);
         auto source=p->getObjectAt(0);auto *group=static_cast<StaticGroupObject *>(source.data());
@@ -1793,7 +1899,7 @@ private slots:
         editor.findChild<QPushButton *>("StaticPartBack")->click();QTest::qWait(190);editor.findChild<QToolButton *>("StaticShapeBuilder")->click();
         auto cut=[&](Qt::Orientation orientation,int coordinate,QPointF anchor){
             move(canvas,canvas->imageTransform().map(anchor).toPoint());
-            const QPoint position=orientation==Qt::Vertical?QPoint(point(coordinate,0).x(),10):QPoint(10,point(0,coordinate).y());
+            const QPoint position=orientation==Qt::Vertical?QPoint(point(coordinate,0).x(),qRound(canvas->horizontalRulerRect().center().y())):QPoint(qRound(canvas->verticalRulerRect().center().x()),point(0,coordinate).y());
             QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,position);
             const QPoint finish=orientation==Qt::Vertical?point(coordinate,anchor.y()):point(anchor.x(),coordinate);
             move(canvas,finish,true);QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,finish);
@@ -1883,7 +1989,7 @@ private slots:
         auto *canvas=editor->findChild<StaticImageCanvas *>("StaticPartitionCanvas");QVERIFY(canvas);
         const auto transform=canvas->imageTransform();const auto cutX=transform.map(QPointF(64,0)).x();
         QTest::mouseMove(canvas,transform.map(QPointF(40,60)).toPoint());
-        QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,QPoint(qRound(cutX),10));
+        QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,QPoint(qRound(cutX),qRound(canvas->horizontalRulerRect().center().y())));
         QTest::mouseMove(canvas,transform.map(QPointF(64,64)).toPoint());QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,transform.map(QPointF(64,64)).toPoint());
         QCOMPARE(editor->draft()->regions.size(),2);
         canvas->setFocus();QTest::keySequence(canvas,QKeySequence::Undo);QTest::qWait(5);
@@ -1891,7 +1997,7 @@ private slots:
         QTest::keySequence(canvas,QKeySequence::Redo);QTest::qWait(5);QCOMPARE(editor->draft()->regions.size(),2);
         QTest::mouseMove(canvas,transform.map(QPointF(40,60)).toPoint());
         const auto cutY=transform.map(QPointF(0,40)).y();
-        QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,QPoint(10,qRound(cutY)));
+        QTest::mousePress(canvas,Qt::LeftButton,Qt::NoModifier,QPoint(qRound(canvas->verticalRulerRect().center().x()),qRound(cutY)));
         QTest::mouseMove(canvas,transform.map(QPointF(40,40)).toPoint());QTest::mouseRelease(canvas,Qt::LeftButton,Qt::NoModifier,transform.map(QPointF(40,40)).toPoint());
         QCOMPARE(editor->draft()->regions.size(),3);
         editor->findChild<QToolButton *>("StaticExcludeEmpty")->click();

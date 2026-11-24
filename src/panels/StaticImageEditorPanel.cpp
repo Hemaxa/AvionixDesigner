@@ -1,19 +1,29 @@
 // StaticImageEditorPanel — черновики, навигация, маски и применение к сцене.
 #include "StaticImageEditorPanel.h"
-#include "StaticImageCanvas.h"
 #include "ProjectManager.h"
+#include "StaticImageCanvas.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include <QAbstractItemModel>
-#include <QKeyEvent>
+#include <QApplication>
 #include <QColorDialog>
+#include <QDrag>
+#include <QDropEvent>
+#include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QListWidget>
+#include <QLocale>
+#include <QMimeData>
 #include <QPainter>
 #include <QPropertyAnimation>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSignalBlocker>
+#include <QSplitter>
 #include <QStackedWidget>
+#include <QStyledItemDelegate>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -21,16 +31,143 @@
 
 namespace
 {
-QIcon colorIcon(const QColor &color)
+// QListWidget's default InternalMove can treat a drop as replacement on an item.
+// Always insert between rows, including the space before the first / after the last row.
+class StaticMaskList : public QListWidget
 {
-    QPixmap pixmap(24, 24);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setPen(QColor("#334656"));
-    painter.setBrush(color);
-    painter.drawRoundedRect(QRect(2, 2, 20, 20), 4, 4);
-    return QIcon(pixmap);
-}
+  public:
+    using QListWidget::QListWidget;
+    void moveSelectionTo(int insertion)
+    {
+        const auto selection = selectedItems();
+        if (selection.isEmpty())
+            return;
+        QList<QListWidgetItem *> moving, remaining;
+        int destination = 0;
+        for (int i = 0; i < count(); ++i)
+            if (selection.contains(item(i)))
+                moving.append(item(i));
+            else
+            {
+                if (i < insertion)
+                    ++destination;
+                remaining.append(item(i));
+            }
+        for (int i = 0; i < moving.size(); ++i)
+            remaining.insert(destination + i, moving[i]);
+        for (int i = 0; i < remaining.size(); ++i)
+        {
+            const int from = row(remaining[i]);
+            if (from != i)
+                model()->moveRow({}, from, {}, i);
+        }
+    }
+
+  protected:
+    void startDrag(Qt::DropActions) override
+    {
+        QDrag drag(this);
+        drag.setMimeData(model()->mimeData(selectedIndexes()));
+        if (currentItem())
+        {
+            const auto preview = visualItemRect(currentItem()).intersected(viewport()->rect());
+            if (!preview.isEmpty())
+            {
+                drag.setPixmap(viewport()->grab(preview));
+                drag.setHotSpot(QPoint(24, preview.height() / 2));
+            }
+        }
+        drag.exec(Qt::MoveAction);
+        m_dropRow = -1;
+        setState(QAbstractItemView::NoState);
+        viewport()->update();
+    }
+    void dragMoveEvent(QDragMoveEvent *event) override
+    {
+        QListWidget::dragMoveEvent(event);
+        if (event->source() != this)
+            return;
+        m_dropRow = insertionAt(event->position().toPoint());
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+        viewport()->update();
+    }
+    void dragLeaveEvent(QDragLeaveEvent *event) override
+    {
+        m_dropRow = -1;
+        QListWidget::dragLeaveEvent(event);
+        viewport()->update();
+    }
+    void dropEvent(QDropEvent *event) override
+    {
+        if (event->source() != this)
+        {
+            event->ignore();
+            return;
+        }
+        moveSelectionTo(insertionAt(event->position().toPoint()));
+        m_dropRow = -1;
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+        viewport()->update();
+    }
+    void paintEvent(QPaintEvent *event) override
+    {
+        QListWidget::paintEvent(event);
+        if (m_dropRow < 0)
+            return;
+        const int y = m_dropRow < count() ? visualItemRect(item(m_dropRow)).top()
+                                          : (count() ? visualItemRect(item(count() - 1)).bottom() : 2);
+        QPainter painter(viewport());
+        painter.setPen(QPen(QColor("#00c8f0"), 2));
+        painter.drawLine(8, y, viewport()->width() - 8, y);
+    }
+
+  private:
+    int insertionAt(const QPoint &point) const
+    {
+        for (int i = 0; i < count(); ++i)
+            if (point.y() < visualItemRect(item(i)).center().y())
+                return i;
+        return count();
+    }
+    int m_dropRow = -1;
+};
+
+// StaticMaskDelegate — одинаковые цветовые образцы и две выровненные строки описания маски.
+class StaticMaskDelegate : public QStyledItemDelegate
+{
+  public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem background(option);
+        initStyleOption(&background, index);
+        const auto lines = background.text.split('\n');
+        background.text.clear();
+        background.icon = {};
+        const auto *style = option.widget ? option.widget->style() : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &background, painter, option.widget);
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        const QRectF swatch(option.rect.left() + 12, option.rect.center().y() - 11, 22, 22);
+        painter->setPen(QPen(QColor("#9fb3c1"), 1));
+        painter->setBrush(index.data(Qt::UserRole + 1).value<QColor>());
+        painter->drawRoundedRect(swatch, 4, 4);
+        const auto text = option.rect.adjusted(46, 9, -10, -9);
+        painter->setPen(QColor("#edf7fb"));
+        painter->drawText(text, Qt::AlignLeft | Qt::AlignTop,
+                          option.fontMetrics.elidedText(lines.value(0), Qt::ElideRight, text.width()));
+        painter->setPen(QColor("#9fb3c1"));
+        painter->drawText(text, Qt::AlignLeft | Qt::AlignBottom,
+                          option.fontMetrics.elidedText(lines.value(1), Qt::ElideRight, text.width()));
+        painter->restore();
+    }
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override
+    {
+        return QSize(240, 60);
+    }
+};
 } // namespace
 
 StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(parent)
@@ -43,6 +180,7 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_name = new QLabel(tr("Статическое изображение"), this);
     m_name->setObjectName("StaticEditorTitle");
     m_name->setTextFormat(Qt::PlainText);
+    m_name->setWordWrap(true);
     layout->addWidget(m_name);
     m_pages = new QStackedWidget(this);
     layout->addWidget(m_pages, 1);
@@ -56,96 +194,198 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_canvas = new StaticImageCanvas(m_overview);
     m_canvas->setObjectName("StaticPartitionCanvas");
     overview->addWidget(m_canvas, 1);
-    auto *tools = new QVBoxLayout;
-    tools->setSpacing(6);
-    overview->addLayout(tools);
-    auto tool = [&](const char *name, const QString &icon, const QString &tip)
+    // Common tools stay in the same place when entering a region.
+    auto *toolbar = new QHBoxLayout;
+    toolbar->setSpacing(6);
+    layout->insertLayout(1, toolbar);
+    auto tool =
+        [&](QHBoxLayout *bar, QWidget *parent, const char *name, const QString &icon, const QString &tip)
     {
-        auto *button = new QToolButton(m_overview);
+        auto *button = new QToolButton(parent);
         button->setObjectName(name);
         button->setIcon(QIcon(icon));
-        button->setIconSize(QSize(24, 24));
-        button->setFixedSize(40, 40);
+        button->setIconSize(QSize(22, 22));
+        button->setFixedSize(36, 36);
         button->setToolTip(tip);
         button->setAccessibleName(tip);
-        tools->addWidget(button);
+        bar->addWidget(button);
         return button;
     };
-    m_mergeTool = tool("StaticShapeBuilder", ":/icons/icons/static-editor/shape-builder.svg",
+    m_mergeTool = tool(toolbar, this, "StaticShapeBuilder", ":/icons/icons/static-editor/shape-builder.svg",
                        tr("Объединение: проведите по областям или маскам"));
     m_mergeTool->setCheckable(true);
-    m_empty = tool("StaticExcludeEmpty", ":/icons/icons/selection/delete.svg",
-                   tr("Пометить все области с нулевыми масками"));
-    m_undo = tool("StaticDraftUndo", ":/icons/icons/selection/undo.svg", tr("Отменить изменение в окне"));
-    m_redo = tool("StaticDraftRedo", ":/icons/icons/selection/redo.svg", tr("Повторить изменение в окне"));
-    auto *fit = tool("StaticFit", ":/icons/icons/selection/align-hcenter.svg", tr("Вписать изображение"));
-    tools->addStretch();
-    auto *side = new QVBoxLayout;
-    overview->addLayout(side);
-    auto *statsTitle = new QLabel(tr("Данные изображения"), m_overview);
-    side->addWidget(statsTitle);
-    m_stats = new QLabel(m_overview);
+    auto *partTool =
+        tool(toolbar, this, "StaticMaskShapeBuilder", ":/icons/icons/static-editor/shape-builder.svg",
+             tr("Объединение масок: отпустите мышь на цвете результата"));
+    partTool->setCheckable(true);
+    partTool->hide();
+    m_empty = tool(toolbar, this, "StaticExcludeEmpty", ":/icons/icons/static-editor/exclude-empty.svg",
+                   tr("Автоматически исключить области, в которых все значения масок равны 0"));
+    toolbar->addSpacing(8);
+    m_undo = tool(toolbar, this, "StaticDraftUndo", ":/icons/icons/selection/undo.svg",
+                  tr("Отменить изменение в окне"));
+    m_redo = tool(toolbar, this, "StaticDraftRedo", ":/icons/icons/selection/redo.svg",
+                  tr("Повторить изменение в окне"));
+    toolbar->addStretch();
+    auto *fit =
+        tool(toolbar, this, "StaticFit", ":/icons/icons/static-editor/fit.svg", tr("Вписать изображение"));
+
+    auto *sideScroll = new QScrollArea(m_overview);
+    sideScroll->setObjectName("StaticStatsScroll");
+    sideScroll->setWidgetResizable(true);
+    sideScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    sideScroll->setMinimumWidth(258);
+    sideScroll->setMaximumWidth(320);
+    sideScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    overview->addWidget(sideScroll);
+    auto *side = new QWidget;
+    auto *sideLayout = new QVBoxLayout(side);
+    sideLayout->setContentsMargins(0, 0, 0, 0);
+    sideLayout->setSpacing(10);
+    sideScroll->setWidget(side);
+    auto *statsTitle = new QLabel(tr("Данные изображения"));
+    statsTitle->setObjectName("StaticSectionTitle");
+    sideLayout->addWidget(statsTitle);
+    m_statsEmpty = new QLabel(tr("Выберите один статический объект."));
+    m_statsEmpty->setWordWrap(true);
+    sideLayout->addWidget(m_statsEmpty);
+    m_stats = new QFrame;
     m_stats->setObjectName("StaticEditorStats");
-    m_stats->setTextFormat(Qt::PlainText);
-    m_stats->setWordWrap(true);
-    m_stats->setMinimumWidth(175);
-    m_stats->setMaximumWidth(260);
-    m_stats->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    side->addWidget(m_stats);
-    side->addStretch();
+    sideLayout->addWidget(m_stats);
+    auto *statsGrid = new QGridLayout(m_stats);
+    statsGrid->setContentsMargins(12, 12, 12, 12);
+    statsGrid->setHorizontalSpacing(12);
+    statsGrid->setVerticalSpacing(8);
+    statsGrid->setColumnStretch(0, 1);
+    int row = 0;
+    auto section = [&](const QString &title)
+    {
+        auto *label = new QLabel(title);
+        label->setObjectName("StaticSectionTitle");
+        if (row)
+            statsGrid->setRowMinimumHeight(row++, 8);
+        statsGrid->addWidget(label, row++, 0, 1, 2);
+    };
+    auto stat = [&](const QString &key, const QString &title, const QString &tip = QString())
+    {
+        auto *caption = new QLabel(title), *value = new QLabel;
+        caption->setObjectName("StaticStatCaption");
+        value->setObjectName("StaticStatValue");
+        value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        caption->setToolTip(tip);
+        value->setToolTip(tip);
+        statsGrid->addWidget(caption, row, 0);
+        statsGrid->addWidget(value, row++, 1);
+        m_statValues.insert(key, value);
+    };
+    section(tr("Изображение"));
+    stat("size", tr("Размер, px"));
+    stat("regions", tr("Всего областей"));
+    stat("excluded", tr("Исключено"));
+    section(tr("Память масок"));
+    stat("before", tr("До, ячеек"));
+    stat("after", tr("После, ячеек"));
+    stat("saved", tr("Экономия, ячеек"));
+    stat("percent", tr("Экономия, %"));
+    section(tr("Экспорт в ПЛИС"));
+    stat("groups", tr("STATICGROUP"));
+    stat("init", tr("Блоков init"));
+    stat("bits", tr("Маски, бит"), tr("Одна ячейка маски занимает 3 бита."));
+    stat("uart", tr("UART масок, байт"),
+         tr("В протоколе значение каждой ячейки передаётся отдельным байтом."));
+    auto *note = new QLabel(
+        tr("Одна экспортируемая область — один банк. Объём BRAM зависит от глубины банков в прошивке."));
+    note->setWordWrap(true);
+    note->setObjectName("StaticEditorNote");
+    sideLayout->addWidget(note);
+    sideLayout->addStretch();
 
     auto *detailLayout = new QVBoxLayout(m_detail);
     detailLayout->setContentsMargins(0, 0, 0, 0);
+    detailLayout->setSpacing(10);
     auto *navigation = new QHBoxLayout;
     detailLayout->addLayout(navigation);
-    auto *back = new QPushButton(QIcon(":/icons/icons/selection/undo.svg"), tr("К разбиению"), m_detail);
+    auto *back = new QPushButton(QIcon(":/icons/icons/static-editor/back.svg"), QString(), m_detail);
     back->setObjectName("StaticPartBack");
+    back->setProperty("staticTool", true);
+    back->setIconSize(QSize(22, 22));
+    back->setFixedSize(36, 36);
+    back->setToolTip(tr("К разбиению"));
+    back->setAccessibleName(back->toolTip());
     navigation->addWidget(back);
     m_partName = new QLabel(m_detail);
     m_partName->setTextFormat(Qt::PlainText);
+    m_partName->setObjectName("StaticSectionTitle");
+    m_partName->setWordWrap(true);
     navigation->addWidget(m_partName, 1);
-    auto *partTool = new QToolButton(m_detail);
-    partTool->setObjectName("StaticMaskShapeBuilder");
-    partTool->setIcon(QIcon(":/icons/icons/static-editor/shape-builder.svg"));
-    partTool->setCheckable(true);
-    partTool->setFixedSize(36, 36);
-    partTool->setToolTip(tr("Объединение масок: отпустите мышь на цвете результата"));
-    navigation->addWidget(partTool);
-    auto *partFit = new QPushButton(tr("Вписать"), m_detail);
-    navigation->addWidget(partFit);
-    auto *body = new QHBoxLayout;
-    detailLayout->addLayout(body, 1);
-    m_partCanvas = new StaticImageCanvas(m_detail);
+    auto *body = new QSplitter(m_detail);
+    body->setChildrenCollapsible(false);
+    body->setHandleWidth(8);
+    detailLayout->addWidget(body, 1);
+    m_partCanvas = new StaticImageCanvas(body);
     m_partCanvas->setObjectName("StaticMaskCanvas");
-    body->addWidget(m_partCanvas, 1);
-    auto *maskSide = new QVBoxLayout;
-    body->addLayout(maskSide);
-    auto *maskTitle = new QLabel(tr("Маски · первый init сверху"), m_detail);
+    auto *maskPanel = new QWidget(body);
+    maskPanel->setMinimumWidth(260);
+    auto *maskSide = new QVBoxLayout(maskPanel);
+    maskSide->setContentsMargins(0, 0, 0, 0);
+    maskSide->setSpacing(8);
+    auto *maskTitle = new QLabel(tr("Маски части"));
+    maskTitle->setObjectName("StaticSectionTitle");
     maskSide->addWidget(maskTitle);
-    m_masks = new QListWidget(m_detail);
+    auto *maskNote = new QLabel(tr("Сверху — первый init, передний план"));
+    maskNote->setObjectName("StaticEditorNote");
+    maskNote->setWordWrap(true);
+    maskNote->setToolTip(tr("Габаритный прямоугольник первой маски перекрывает следующие, в том числе при "
+                            "нулевом значении маски."));
+    maskSide->addWidget(maskNote);
+    m_masks = new StaticMaskList(maskPanel);
     m_masks->setObjectName("StaticMaskList");
-    m_masks->setMinimumWidth(230);
+    m_masks->setItemDelegate(new StaticMaskDelegate(m_masks));
     m_masks->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_masks->setDragDropMode(QAbstractItemView::InternalMove);
+    m_masks->setDragDropOverwriteMode(false);
     m_masks->setDefaultDropAction(Qt::MoveAction);
-    m_masks->setIconSize(QSize(24, 24));
+    m_masks->setDropIndicatorShown(false);
+    m_masks->setAutoScrollMargin(28);
+    m_masks->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_masks->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     maskSide->addWidget(m_masks, 1);
     auto *maskActions = new QHBoxLayout;
-    detailLayout->addLayout(maskActions);
-    auto *up = new QPushButton(tr("Выше"), m_detail), *down = new QPushButton(tr("Ниже"), m_detail);
-    m_color = new QPushButton(tr("Цвет"), m_detail);
-    m_color->setObjectName("StaticMaskColor");
-    m_color->setToolTip(tr("Выбрать цвет маски"));
-    m_merge = new QPushButton(tr("Объединить маски"), m_detail);
-    m_merge->setObjectName("StaticMergeMasks");
-    auto *done = new QPushButton(tr("Готово"), m_detail);
+    maskActions->setSpacing(4);
+    maskSide->addLayout(maskActions);
+    m_top = tool(maskActions, maskPanel, "StaticMaskTop", ":/icons/icons/static-editor/move-top.svg",
+                 tr("В самое начало"));
+    m_up =
+        tool(maskActions, maskPanel, "StaticMaskUp", ":/icons/icons/static-editor/move-up.svg", tr("Выше"));
+    m_down = tool(maskActions, maskPanel, "StaticMaskDown", ":/icons/icons/static-editor/move-down.svg",
+                  tr("Ниже"));
+    m_bottom = tool(maskActions, maskPanel, "StaticMaskBottom", ":/icons/icons/static-editor/move-bottom.svg",
+                    tr("В самый конец"));
     maskActions->addStretch();
-    for (auto *button : {up, down, m_color, m_merge, done})
+    auto iconAction = [&](const char *name, const QString &icon, const QString &tip)
+    {
+        auto *button = new QPushButton(QIcon(icon), QString(), maskPanel);
+        button->setObjectName(name);
+        button->setProperty("staticTool", true);
+        button->setIconSize(QSize(22, 22));
+        button->setFixedSize(36, 36);
+        button->setToolTip(tip);
+        button->setAccessibleName(tip);
         maskActions->addWidget(button);
+        return button;
+    };
+    m_color = iconAction("StaticMaskColor", ":/icons/icons/static-editor/color.svg",
+                         tr("Изменить цвет выбранных масок"));
+    m_merge = iconAction("StaticMergeMasks", ":/icons/icons/static-editor/shape-builder.svg",
+                         tr("Объединить выбранные маски"));
+    body->setStretchFactor(0, 1);
+    body->setStretchFactor(1, 0);
+    body->setSizes({650, 280});
 
     m_hint = new QLabel(this);
     m_hint->setObjectName("StaticEditorHint");
     m_hint->setWordWrap(true);
+    m_hint->setMinimumHeight(40);
     layout->addWidget(m_hint);
     auto *footer = new QHBoxLayout;
     layout->addLayout(footer);
@@ -172,9 +412,7 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     connect(m_cancel, &QPushButton::clicked, this, &StaticImageEditorPanel::cancelEditing);
     connect(m_apply, &QPushButton::clicked, this, [this] { applyEditing(); });
     connect(back, &QPushButton::clicked, this, &StaticImageEditorPanel::showOverview);
-    connect(done, &QPushButton::clicked, this, &StaticImageEditorPanel::showOverview);
-    connect(fit, &QToolButton::clicked, m_canvas, &StaticImageCanvas::fit);
-    connect(partFit, &QPushButton::clicked, m_partCanvas, &StaticImageCanvas::fit);
+    connect(fit, &QToolButton::clicked, this, [this] { (m_inDetail ? m_partCanvas : m_canvas)->fit(); });
     connect(m_mergeTool, &QToolButton::toggled, this,
             [this, partTool](bool checked)
             {
@@ -191,6 +429,14 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
             {
                 if (!editing())
                     return;
+                const bool hasEmpty =
+                    std::any_of(m_session->document.regions.cbegin(), m_session->document.regions.cend(),
+                                [](const auto &r) { return !r.excluded && r.empty(); });
+                if (!hasEmpty)
+                {
+                    showError(tr("Нет новых областей с полностью нулевыми масками."));
+                    return;
+                }
                 saveHistory();
                 m_session->document.excludeEmpty();
                 refresh();
@@ -233,7 +479,16 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
                 refresh();
             });
     connect(m_canvas, &StaticImageCanvas::regionOpened, this, &StaticImageEditorPanel::openRegion);
-    connect(m_canvas, &StaticImageCanvas::hintChanged, m_hint, &QLabel::setText);
+    connect(m_canvas, &StaticImageCanvas::hintChanged, this,
+            [this](const QString &hint)
+            {
+                if (!m_session || !editing() || !m_session->document.hardwareErrors().isEmpty())
+                    return;
+                m_hint->setProperty("severity", "normal");
+                m_hint->setText(hint);
+                m_hint->style()->unpolish(m_hint);
+                m_hint->style()->polish(m_hint);
+            });
     connect(m_partCanvas, &StaticImageCanvas::masksMergeRequested, this, &StaticImageEditorPanel::mergeMasks);
     connect(m_partCanvas, &StaticImageCanvas::masksSelected, this, &StaticImageEditorPanel::selectMasks);
     connect(m_masks, &QListWidget::itemSelectionChanged, this,
@@ -249,20 +504,18 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     connect(m_masks, &QListWidget::itemDoubleClicked, this, [this] { changeColor(); });
     connect(m_merge, &QPushButton::clicked, this,
             [this] { mergeMasks(selectedMasks().values(), m_masks->currentRow()); });
-    auto moveMask = [this](int delta)
-    {
-        if (!editing() || m_part < 0)
-            return;
-        int from = m_masks->currentRow(), to = from + delta;
-        if (from < 0 || to < 0 || to >= m_session->document.regions[m_part].masks.size())
-            return;
-        saveHistory();
-        m_session->document.regions[m_part].masks.move(from, to);
-        refresh();
-        m_masks->setCurrentRow(to);
-    };
-    connect(up, &QPushButton::clicked, this, [moveMask] { moveMask(-1); });
-    connect(down, &QPushButton::clicked, this, [moveMask] { moveMask(1); });
+    connect(m_top, &QToolButton::clicked, this, [this] { moveMasks(-1, true); });
+    connect(m_up, &QToolButton::clicked, this, [this] { moveMasks(-1); });
+    connect(m_down, &QToolButton::clicked, this, [this] { moveMasks(1); });
+    connect(m_bottom, &QToolButton::clicked, this, [this] { moveMasks(1, true); });
+    connect(m_pages, &QStackedWidget::currentChanged, this,
+            [this, partTool]
+            {
+                const bool detail = m_pages->currentWidget() == m_detail;
+                m_mergeTool->setVisible(!detail);
+                m_empty->setVisible(!detail);
+                partTool->setVisible(detail);
+            });
     installEventFilter(this);
     for (auto *widget : findChildren<QWidget *>())
         widget->installEventFilter(this);
@@ -274,6 +527,15 @@ bool StaticImageEditorPanel::eventFilter(QObject *watched, QEvent *event)
     if (editing() && (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress))
     {
         auto *key = static_cast<QKeyEvent *>(event);
+        const bool maskMove = m_inDetail && (key->key() == Qt::Key_Up || key->key() == Qt::Key_Down) &&
+                              key->modifiers().testFlag(Qt::AltModifier);
+        if (maskMove)
+        {
+            if (event->type() == QEvent::KeyPress)
+                moveMasks(key->key() == Qt::Key_Up ? -1 : 1, key->modifiers().testFlag(Qt::ShiftModifier));
+            event->accept();
+            return true;
+        }
         const bool undo = key->matches(QKeySequence::Undo), redo = key->matches(QKeySequence::Redo);
         if (undo || redo)
         {
@@ -438,16 +700,29 @@ void StaticImageEditorPanel::undoDraft(bool redo)
     auto &to = redo ? m_session->undo : m_session->redo;
     if (from.isEmpty())
         return;
+    const int partId = m_part >= 0 && m_part < m_session->document.regions.size()
+                           ? m_session->document.regions[m_part].id
+                           : -1;
     to.append(m_session->document);
     m_session->document = from.takeLast();
-    if (m_part >= m_session->document.regions.size())
-        showOverview();
+    if (partId >= 0)
+    {
+        m_part = -1;
+        for (int i = 0; i < m_session->document.regions.size(); ++i)
+            if (m_session->document.regions[i].id == partId)
+                m_part = i;
+        if (m_part < 0)
+            showOverview();
+    }
     refresh();
 }
 
 void StaticImageEditorPanel::showError(const QString &message)
 {
+    m_hint->setProperty("severity", "warning");
     m_hint->setText(message);
+    m_hint->style()->unpolish(m_hint);
+    m_hint->style()->polish(m_hint);
 }
 
 void StaticImageEditorPanel::refresh(bool rebuildList)
@@ -470,41 +745,45 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
                         : tr("Статическое изображение"));
     if (!document)
     {
-        m_stats->setText(tr("Выберите один статический объект."));
+        m_stats->hide();
+        m_statsEmpty->show();
         m_hint->clear();
         m_partCanvas->setDocument(nullptr);
         m_masks->clear();
         m_updating = false;
+        updateMaskActions();
         return;
     }
+    m_stats->show();
+    m_statsEmpty->hide();
     int excluded = 0;
     for (const auto &region : document->regions)
         excluded += region.excluded;
     const auto saved = document->originalCells - document->cells();
     const double percent = document->originalCells ? 100.0 * saved / document->originalCells : 0;
-    m_stats->setText(tr("%1 × %2 пикселей\n\nОбластей: %3\nИсключено: %4\nSTATICGROUP: %5\nInit: %6\n\nДо: "
-                        "%7 ячеек\nПосле: %8 ячеек\nЭкономия: %9 (%10%)\n\nМаски: %11 бит\nUART масок: %12 "
-                        "байт\nБанков: %5\n\nОбъём BRAM зависит от глубины банков в прошивке.")
-                         .arg(document->size.width())
-                         .arg(document->size.height())
-                         .arg(document->regions.size())
-                         .arg(excluded)
-                         .arg(document->exportedRegions().size())
-                         .arg(document->initCount())
-                         .arg(document->originalCells)
-                         .arg(document->cells())
-                         .arg(saved)
-                         .arg(percent, 0, 'f', 1)
-                         .arg(document->cells() * 3)
-                         .arg(document->cells()));
-    const auto errors = document->hardwareErrors();
-    m_apply->setEnabled(editing() && errors.isEmpty());
-    m_hint->setText(!errors.isEmpty()
-                        ? errors.join('\n')
-                        : (editing()
-                               ? tr("Черновик · линейки — разрезы, стык — линия, область — крестик, двойной "
-                                    "щелчок — маски.")
-                               : tr("Начните редактирование, чтобы зафиксировать размер и изменить маски.")));
+    const QLocale locale;
+    auto number = [&](qint64 value) { return locale.toString(value); };
+    m_statValues["size"]->setText(tr("%1 × %2").arg(document->size.width()).arg(document->size.height()));
+    m_statValues["regions"]->setText(number(document->regions.size()));
+    m_statValues["excluded"]->setText(number(excluded));
+    m_statValues["before"]->setText(number(document->originalCells));
+    m_statValues["after"]->setText(number(document->cells()));
+    m_statValues["saved"]->setText(number(saved));
+    m_statValues["percent"]->setText(locale.toString(percent, 'f', 1) + "%");
+    for (const auto &key : {QStringLiteral("saved"), QStringLiteral("percent")})
+    {
+        auto *value = m_statValues[key];
+        value->setProperty("saving", saved > 0);
+        value->setProperty("growth", saved < 0);
+        value->style()->unpolish(value);
+        value->style()->polish(value);
+    }
+    m_statValues["groups"]->setText(number(document->exportedRegions().size()));
+    m_statValues["init"]->setText(number(document->initCount()));
+    m_statValues["bits"]->setText(number(document->cells() * 3));
+    m_statValues["uart"]->setText(number(document->cells()));
+    m_apply->setEnabled(editing() && document->hardwareErrors().isEmpty());
+    updateHint();
     if (m_part >= 0 && m_part < document->regions.size())
     {
         const auto &region = document->regions[m_part];
@@ -520,8 +799,7 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
             for (int i = 0; i < region.masks.size(); ++i)
             {
                 const auto &mask = region.masks[i];
-                auto *item = new QListWidgetItem(colorIcon(mask.color),
-                                                 tr("%1 · %2\n%3 × %4 · %5 ячеек%6")
+                auto *item = new QListWidgetItem(tr("%1 · %2\n%3 × %4 · %5 ячеек%6")
                                                      .arg(i + 1)
                                                      .arg(mask.color.name())
                                                      .arg(mask.rect.width())
@@ -530,7 +808,8 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
                                                      .arg(mask.enabled ? QString() : tr(" · выключен")),
                                                  m_masks);
                 item->setData(Qt::UserRole, i);
-                item->setSizeHint(QSize(210, 54));
+                item->setData(Qt::UserRole + 1, mask.color);
+                item->setToolTip(item->text());
             }
             if (current >= 0 && current < m_masks->count())
                 m_masks->setCurrentRow(current, QItemSelectionModel::NoUpdate);
@@ -538,8 +817,6 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
                 if (auto *item = m_masks->item(index))
                     item->setSelected(true);
             m_partCanvas->setSelectedMasks(selectedMasks());
-            m_merge->setText(tr("Объединить маски"));
-            m_merge->setIcon(QIcon());
         }
         m_masks->setDragEnabled(editing());
         m_color->setEnabled(editing() && !m_masks->selectedItems().isEmpty());
@@ -556,11 +833,7 @@ void StaticImageEditorPanel::animatePage(bool detail)
     m_apply->setVisible(editing() && !detail);
     m_cancel->setVisible(editing() && !detail);
     m_begin->setVisible(!editing() && !detail);
-    m_hint->setText(
-        detail
-            ? tr("Перетащите строки для порядка init. Объединение жестом использует цвет последней "
-                 "захваченной маски.")
-            : tr("Черновик · линейки — разрезы, стык — линия, область — крестик, двойной щелчок — маски."));
+    updateHint();
     if (detail)
     {
         m_pages->setCurrentWidget(m_detail);
@@ -626,21 +899,56 @@ void StaticImageEditorPanel::updateMaskActions()
     const auto selection = selectedMasks();
     m_merge->setEnabled(editing() && selection.size() > 1);
     m_color->setEnabled(editing() && !selection.isEmpty());
+    const bool canMove = editing() && !selection.isEmpty();
+    const int first = canMove ? *std::min_element(selection.begin(), selection.end()) : -1;
+    const int last = canMove ? *std::max_element(selection.begin(), selection.end()) : -1;
+    m_top->setEnabled(canMove && first > 0);
+    m_up->setEnabled(canMove && first > 0);
+    m_down->setEnabled(canMove && last < m_masks->count() - 1);
+    m_bottom->setEnabled(canMove && last < m_masks->count() - 1);
     int target = m_masks->currentRow();
     if (!selection.contains(target) && !selection.isEmpty())
-        target = *std::max_element(selection.begin(), selection.end());
-    if (m_session && m_part >= 0 && target >= 0 &&
+        target = last;
+    QString tip = tr("Объединить выбранные маски");
+    if (m_session && m_part >= 0 && m_part < m_session->document.regions.size() && target >= 0 &&
         target < m_session->document.regions[m_part].masks.size() && selection.size() > 1)
-    {
-        const auto color = m_session->document.regions[m_part].masks[target].color;
-        m_merge->setText(tr("Объединить в %1").arg(color.name()));
-        m_merge->setIcon(colorIcon(color));
-    }
-    else
-    {
-        m_merge->setText(tr("Объединить маски"));
-        m_merge->setIcon(QIcon());
-    }
+        tip = tr("Объединить в цвет %1").arg(m_session->document.regions[m_part].masks[target].color.name());
+    m_merge->setToolTip(tip);
+    m_merge->setAccessibleName(tip);
+}
+
+void StaticImageEditorPanel::moveMasks(int direction, bool edge)
+{
+    if (!editing() || !m_inDetail || selectedMasks().isEmpty() || m_reorderPending)
+        return;
+    auto rows = selectedMasks().values();
+    std::sort(rows.begin(), rows.end());
+    if (edge)
+        static_cast<StaticMaskList *>(m_masks)->moveSelectionTo(direction < 0 ? 0 : m_masks->count());
+    else if (direction < 0 && rows.first() > 0)
+        for (int row : rows)
+            m_masks->model()->moveRow({}, row, {}, row - 1);
+    else if (direction > 0 && rows.last() + 1 < m_masks->count())
+        for (auto it = rows.crbegin(); it != rows.crend(); ++it)
+            m_masks->model()->moveRow({}, *it, {}, *it + 2);
+    if (m_masks->currentItem())
+        m_masks->scrollToItem(m_masks->currentItem());
+}
+
+void StaticImageEditorPanel::updateHint()
+{
+    const auto errors = draft() ? draft()->hardwareErrors() : QStringList();
+    m_hint->setProperty("severity", errors.isEmpty() ? "normal" : "error");
+    m_hint->setText(!errors.isEmpty()
+                        ? errors.join('\n')
+                        : (m_inDetail ? tr("Перетаскивайте маски между строками. Alt+↑/↓ — порядок; "
+                                           "Alt+Shift+↑/↓ — в начало/конец.")
+                           : editing() ? tr("Линейка → нужная область — разрез. H / V + щелчок — разрез на "
+                                            "месте. Щелчок — исключить; двойной — маски.")
+                                       : tr("Начните редактирование, чтобы разбить изображение на части и "
+                                            "исключить пустые области.")));
+    m_hint->style()->unpolish(m_hint);
+    m_hint->style()->polish(m_hint);
 }
 
 void StaticImageEditorPanel::mergeMasks(const QList<int> &indexes, int target)
@@ -704,6 +1012,11 @@ void StaticImageEditorPanel::reorderMasks()
                                reordered.append(masks[index]);
                            }
                            if (reordered.size() != masks.size())
+                               return;
+                           bool changed = false;
+                           for (int i = 0; i < m_masks->count(); ++i)
+                               changed |= m_masks->item(i)->data(Qt::UserRole).toInt() != i;
+                           if (!changed)
                                return;
                            saveHistory();
                            m_session->document.regions[m_part].masks = reordered;

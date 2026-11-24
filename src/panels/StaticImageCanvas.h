@@ -22,6 +22,8 @@ class StaticImageCanvas : public QWidget
     void setSelectedMasks(const QSet<int> &indexes);
     void fit();
     QTransform imageTransform() const;
+    QRectF horizontalRulerRect() const;
+    QRectF verticalRulerRect() const;
   signals:
     void splitRequested(int region, Qt::Orientation orientation, int coordinate);
     void exclusionRequested(int region);
@@ -39,6 +41,9 @@ class StaticImageCanvas : public QWidget
     void mouseDoubleClickEvent(QMouseEvent *) override;
     void wheelEvent(QWheelEvent *) override;
     void leaveEvent(QEvent *) override;
+    void keyPressEvent(QKeyEvent *) override;
+    void keyReleaseEvent(QKeyEvent *) override;
+    void focusOutEvent(QFocusEvent *) override;
 
   private:
     QRect contentRect() const;
@@ -46,8 +51,10 @@ class StaticImageCanvas : public QWidget
     int maskAt(const QPointF &point) const;
     void updateHover(const QPointF &point);
     void collectStroke(const QPointF &point);
+    void updateCut(const QPointF &point, bool lockRegion);
+    void cancelGesture();
     const StaticImageDocument *m_document = nullptr;
-    int m_region = -1, m_activeRegion = -1;
+    int m_region = -1, m_activeRegion = -1, m_hoverRegion = -1;
     QImage m_preview;
     QImage m_maskHighlight;
     bool m_editable = false, m_mergeTool = false, m_panning = false, m_stroking = false,
@@ -55,6 +62,8 @@ class StaticImageCanvas : public QWidget
     QPointF m_pan, m_lastMouse, m_strokeLast;
     double m_zoom = 1.0;
     int m_cutRegion = -1, m_cutCoordinate = 0, m_strokeTarget = -1;
+    int m_cutStartRegion = -1, m_pressedRegion = -1, m_cutKey = 0;
+    QPointF m_pressPosition;
     Qt::Orientation m_cutOrientation = Qt::Vertical;
     bool m_cutPreview = false, m_extendPreview = false;
     QList<int> m_mergeBoundary;

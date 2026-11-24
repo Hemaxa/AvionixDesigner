@@ -1,6 +1,7 @@
 // StaticImageCanvas — рисование, разрезы, стыки и объединение жестом мыши.
 #include "StaticImageCanvas.h"
 #include <QApplication>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QWheelEvent>
@@ -10,6 +11,7 @@
 namespace
 {
 constexpr int ruler = 28;
+constexpr int margin = 16;
 double distanceToLine(const QPointF &point, const QLineF &line)
 {
     const QPointF delta = line.p2() - line.p1();
@@ -50,7 +52,10 @@ void StaticImageCanvas::setDocument(const StaticImageDocument *document, int reg
     m_clickTimer.stop();
     m_document = document;
     m_region = region;
-    m_cutDragging = m_stroking = false;
+    const int cutKey = changed ? 0 : m_cutKey;
+    cancelGesture();
+    m_cutKey = cutKey;
+    m_hoverRegion = -1;
     m_preview = document ? document->render(region, true) : QImage();
     if (changed)
     {
@@ -69,7 +74,8 @@ void StaticImageCanvas::setDocument(const StaticImageDocument *document, int reg
 void StaticImageCanvas::setEditable(bool editable)
 {
     m_editable = editable;
-    m_clickTimer.stop();
+    if (!editable)
+        cancelGesture();
     update();
 }
 void StaticImageCanvas::fit()
@@ -119,15 +125,31 @@ QTransform StaticImageCanvas::imageTransform() const
     const auto rect = contentRect();
     if (rect.isEmpty())
         return {};
-    const double scale =
-        qMax(.001, qMin((width() - ruler - 28.0) / rect.width(), (height() - ruler - 28.0) / rect.height()) *
-                       m_zoom);
+    const double scale = qMax(.001, qMin((width() - ruler - 2.0 * margin) / rect.width(),
+                                         (height() - ruler - 2.0 * margin) / rect.height()) *
+                                        m_zoom);
     QTransform transform;
     transform.translate(ruler + (width() - ruler - rect.width() * scale) / 2.0 + m_pan.x(),
                         ruler + (height() - ruler - rect.height() * scale) / 2.0 + m_pan.y());
     transform.scale(scale, scale);
     transform.translate(-rect.x(), -rect.y());
     return transform;
+}
+
+QRectF StaticImageCanvas::horizontalRulerRect() const
+{
+    const auto box = imageTransform().mapRect(QRectF(contentRect()));
+    const double left = qMax(double(ruler + margin), box.left());
+    const double right = qMin(double(width() - margin), box.right());
+    return QRectF(left, qMax(double(margin), box.top() - ruler), qMax(0.0, right - left), ruler);
+}
+
+QRectF StaticImageCanvas::verticalRulerRect() const
+{
+    const auto box = imageTransform().mapRect(QRectF(contentRect()));
+    const double top = qMax(double(ruler + margin), box.top());
+    const double bottom = qMin(double(height() - margin), box.bottom());
+    return QRectF(qMax(double(margin), box.left() - ruler), top, ruler, qMax(0.0, bottom - top));
 }
 
 QPointF StaticImageCanvas::toImage(const QPointF &point) const
@@ -140,8 +162,6 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
     QPainter painter(this);
     painter.fillRect(rect(), QColor("#0a0f14"));
     const QColor accent("#00c8f0"), line("#334656"), muted("#9fb3c1");
-    painter.fillRect(QRect(0, 0, width(), ruler), QColor("#121922"));
-    painter.fillRect(QRect(0, 0, ruler, height()), QColor("#121922"));
     if (!m_document || m_preview.isNull())
     {
         painter.setPen(muted);
@@ -153,9 +173,19 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
     const double scale = transform.m11();
     const auto bounds = contentRect();
     painter.save();
-    painter.setClipRect(QRect(ruler, ruler, width() - ruler, height() - ruler));
+    painter.setClipRect(rect().adjusted(ruler + margin, ruler + margin, -margin, -margin));
     painter.setTransform(transform);
-    painter.fillRect(bounds, QColor("#17212b"));
+    painter.fillRect(bounds, QColor("#121922"));
+    // Нейтральная шахматная подложка ограничена изображением, независимо от его пропорций.
+    painter.save();
+    painter.setClipRect(bounds, Qt::IntersectClip);
+    const int tile = qMax(1, qCeil(12.0 / scale));
+    const auto visible = transform.inverted().mapRect(QRectF(rect())).toAlignedRect().intersected(bounds);
+    for (int y = (visible.top() / tile) * tile; y <= visible.bottom(); y += tile)
+        for (int x = (visible.left() / tile) * tile; x <= visible.right(); x += tile)
+            if (((x / tile) + (y / tile)) % 2 == 0)
+                painter.fillRect(QRect(x, y, tile, tile), QColor("#17212b"));
+    painter.restore();
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter.drawImage(bounds.topLeft(), m_preview);
     if (scale >= 10)
@@ -175,10 +205,11 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
         for (int i = 0; i < m_document->regions.size(); ++i)
         {
             const auto &region = m_document->regions[i];
-            const bool active = i == m_activeRegion, selected = m_stroke.contains(i);
+            const bool active = i == m_hoverRegion || (m_cutPreview && i == m_cutRegion),
+                       selected = m_stroke.contains(i);
             if (active || selected || region.excluded)
             {
-                QColor tint = accent;
+                QColor tint(region.excluded ? "#ff5c7a" : "#00c8f0");
                 tint.setAlpha(selected ? 55 : (region.excluded ? 30 : 15));
                 painter.fillRect(region.rect, tint);
             }
@@ -189,7 +220,7 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
             {
                 const auto center = QRectF(region.rect).center();
                 const double arm = qMin(14.0 / scale, qMin(region.rect.width(), region.rect.height()) * .23);
-                painter.setPen(QPen(accent, 2 / scale));
+                painter.setPen(QPen(QColor("#ff5c7a"), 2 / scale));
                 painter.drawLine(center + QPointF(-arm, -arm), center + QPointF(arm, arm));
                 painter.drawLine(center + QPointF(-arm, arm), center + QPointF(arm, -arm));
             }
@@ -227,66 +258,80 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
     }
     painter.restore();
 
-    painter.setPen(line);
-    painter.drawLine(ruler, ruler, width(), ruler);
-    painter.drawLine(ruler, ruler, ruler, height());
-    if (m_region < 0 && m_activeRegion >= 0 && m_activeRegion < m_document->regions.size())
+    const auto topRuler = horizontalRulerRect(), leftRuler = verticalRulerRect();
+    auto drawRuler = [&](const QRectF &track, bool horizontal)
     {
-        const auto active = m_document->regions[m_activeRegion].rect;
-        const auto box = transform.mapRect(QRectF(active));
-        QColor tint = accent;
-        tint.setAlpha(45);
-        painter.fillRect(QRectF(box.x(), 0, box.width(), ruler), tint);
-        painter.fillRect(QRectF(0, box.y(), ruler, box.height()), tint);
-        painter.setPen(QPen(accent, 2));
-        for (double x : {box.x(), box.x() + box.width()})
-            painter.drawLine(QPointF(x, 7), QPointF(x, ruler));
-        for (double y : {box.y(), box.y() + box.height()})
-            painter.drawLine(QPointF(7, y), QPointF(ruler, y));
-    }
-    QSet<int> xs, ys;
-    for (const auto &region : m_document->regions)
-    {
-        xs << region.rect.x() << region.rect.x() + region.rect.width();
-        ys << region.rect.y() << region.rect.y() + region.rect.height();
-    }
-    painter.setPen(muted);
-    for (int x : xs)
-    {
-        const double px = transform.map(QPointF(x, 0)).x();
-        if (px >= ruler && px < width())
+        if (track.isEmpty())
+            return;
+        painter.save();
+        painter.setClipRect(track);
+        painter.fillRect(track, QColor("#121922"));
+        painter.setPen(line);
+        painter.drawRect(track.adjusted(0, 0, -1, -1));
+        const int activeIndex = m_cutPreview ? m_cutRegion : m_hoverRegion;
+        if (m_region < 0 && activeIndex >= 0 && activeIndex < m_document->regions.size())
         {
-            painter.drawLine(QPointF(px, ruler - 6), QPointF(px, ruler));
-            painter.drawText(QPointF(px + 3, 15), QString::number(x));
+            const auto box = transform.mapRect(QRectF(m_document->regions[activeIndex].rect));
+            QColor tint = accent;
+            tint.setAlpha(28);
+            painter.fillRect(horizontal ? QRectF(box.x(), track.y(), box.width(), track.height())
+                                        : QRectF(track.x(), box.y(), track.width(), box.height()),
+                             tint);
         }
-    }
-    for (int y : ys)
-    {
-        const double py = transform.map(QPointF(0, y)).y();
-        if (py >= ruler && py < height())
+        // Шаг 1/2/5 выбирается по масштабу; подписи не накладываются друг на друга.
+        const double desired = 64.0 / scale;
+        double step = std::pow(10.0, std::floor(std::log10(qMax(1.0, desired))));
+        if (step < desired)
+            step *= 2;
+        if (step < desired)
+            step *= 2.5;
+        if (step < desired)
+            step *= 2;
+        const int tick = qMax(1, qRound(step));
+        const int first = horizontal ? bounds.x() : bounds.y();
+        const int last = first + (horizontal ? bounds.width() : bounds.height());
+        const auto imageVisible = transform.inverted().mapRect(track);
+        const int visibleFirst =
+            qMax(first, int(std::floor(horizontal ? imageVisible.left() : imageVisible.top())));
+        const int visibleLast =
+            qMin(last, int(std::ceil(horizontal ? imageVisible.right() : imageVisible.bottom())));
+        painter.setPen(muted);
+        for (int value = ((visibleFirst + tick - 1) / tick) * tick; value <= visibleLast; value += tick)
         {
-            painter.drawLine(QPointF(ruler - 6, py), QPointF(ruler, py));
-            painter.save();
-            painter.translate(16, py - 3);
-            painter.rotate(-90);
-            painter.drawText(QPointF(), QString::number(y));
-            painter.restore();
+            const auto p = transform.map(QPointF(value, value));
+            const QString label = QString::number(value);
+            if (horizontal)
+            {
+                painter.drawLine(QPointF(p.x(), track.bottom() - 5), QPointF(p.x(), track.bottom()));
+                const double x =
+                    qBound(track.left() + 3, p.x() + 4,
+                           qMax(track.left() + 3,
+                                track.right() - painter.fontMetrics().horizontalAdvance(label) - 3));
+                painter.drawText(QPointF(x, track.top() + 15), label);
+            }
+            else
+            {
+                painter.drawLine(QPointF(track.right() - 5, p.y()), QPointF(track.right(), p.y()));
+                painter.save();
+                painter.translate(track.left() + 15, p.y() - 4);
+                painter.rotate(-90);
+                painter.drawText(QPointF(), label);
+                painter.restore();
+            }
         }
-    }
-    if (m_cutPreview)
-    {
-        painter.setPen(accent);
-        if (m_cutOrientation == Qt::Vertical)
+        if (m_cutPreview && horizontal == (m_cutOrientation == Qt::Vertical))
         {
-            const double x = transform.map(QPointF(m_cutCoordinate, 0)).x();
-            painter.drawLine(QPointF(x, 0), QPointF(x, ruler));
+            const auto p = transform.map(QPointF(m_cutCoordinate, m_cutCoordinate));
+            painter.setPen(QPen(accent, 2));
+            if (horizontal)
+                painter.drawLine(QPointF(p.x(), track.top()), QPointF(p.x(), track.bottom()));
+            else
+                painter.drawLine(QPointF(track.left(), p.y()), QPointF(track.right(), p.y()));
         }
-        else
-        {
-            const double y = transform.map(QPointF(0, m_cutCoordinate)).y();
-            painter.drawLine(QPointF(0, y), QPointF(ruler, y));
-        }
-    }
+        painter.restore();
+    };
+    drawRuler(topRuler, true);
+    drawRuler(leftRuler, false);
 }
 
 int StaticImageCanvas::maskAt(const QPointF &point) const
@@ -310,20 +355,34 @@ void StaticImageCanvas::updateHover(const QPointF &point)
 {
     m_cutPreview = m_extendPreview = false;
     m_mergeBoundary.clear();
+    m_hoverRegion = -1;
+    unsetCursor();
     if (!m_document || m_region >= 0 || !m_editable)
     {
         update();
         return;
     }
     const QPointF imagePoint = toImage(point);
-    if (point.x() > ruler && point.y() > ruler)
+    const bool inImage =
+        rect().adjusted(ruler + margin, ruler + margin, -margin, -margin).contains(point.toPoint());
+    if (inImage)
     {
-        const int region = m_document->regionAt(imagePoint);
-        if (region >= 0)
-            m_activeRegion = region;
+        m_hoverRegion = m_document->regionAt(imagePoint);
+        if (m_hoverRegion >= 0)
+            m_activeRegion = m_hoverRegion;
     }
-    const bool verticalRuler = point.y() < ruler && point.x() >= ruler;
-    const bool horizontalRuler = point.x() < ruler && point.y() >= ruler;
+    const bool verticalRuler = horizontalRulerRect().contains(point);
+    const bool horizontalRuler = verticalRulerRect().contains(point);
+    if (m_cutKey && m_hoverRegion >= 0)
+    {
+        m_cutRegion = m_hoverRegion;
+        m_cutOrientation = m_cutKey == 1 ? Qt::Horizontal : Qt::Vertical;
+        m_cutStartRegion = m_cutRegion;
+        updateCut(point, true);
+        setCursor(Qt::CrossCursor);
+        update();
+        return;
+    }
     if (verticalRuler || horizontalRuler)
     {
         const int coordinate = qRound(verticalRuler ? imagePoint.x() : imagePoint.y());
@@ -332,7 +391,8 @@ void StaticImageCanvas::updateHover(const QPointF &point)
             return verticalRuler ? coordinate > r.x() && coordinate < r.x() + r.width()
                                  : coordinate > r.y() && coordinate < r.y() + r.height();
         };
-        if (m_activeRegion < 0 || !contains(m_document->regions[m_activeRegion].rect))
+        if (m_activeRegion < 0 || m_activeRegion >= m_document->regions.size() ||
+            !contains(m_document->regions[m_activeRegion].rect))
         {
             m_activeRegion = -1;
             for (int i = 0; i < m_document->regions.size(); ++i)
@@ -348,12 +408,13 @@ void StaticImageCanvas::updateHover(const QPointF &point)
             m_cutCoordinate = coordinate;
             m_cutOrientation = verticalRuler ? Qt::Vertical : Qt::Horizontal;
             m_cutPreview = true;
-            emit hintChanged(tr("Потяните разрез: %1 = %2. Границы подсвечены на линейках.")
+            setCursor(Qt::CrossCursor);
+            emit hintChanged(tr("Потяните разрез в нужную область: %1 = %2. Shift — зафиксировать область.")
                                  .arg(verticalRuler ? "X" : "Y")
                                  .arg(coordinate));
         }
     }
-    else if (!m_mergeTool && point.x() >= ruler && point.y() >= ruler && m_activeRegion >= 0)
+    else if (!m_mergeTool && m_hoverRegion >= 0)
     {
         const double tolerance = 7 / imageTransform().m11();
         const QRect target = m_document->regions[m_activeRegion].rect;
@@ -428,7 +489,44 @@ void StaticImageCanvas::updateHover(const QPointF &point)
                                                        : tr("Нажмите на границу, чтобы убрать разрез."));
         }
     }
+    else
+        emit hintChanged(
+            tr("Тяните разрез с линейки в нужную область. H / V + щелчок — разрез внутри области."));
     update();
+}
+
+void StaticImageCanvas::updateCut(const QPointF &point, bool lockRegion)
+{
+    const auto p = toImage(point);
+    const int underCursor = m_document->regionAt(p);
+    m_cutRegion = lockRegion ? m_cutStartRegion : underCursor;
+    m_cutPreview = false;
+    if (m_cutRegion < 0 || m_cutRegion >= m_document->regions.size())
+        return;
+    const auto bounds = m_document->regions[m_cutRegion].rect;
+    const bool vertical = m_cutOrientation == Qt::Vertical;
+    const int start = vertical ? bounds.x() : bounds.y();
+    const int length = vertical ? bounds.width() : bounds.height();
+    if (length < 2)
+        return;
+    m_cutCoordinate = qBound(start + 1, qRound(vertical ? p.x() : p.y()), start + length - 1);
+    m_cutPreview = true;
+    m_hoverRegion = m_cutRegion;
+    emit hintChanged(tr("%1 · %2 = %3 px · Shift — зафиксировать область · Esc — отменить")
+                         .arg(m_document->regions[m_cutRegion].name, vertical ? "X" : "Y")
+                         .arg(m_cutCoordinate));
+}
+
+void StaticImageCanvas::cancelGesture()
+{
+    m_clickTimer.stop();
+    m_cutDragging = m_stroking = m_panning = m_cutPreview = m_extendPreview = false;
+    m_pressedRegion = -1;
+    m_cutKey = 0;
+    m_skipRelease = true;
+    m_stroke.clear();
+    m_mergeBoundary.clear();
+    unsetCursor();
 }
 
 void StaticImageCanvas::collectStroke(const QPointF &point)
@@ -456,7 +554,9 @@ void StaticImageCanvas::collectStroke(const QPointF &point)
 void StaticImageCanvas::mousePressEvent(QMouseEvent *event)
 {
     m_skipRelease = false;
-    m_lastMouse = event->position();
+    m_lastMouse = m_pressPosition = event->position();
+    m_pressedRegion = -1;
+    setFocus(Qt::MouseFocusReason);
     if (event->button() == Qt::MiddleButton || event->button() == Qt::RightButton)
     {
         m_panning = true;
@@ -468,17 +568,23 @@ void StaticImageCanvas::mousePressEvent(QMouseEvent *event)
     updateHover(event->position());
     if (m_editable && m_cutPreview && !m_extendPreview)
     {
+        m_clickTimer.stop();
+        m_cutStartRegion = m_cutRegion;
         m_cutDragging = true;
         return;
     }
+    if (m_cutKey)
+        return;
     if (m_editable && m_mergeTool)
     {
+        m_clickTimer.stop();
         m_stroking = true;
         m_stroke.clear();
         m_strokeLast = event->position();
         collectStroke(event->position());
         return;
     }
+    m_pressedRegion = m_hoverRegion;
     if (m_region >= 0)
     {
         const int mask = maskAt(toImage(event->position()));
@@ -507,11 +613,7 @@ void StaticImageCanvas::mouseMoveEvent(QMouseEvent *event)
     }
     if (m_cutDragging)
     {
-        const auto p = toImage(event->position());
-        const auto bounds = m_document->regions[m_cutRegion].rect;
-        m_cutCoordinate = m_cutOrientation == Qt::Vertical
-                              ? qBound(bounds.x() + 1, qRound(p.x()), bounds.x() + bounds.width() - 1)
-                              : qBound(bounds.y() + 1, qRound(p.y()), bounds.y() + bounds.height() - 1);
+        updateCut(event->position(), event->modifiers().testFlag(Qt::ShiftModifier));
         update();
         return;
     }
@@ -520,6 +622,7 @@ void StaticImageCanvas::mouseMoveEvent(QMouseEvent *event)
         collectStroke(event->position());
         return;
     }
+    m_lastMouse = event->position();
     updateHover(event->position());
 }
 
@@ -541,9 +644,14 @@ void StaticImageCanvas::mouseReleaseEvent(QMouseEvent *event)
     if (m_cutDragging)
     {
         m_cutDragging = false;
-        if (rect().contains(event->position().toPoint()) && event->position().x() >= ruler &&
-            event->position().y() >= ruler)
+        updateCut(event->position(), event->modifiers().testFlag(Qt::ShiftModifier));
+        const bool valid = m_cutPreview && m_document->regionAt(toImage(event->position())) >= 0 &&
+                           !horizontalRulerRect().contains(event->position()) &&
+                           !verticalRulerRect().contains(event->position());
+        m_cutPreview = false;
+        if (valid)
             emit splitRequested(m_cutRegion, m_cutOrientation, m_cutCoordinate);
+        updateHover(event->position());
         return;
     }
     if (m_stroking)
@@ -565,9 +673,10 @@ void StaticImageCanvas::mouseReleaseEvent(QMouseEvent *event)
             emit splitRequested(m_cutRegion, m_cutOrientation, m_cutCoordinate);
         else if (!m_mergeBoundary.isEmpty())
             emit regionsMergeRequested(m_mergeBoundary);
-        else
+        else if (m_pressedRegion >= 0 && m_pressedRegion == m_hoverRegion &&
+                 QLineF(m_pressPosition, event->position()).length() < QApplication::startDragDistance())
         {
-            m_clickRegion = m_document->regionAt(toImage(event->position()));
+            m_clickRegion = m_hoverRegion;
             m_clickTimer.start(QApplication::doubleClickInterval());
         }
     }
@@ -601,7 +710,57 @@ void StaticImageCanvas::leaveEvent(QEvent *)
     if (!m_cutDragging)
     {
         m_cutPreview = false;
+        m_hoverRegion = -1;
         m_mergeBoundary.clear();
+        unsetCursor();
+        emit hintChanged(
+            tr("Тяните разрез с линейки в нужную область. H / V + щелчок — разрез внутри области."));
         update();
     }
+}
+
+void StaticImageCanvas::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Escape)
+    {
+        cancelGesture();
+        m_hoverRegion = -1;
+        update();
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_0 && event->modifiers() == Qt::ControlModifier)
+    {
+        fit();
+        event->accept();
+        return;
+    }
+    if (m_editable && m_region < 0 && event->modifiers() == Qt::NoModifier &&
+        (event->key() == Qt::Key_H || event->key() == Qt::Key_V))
+    {
+        m_cutKey = event->key() == Qt::Key_H ? 1 : 2;
+        updateHover(m_lastMouse);
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
+}
+
+void StaticImageCanvas::keyReleaseEvent(QKeyEvent *event)
+{
+    if (!event->isAutoRepeat() && (event->key() == Qt::Key_H || event->key() == Qt::Key_V))
+    {
+        m_cutKey = 0;
+        if (!m_cutDragging)
+            updateHover(m_lastMouse);
+    }
+    QWidget::keyReleaseEvent(event);
+}
+
+void StaticImageCanvas::focusOutEvent(QFocusEvent *event)
+{
+    cancelGesture();
+    m_hoverRegion = -1;
+    update();
+    QWidget::focusOutEvent(event);
 }

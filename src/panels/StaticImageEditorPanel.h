@@ -1,8 +1,8 @@
 // StaticImageEditorPanel — постоянное окно с черновиками выбранных статических изображений.
 #pragma once
 
-#include "BasePanel.h"
 #include "BaseObject.h"
+#include "BasePanel.h"
 #include "editor/StaticImageDocument.h"
 #include <QHash>
 #include <QSet>
@@ -55,6 +55,8 @@ class StaticImageEditorPanel : public BasePanel
     void changeColor();
     void reorderMasks();
     void updateMaskActions();
+    void moveMasks(int direction, bool edge = false);
+    void updateHint();
     QSet<int> selectedMasks() const;
     void showError(const QString &message);
     void pruneSessions();
@@ -63,11 +65,14 @@ class StaticImageEditorPanel : public BasePanel
     QStackedWidget *m_pages = nullptr;
     QWidget *m_overview = nullptr, *m_detail = nullptr;
     StaticImageCanvas *m_canvas = nullptr, *m_partCanvas = nullptr;
-    QLabel *m_name = nullptr, *m_partName = nullptr, *m_stats = nullptr, *m_hint = nullptr;
+    QLabel *m_name = nullptr, *m_partName = nullptr, *m_hint = nullptr, *m_statsEmpty = nullptr;
+    QWidget *m_stats = nullptr;
+    QHash<QString, QLabel *> m_statValues;
     QPushButton *m_begin = nullptr, *m_apply = nullptr, *m_cancel = nullptr, *m_color = nullptr,
                 *m_merge = nullptr;
     QListWidget *m_masks = nullptr;
     QToolButton *m_mergeTool = nullptr, *m_empty = nullptr, *m_undo = nullptr, *m_redo = nullptr;
+    QToolButton *m_top = nullptr, *m_up = nullptr, *m_down = nullptr, *m_bottom = nullptr;
     QPropertyAnimation *m_transition = nullptr;
     int m_part = -1;
     bool m_updating = false, m_applying = false, m_inDetail = false;
