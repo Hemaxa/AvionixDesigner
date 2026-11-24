@@ -15,6 +15,8 @@
         <file>icons/static-editor/isolate.svg</file>
         <file>icons/static-editor/find-fragment.svg</file>
         <file>icons/static-editor/split.svg</file>
+        <file>icons/static-editor/preview-before.svg</file>
+        <file>icons/static-editor/preview-after.svg</file>
         <file>icons/static-editor/fit.svg</file>
         <file>icons/static-editor/back.svg</file>
         <file>icons/static-editor/move-up.svg</file>

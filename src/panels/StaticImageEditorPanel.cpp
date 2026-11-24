@@ -1,13 +1,16 @@
 // StaticImageEditorPanel — черновики, навигация, маски и применение к сцене.
 #include "StaticImageEditorPanel.h"
 #include "ExpressionSpinBox.h"
+#include "ImageObject.h"
+#include "OptimizedStaticImageObject.h"
 #include "ProjectManager.h"
+#include "StaticGroupObject.h"
 #include "StaticImageCanvas.h"
-#include "fpga/compiler/FpgaResourceLimits.h"
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QDataStream>
 #include <QDrag>
 #include <QDropEvent>
 #include <QFrame>
@@ -19,10 +22,12 @@
 #include <QLocale>
 #include <QMimeData>
 #include <QPainter>
+#include <QPointer>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QSlider>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStyledItemDelegate>
@@ -33,6 +38,33 @@
 
 namespace
 {
+// The stamp reads metadata and shared-storage identities, never the mask pixels during a move.
+QByteArray sourceKey(const BaseObject &object)
+{
+    QByteArray result;
+    QDataStream stream(&result, QIODevice::WriteOnly);
+    if (const auto *image = dynamic_cast<const ImageObject *>(&object))
+        stream << image->rasterRevision();
+    else if (const auto *optimized = dynamic_cast<const OptimizedStaticImageObject *>(&object))
+    {
+        const auto &document = optimized->document;
+        stream << document.size << document.originalCells << document.nextId
+               << quint64(reinterpret_cast<quintptr>(document.regions.constData()));
+    }
+    else if (const auto *group = dynamic_cast<const StaticGroupObject *>(&object))
+    {
+        const auto origin = StaticImageDocument::objectOrigin(object);
+        stream << group->states.size();
+        for (int i = 0; i < group->states.size(); ++i)
+        {
+            const auto &state = group->states[i];
+            stream << QPointF(state.x, state.y) - origin << state.w << state.h << state.addr << state.color
+                   << state.enabled << group->maskImages.value(i).cacheKey();
+        }
+    }
+    return result;
+}
+
 // QListWidget's default InternalMove can treat a drop as replacement on an item.
 // Always insert between rows, including the space before the first / after the last row.
 class StaticMaskList : public QListWidget
@@ -68,18 +100,24 @@ class StaticMaskList : public QListWidget
   protected:
     void startDrag(Qt::DropActions) override
     {
-        QDrag drag(this);
-        drag.setMimeData(model()->mimeData(selectedIndexes()));
+        QPointer<StaticMaskList> alive(this);
+        QPointer<QDrag> drag = new QDrag(this);
+        drag->setMimeData(model()->mimeData(selectedIndexes()));
         if (currentItem())
         {
             const auto preview = visualItemRect(currentItem()).intersected(viewport()->rect());
             if (!preview.isEmpty())
             {
-                drag.setPixmap(viewport()->grab(preview));
-                drag.setHotSpot(QPoint(24, preview.height() / 2));
+                drag->setPixmap(viewport()->grab(preview));
+                drag->setHotSpot(QPoint(24, preview.height() / 2));
             }
         }
-        drag.exec(Qt::MoveAction);
+        drag->exec(Qt::MoveAction);
+        if (drag)
+            drag->deleteLater();
+        // Closing the editor during the native drag may destroy the view and its owned drag.
+        if (!alive)
+            return;
         m_dropRow = -1;
         setState(QAbstractItemView::NoState);
         viewport()->update();
@@ -207,15 +245,10 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     {
         auto *frame = new QFrame(this);
         frame->setObjectName("StaticToolGroup");
-        auto *column = new QVBoxLayout(frame);
-        column->setContentsMargins(8, 6, 8, 8);
-        column->setSpacing(4);
-        auto *label = new QLabel(title);
-        label->setObjectName("StaticToolGroupTitle");
-        column->addWidget(label);
-        auto *bar = new QHBoxLayout;
+        frame->setAccessibleName(title);
+        auto *bar = new QHBoxLayout(frame);
+        bar->setContentsMargins(8, 8, 8, 8);
         bar->setSpacing(6);
-        column->addLayout(bar);
         toolbar->addWidget(frame);
         return bar;
     };
@@ -261,21 +294,12 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_hand->setCheckable(true);
     auto *fit =
         tool(viewBar, this, "StaticFit", ":/icons/icons/static-editor/fit.svg", tr("Вписать изображение"));
-    auto comparison = [&](const char *name, const QString &text)
-    {
-        auto *button = new QToolButton(this);
-        button->setObjectName(name);
-        button->setProperty("compare", true);
-        button->setText(text);
-        button->setCheckable(true);
-        button->setFixedSize(50, 44);
-        viewBar->addWidget(button);
-        return button;
-    };
-    m_before = comparison("StaticPreviewBefore", tr("До"));
-    m_after = comparison("StaticPreviewAfter", tr("После"));
-    m_before->setToolTip(tr("Исходное изображение"));
-    m_after->setToolTip(tr("Текущий черновик"));
+    m_before = tool(viewBar, this, "StaticPreviewBefore", ":/icons/icons/static-editor/preview-before.svg",
+                    tr("До изменений"));
+    m_after = tool(viewBar, this, "StaticPreviewAfter", ":/icons/icons/static-editor/preview-after.svg",
+                   tr("После изменений"));
+    m_before->setCheckable(true);
+    m_after->setCheckable(true);
     m_after->setChecked(true);
     toolbar->addStretch();
     m_pages = new QStackedWidget(this);
@@ -309,9 +333,7 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     auto *cutLayout = new QVBoxLayout(cutCard);
     cutLayout->setContentsMargins(10, 10, 10, 10);
     cutLayout->setSpacing(6);
-    auto *cutTitle = new QLabel(tr("Разрез"));
-    cutTitle->setObjectName("StaticSectionTitle");
-    cutLayout->addWidget(cutTitle);
+    cutCard->setAccessibleName(tr("Разрез"));
     m_cutRegion = new QComboBox;
     m_cutRegion->setObjectName("StaticCutRegion");
     m_cutRegion->setToolTip(tr("Область разреза"));
@@ -431,10 +453,20 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_brushSize->setObjectName("StaticEraserSize");
     m_brushSize->setRange(1, 64);
     m_brushSize->setValue(1);
+    m_brushSize->setPrefix(tr("Ластик "));
     m_brushSize->setSuffix(" px");
+    m_brushSize->setAccessibleName(tr("Размер ластика"));
     m_brushSize->setToolTip(tr("Размер ластика в пикселях изображения"));
-    m_brushSize->setFixedWidth(88);
+    m_brushSize->setFixedWidth(144);
     inspect->addWidget(m_brushSize);
+    m_brushSlider = new QSlider(Qt::Horizontal, maskPanel);
+    m_brushSlider->setObjectName("StaticEraserSlider");
+    m_brushSlider->setRange(1, 64);
+    m_brushSlider->setValue(1);
+    m_brushSlider->setAccessibleName(tr("Размер ластика"));
+    m_brushSlider->setToolTip(tr("Размер ластика · [ / ] · Ctrl/⌘ + колесо"));
+    m_brushSlider->hide();
+    maskSide->addWidget(m_brushSlider);
     m_masks = new StaticMaskList(maskPanel);
     m_masks->setObjectName("StaticMaskList");
     m_masks->setItemDelegate(new StaticMaskDelegate(m_masks));
@@ -508,6 +540,9 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     connect(m_isolate, &QToolButton::toggled, m_partCanvas, &StaticImageCanvas::setIsolated);
     connect(m_find, &QToolButton::clicked, m_partCanvas, &StaticImageCanvas::focusNextFragment);
     connect(m_brushSize, &QSpinBox::valueChanged, m_partCanvas, &StaticImageCanvas::setBrushSize);
+    connect(m_brushSize, &QSpinBox::valueChanged, m_brushSlider, &QSlider::setValue);
+    connect(m_brushSlider, &QSlider::valueChanged, m_brushSize, &QSpinBox::setValue);
+    connect(m_partCanvas, &StaticImageCanvas::brushSizeChanged, m_brushSize, &QSpinBox::setValue);
     connect(m_partCanvas, &StaticImageCanvas::selectionInfoChanged, this,
             [this](const QString &info)
             {
@@ -689,7 +724,11 @@ StaticImageEditorPanel::~StaticImageEditorPanel()
 {
     for (const auto &session : m_sessions)
         if (session->editing)
+        {
+            // The window tree is being destroyed; do not reenter its project/UI connections.
+            QSignalBlocker blocker(session->source.data());
             session->source->setStaticImageEditing(false);
+        }
 }
 
 bool StaticImageEditorPanel::editing() const
@@ -704,15 +743,72 @@ const StaticImageDocument *StaticImageEditorPanel::draft() const
 void StaticImageEditorPanel::pruneSessions()
 {
     const auto &objects = ProjectManager::instance()->getObjects();
+    bool removedCurrent = false;
     for (auto it = m_sessions.begin(); it != m_sessions.end();)
     {
-        if (!objects.contains(it.value()->source))
+        const auto session = it.value();
+        const bool removed = !objects.contains(session->source);
+        if (removed || (!session->editing && session != m_session))
         {
-            it.value()->source->setStaticImageEditing(false);
+            if (removed && session->source->isStaticImageEditing())
+            {
+                QSignalBlocker blocker(session->source.data());
+                session->source->setStaticImageEditing(false);
+            }
+            if (session == m_session)
+            {
+                // Detach borrowed document pointers before releasing their session.
+                m_canvas->setDocument(nullptr);
+                m_partCanvas->setDocument(nullptr);
+                m_session.clear();
+                removedCurrent = true;
+            }
             it = m_sessions.erase(it);
         }
         else
             ++it;
+    }
+    if (removedCurrent)
+    {
+        m_transition->stop();
+        m_inDetail = false;
+        m_part = -1;
+        m_pages->setCurrentWidget(m_overview);
+        m_detail->hide();
+        refresh();
+    }
+}
+
+void StaticImageEditorPanel::trimHistory()
+{
+    if (!m_session)
+        return;
+    // Bound both the action count and the retained mask bytes; large eraser strokes detach data.
+    constexpr qint64 byteLimit = 256LL * 1024 * 1024;
+    auto bytes = [](const StaticImageDocument &document)
+    {
+        qint64 result = 0;
+        for (const auto &region : document.regions)
+            for (const auto &mask : region.masks)
+                result += mask.data.size();
+        return result;
+    };
+    auto &undo = m_session->undo;
+    auto &redo = m_session->redo;
+    while (undo.size() > 80)
+        undo.removeFirst();
+    while (redo.size() > 80)
+        redo.removeFirst();
+    qint64 retained = 0;
+    for (const auto &document : undo)
+        retained += bytes(document);
+    for (const auto &document : redo)
+        retained += bytes(document);
+    while (retained > byteLimit && (undo.size() > 1 || redo.size() > 1))
+    {
+        auto &history = undo.size() > 1 ? undo : redo;
+        retained -= bytes(history.first());
+        history.removeFirst();
     }
 }
 
@@ -735,6 +831,8 @@ void StaticImageEditorPanel::setSelectedObjects(const QList<int> &indexes)
     const bool different = !m_session || m_session->source != source;
     if (different)
     {
+        if (m_session && !m_session->editing)
+            m_sessions.remove(m_session->source.data());
         m_transition->stop();
         m_inDetail = false;
         m_pages->setCurrentWidget(m_overview);
@@ -754,13 +852,22 @@ void StaticImageEditorPanel::setSelectedObjects(const QList<int> &indexes)
         m_sessions.insert(source.data(), session);
     }
     m_session = m_sessions.value(source.data());
+    const auto key = sourceKey(*source);
+    if (!m_session->editing && m_session->sourceKey == key)
+    {
+        m_name->setText(source->customName().isEmpty() ? source->getDisplayName() : source->customName());
+        m_begin->setEnabled(!source->isSelectionLocked());
+        return;
+    }
     if (!m_session->editing)
     {
         QString error;
         m_session->document = StaticImageDocument::fromObject(*source, &error);
         m_session->beforeImage = m_session->document.render();
+        m_session->sourceKey = key;
         if (!error.isEmpty())
         {
+            m_sessions.remove(source.data());
             m_session.clear();
             refresh();
             showError(error);
@@ -789,6 +896,8 @@ void StaticImageEditorPanel::cancelEditing()
     m_session->undo.clear();
     m_session->redo.clear();
     m_session->document = StaticImageDocument::fromObject(*m_session->source);
+    m_session->sourceKey = sourceKey(*m_session->source);
+    m_session->beforeImage = m_session->document.render();
     m_part = -1;
     showOverview();
     refresh();
@@ -826,8 +935,7 @@ void StaticImageEditorPanel::saveHistory()
         return;
     m_session->undo.append(m_session->document);
     m_session->redo.clear();
-    if (m_session->undo.size() > 80)
-        m_session->undo.removeFirst();
+    trimHistory();
 }
 
 void StaticImageEditorPanel::undoDraft(bool redo)
@@ -843,6 +951,7 @@ void StaticImageEditorPanel::undoDraft(bool redo)
                            : -1;
     to.append(m_session->document);
     m_session->document = from.takeLast();
+    trimHistory();
     if (partId >= 0)
     {
         m_part = -1;
@@ -1063,7 +1172,9 @@ void StaticImageEditorPanel::updateMaskActions()
     m_eraser->setEnabled(editing() && !m_showBefore && !selection.isEmpty());
     m_isolate->setEnabled(!m_showBefore && !selection.isEmpty());
     m_find->setEnabled(!m_showBefore && m_partCanvas->hasFragments());
-    m_brushSize->setEnabled(editing() && !m_showBefore && m_toolMode == 3);
+    m_brushSize->setEnabled(editing() && !m_showBefore && !selection.isEmpty());
+    m_brushSlider->setEnabled(m_brushSize->isEnabled());
+    m_brushSlider->setVisible(m_inDetail && m_toolMode == 3 && !m_showBefore);
     const bool canMove = editing() && !m_showBefore && !selection.isEmpty();
     const int first = canMove ? *std::min_element(selection.begin(), selection.end()) : -1;
     const int last = canMove ? *std::max_element(selection.begin(), selection.end()) : -1;

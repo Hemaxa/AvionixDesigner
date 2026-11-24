@@ -2,8 +2,8 @@
 #pragma once
 
 #include "BaseObject.h"
-#include "editor/StaticImageDocument.h"
 #include "StaticGroupObject.h"
+#include "editor/StaticImageDocument.h"
 
 // OptimizedStaticImageObject — фиксированные пиксельные маски с общим положением.
 class OptimizedStaticImageObject : public BaseObject
@@ -40,11 +40,20 @@ class OptimizedStaticImageObject : public BaseObject
     QList<QPair<QString, QString>> getProperties() const override;
     bool setObjectProperty(const QString &name, const QString &value) override;
     QList<QSharedPointer<StaticGroupObject>> hardwareGroups() const;
+    // Проверка байтов масок переиспользуется при перемещении; координаты проверяются отдельно.
+    QString documentValidationError() const;
     void invalidatePreview()
     {
         m_preview = {};
+        m_previewRegions = {};
+        m_validationDocument = {};
+        m_validationReady = false;
     }
 
   private:
-    mutable QImage m_preview;
+    QImage m_preview;
+    QList<StaticImageRegion> m_previewRegions;
+    mutable StaticImageDocument m_validationDocument;
+    mutable QString m_validationError;
+    mutable bool m_validationReady = false;
 };

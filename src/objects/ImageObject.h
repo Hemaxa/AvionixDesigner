@@ -18,6 +18,11 @@ struct ImageColorLayer
     // Границы исходной области в долях изображения; цвет и порядок не меняют её идентичность.
     QRectF sourceBounds;
     int order = -1;
+    bool operator==(const ImageColorLayer &other) const
+    {
+        return sourceColor == other.sourceColor && maskColor == other.maskColor &&
+               autoMaskColor == other.autoMaskColor && sourceBounds == other.sourceBounds && order == other.order;
+    }
 };
 
 // ImageMaskComponent - цветовая маска изображения со своим цветом и габаритами.
@@ -57,6 +62,8 @@ public:
     void setSvgData(const QByteArray &data, const QString &name, const QSize &defaultSize);
     QImage renderedSourceImage() const;
     QImage renderedImage() const;
+    // Версия локального растра: перемещение и поворот готового изображения её не меняют.
+    quint64 rasterRevision() const;
     QColor effectiveMaskColor() const;
     QList<ImageMaskComponent> maskComponents() const;
     QList<ImageColorLayer> colorLayers() const;
@@ -95,6 +102,26 @@ public:
     bool setObjectProperty(const QString &name, const QString &value) override;
 
 private:
+    // RasterCache — один набор растров на объект; публичные параметры проверяются перед чтением кэша.
+    struct RasterCache
+    {
+        double width = 0, height = 0;
+        bool mirrorHorizontal = false, mirrorVertical = false, autoMaskColor = true;
+        QColor maskColor;
+        QString format;
+        quint64 sourceRevision = 0;
+        QList<ImageColorLayer> layers;
+        bool valid = false, sourceReady = false, imageReady = false, componentsReady = false;
+        QImage source, image;
+        QList<ImageMaskComponent> components;
+    };
+    void ensureRasterCache() const;
+    QImage buildSourceImage() const;
+    QImage buildRenderedImage() const;
+    QList<ImageMaskComponent> buildMaskComponents() const;
+    quint64 m_sourceRevision = 0;
+    mutable quint64 m_rasterRevision = 0;
+    mutable RasterCache m_rasterCache;
     const Kind m_kind;
     void rebuildColorLayers();
     QImage m_sourceImage;

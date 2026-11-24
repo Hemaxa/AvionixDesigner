@@ -767,12 +767,11 @@ QDialog#UartStreamingDialog QPushButton {
 #StaticImageEditorPanel #StaticStatCaption { color: #9fb3c1; background: transparent; border: none; }
 #StaticImageEditorPanel #StaticStatValue { color: #edf7fb; font-weight: 600; background: transparent; border: none; }
 #StaticImageEditorPanel #StaticStatValue[saving="true"] { color: #00c8f0; }
-#StaticImageEditorPanel #StaticStatValue[growth="true"] { color: #ffd28a; }
-#StaticImageEditorPanel #StaticEditorNote { color: #9fb3c1; background: transparent; font-size: 12px; }
+#StaticImageEditorPanel #StaticStatValue[growth="true"] { color: #ff5c7a; }
 #StaticImageEditorPanel #StaticStatsScroll { background: transparent; border: none; }
 #StaticImageEditorPanel #StaticStatsScroll > QWidget > QWidget { background: transparent; }
 #StaticImageEditorPanel #StaticEditorHint { color: #9fb3c1; padding: 4px 0; }
-#StaticImageEditorPanel #StaticEditorHint[severity="warning"] { color: #ffd28a; }
+#StaticImageEditorPanel #StaticEditorHint[severity="warning"] { color: #ffb2ac; }
 #StaticImageEditorPanel #StaticEditorHint[severity="error"] { color: #ffb2ac; }
 #StaticImageEditorPanel QToolButton,
 #StaticImageEditorPanel QPushButton[staticTool="true"] {
@@ -794,9 +793,14 @@ QDialog#UartStreamingDialog QPushButton {
 #StaticImageEditorPanel QSplitter::handle:hover { background: #22303c; }
 
 #StaticImageEditorPanel #StaticToolGroup { background: #121922; border: 1px solid #22303c; border-radius: 8px; }
-#StaticImageEditorPanel #StaticToolGroupTitle { color: #9fb3c1; font-size: 11px; background: transparent; border: none; }
-#StaticImageEditorPanel QToolButton[compare="true"] { min-width: 48px; max-width: 48px; font-weight: 600; }
 #StaticImageEditorPanel #StaticCutCard { background: #121922; border: 1px solid #22303c; border-radius: 8px; }
 #StaticImageEditorPanel #StaticCutRegion, #StaticImageEditorPanel #StaticCutAxis { min-height: 24px; padding: 2px 6px; }
 #StaticImageEditorPanel #StaticCutCoordinate, #StaticImageEditorPanel #StaticEraserSize { min-height: 32px; padding: 4px 6px; }
 #StaticImageEditorPanel #StaticMaskInfo { color: #9fb3c1; background: transparent; font-size: 12px; }
+
+#StaticImageEditorPanel #StaticEraserSlider { background: transparent; border: none; min-height: 20px; max-height: 20px; }
+#StaticImageEditorPanel #StaticEraserSlider::groove:horizontal { height: 4px; background: #22303c; border-radius: 2px; }
+#StaticImageEditorPanel #StaticEraserSlider::handle:horizontal { width: 14px; margin: -5px 0; background: #00c8f0; border-radius: 7px; }
+#StaticImageEditorPanel #StaticEraserSlider:disabled::handle:horizontal { background: #334656; }
+#StaticImageEditorPanel #StaticEraserSlider::sub-page:horizontal { background: #00c8f0; border-radius: 2px; }
+#StaticImageEditorPanel #StaticEraserSlider::add-page:horizontal { background: #22303c; border-radius: 2px; }

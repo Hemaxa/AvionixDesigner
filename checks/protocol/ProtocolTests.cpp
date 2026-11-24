@@ -32,6 +32,9 @@
 #include "fpga/FpgaProjectPacketBuilder.h"
 #include <QColorDialog>
 #include <QWheelEvent>
+#include <QElapsedTimer>
+#include <QPointer>
+#include <QSlider>
 #include <QMenuBar>
 #include <QMenu>
 #include <QMessageBox>
@@ -1770,6 +1773,129 @@ private slots:
         const auto bundle=FpgaProjectPacketBuilder::buildCurrentProject(&error);QVERIFY2(error.isEmpty(),qPrintable(error));QVERIFY(bundle.packets.isEmpty());QVERIFY(bundle.document.memories.isEmpty());
         QTemporaryDir temp;QVERIFY(p->saveToFile(temp.filePath("empty.xml")));QVERIFY2(p->loadFromFile(temp.filePath("empty.xml")),qPrintable(p->lastErrorMessage()));
         QVERIFY(p->getObjectAt(0)->isStaticImageOptimized());
+    }
+    void imageRasterCacheInvalidationAndMovement() {
+        ImageObject image;
+        QImage source(96, 64, QImage::Format_ARGB32); source.fill(Qt::transparent);
+        { QPainter painter(&source); painter.fillRect(2, 4, 30, 28, Qt::red); painter.fillRect(50, 12, 30, 40, Qt::blue); }
+        image.setRasterImage(source, "Cache");
+        const auto original = image.renderedImage(); const auto revision = image.rasterRevision();
+        const auto components = image.maskComponents(); QVERIFY(!components.isEmpty());
+        QElapsedTimer timer; timer.start();
+        for (int i = 0; i < 500; ++i) {
+            image.moveBy(1, 1);
+            QCOMPARE(image.renderedImage().cacheKey(), original.cacheKey());
+            QCOMPARE(image.maskComponents().first().mask.cacheKey(), components.first().mask.cacheKey());
+            QCOMPARE(image.rasterRevision(), revision);
+        }
+        qInfo("500 cached image moves: %lld us", qint64(timer.nsecsElapsed() / 1000));
+        const auto editedColor = QColor("#00c8f0");
+        QVERIFY(image.setObjectProperty("Слой 1: Цвет", editedColor.name()));
+        const auto recolored = image.renderedImage();
+        QVERIFY(image.rasterRevision() > revision); QCOMPARE(recolored.pixelColor(5, 6), editedColor);
+        QCOMPARE(original.pixelColor(5, 6), QColor(Qt::red)); // Previously returned images stay immutable.
+        const auto colorRevision = image.rasterRevision(); image.width = 192;
+        QCOMPARE(image.renderedImage().width(), 192); QVERIFY(image.rasterRevision() > colorRevision);
+        image.mirrorHorizontal = true;
+        QCOMPARE(image.renderedImage().pixelColor(192 - 10 - 1, 6), editedColor);
+        auto replacement = source; replacement.fill(Qt::green);
+        image.setRasterImage(replacement, "Replacement"); image.mirrorHorizontal = false;
+        QCOMPARE(image.renderedImage().pixelColor(5, 6), QColor(Qt::green));
+        image.setSvgData("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='8'><rect width='10' height='8' fill='#ff0000'/></svg>", "SVG", QSize(10, 8));
+        QCOMPARE(image.renderedImage().pixelColor(5, 4), QColor(Qt::red));
+        image.setSourcePayload("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='8'><rect width='10' height='8' fill='#0000ff'/></svg>");
+        QCOMPARE(image.renderedSourceImage().pixelColor(5, 4), QColor(Qt::blue));
+        auto clone = qSharedPointerDynamicCast<ImageObject>(image.clone()); QVERIFY(clone);
+        QCOMPARE(clone->renderedImage(), image.renderedImage());
+    }
+    void staticEditorSourceReuseAndLifetime() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Source reuse", 320, 240, Qt::black);
+        QVERIFY(p->addObject("staticgroup") >= 0);
+        auto source = p->getObjectAt(0); auto *group = static_cast<StaticGroupObject *>(source.data());
+        QImage mask(32, 24, QImage::Format_ARGB32); mask.fill(Qt::white);
+        group->states = {{10, 20, 32, 24, 0, Qt::white, true}}; group->maskImages = {mask};
+        StaticImageEditorPanel editor; editor.resize(1000, 700); editor.show(); editor.setSelectedObjects({0});
+        const auto held = editor.draft()->regions[0].masks[0].data;
+        for (int i = 0; i < 50; ++i) {
+            source->moveBy(1, 1); editor.setSelectedObjects({0});
+            QCOMPARE(static_cast<const void *>(editor.draft()->regions[0].masks[0].data.constData()), static_cast<const void *>(held.constData()));
+        }
+        group->states[0].color = Qt::red; editor.setSelectedObjects({0});
+        QCOMPARE(editor.draft()->regions[0].masks[0].color, QColor(Qt::red));
+        group->maskImages[0].setPixelColor(0, 0, Qt::transparent); editor.setSelectedObjects({0});
+        QCOMPARE(editor.draft()->regions[0].masks[0].data[0], char(0));
+        editor.beginEditing(); QVERIFY(source->isStaticImageEditing());
+        const auto weak = source.toWeakRef(); source.clear();
+        QVERIFY(p->createNewProject("Release previous sources", 320, 240, Qt::black));
+        editor.hide(); editor.setSelectedObjects({});
+        QVERIFY(!editor.draft()); QVERIFY(weak.isNull());
+        QVERIFY(p->addObject("staticgroup") >= 0); source = p->getObjectAt(0);
+        auto *closing = new StaticImageEditorPanel; closing->show(); closing->setSelectedObjects({0}); closing->beginEditing();
+        QSignalSpy changed(source.data(), &BaseObject::changed); changed.clear();
+        QPointer<StaticImageCanvas> child = closing->findChild<StaticImageCanvas *>("StaticPartitionCanvas");
+        delete closing;
+        QVERIFY(child.isNull()); QVERIFY(!source->isStaticImageEditing()); QCOMPARE(changed.count(), 0);
+    }
+    void optimizedPreviewTracksDirectContentEdits() {
+        OptimizedStaticImageObject object;
+        object.document.size = QSize(4, 4); object.document.originalCells = 16;
+        StaticImageRegion region; region.rect = QRect(0, 0, 4, 4);
+        region.masks = {StaticImageMask{region.rect, Qt::red, QByteArray(16, 7), true}};
+        object.document.regions = {region};
+        auto render = [&] { QImage frame(12, 12, QImage::Format_ARGB32); frame.fill(Qt::transparent); QPainter painter(&frame); object.draw(painter); painter.end(); return frame; };
+        QCOMPARE(render().pixelColor(0, 0), QColor(Qt::red));
+        object.document.regions[0].masks[0].color = Qt::blue;
+        QCOMPARE(render().pixelColor(0, 0), QColor(Qt::blue));
+        object.moveBy(3, 4); QCOMPARE(render().pixelColor(3, 4), QColor(Qt::blue));
+        object.document.regions[0].masks[0].data[0] = 0;
+        QCOMPARE(render().pixelColor(3, 4).alpha(), 0);
+        QVERIFY(object.documentValidationError().isEmpty());
+        object.document.regions[0].masks[0].data[1] = 8;
+        QVERIFY(!object.documentValidationError().isEmpty());
+        object.document.regions[0].masks[0].data[1] = 7;
+        QVERIFY(object.documentValidationError().isEmpty());
+        object.document.nextId = 0; QVERIFY(!object.documentValidationError().isEmpty());
+        object.document.nextId = 2; QVERIFY(object.documentValidationError().isEmpty());
+        object.x = 4096; QVERIFY(!FpgaResourceLimits::inspect(object).errors.isEmpty());
+        object.x = 0; QVERIFY(FpgaResourceLimits::inspect(object).errors.isEmpty());
+    }
+    void staticEditorIconToolbarAndBrushSize() {
+        auto *p = ProjectManager::instance(); p->createNewProject("Brush controls", 100, 100, Qt::black);
+        QVERIFY(p->addObject("staticgroup") >= 0);
+        auto *group = static_cast<StaticGroupObject *>(p->getObjectAt(0).data());
+        QImage image(16, 16, QImage::Format_ARGB32); image.fill(Qt::white);
+        group->states = {{0, 0, 16, 16, 0, Qt::white, true}}; group->maskImages = {image};
+        StaticImageEditorPanel editor; editor.resize(1000, 740); editor.show(); editor.setSelectedObjects({0}); editor.beginEditing();
+        QVERIFY(editor.findChildren<QLabel *>("StaticToolGroupTitle").isEmpty());
+        auto *cut = editor.findChild<QFrame *>("StaticCutCard"); QVERIFY(cut);
+        for (auto *label : cut->findChildren<QLabel *>()) QVERIFY(label->text() != "Разрез");
+        for (const auto *name : {"StaticPreviewBefore", "StaticPreviewAfter"}) {
+            auto *button = editor.findChild<QToolButton *>(name); QVERIFY(button);
+            QVERIFY(button->text().isEmpty()); QVERIFY(!button->icon().isNull()); QCOMPARE(button->size(), QSize(44, 44));
+        }
+        auto *overview = editor.findChild<StaticImageCanvas *>("StaticPartitionCanvas");
+        QTest::mouseDClick(overview, Qt::LeftButton, Qt::NoModifier, overview->imageTransform().map(QPointF(8, 8)).toPoint()); QTest::qWait(190);
+        auto *canvas = editor.findChild<StaticImageCanvas *>("StaticMaskCanvas");
+        auto *size = editor.findChild<QSpinBox *>("StaticEraserSize"); auto *slider = editor.findChild<QSlider *>("StaticEraserSlider");
+        QVERIFY(size && slider && size->isEnabled()); size->setValue(3);
+        editor.findChild<QToolButton *>("StaticEraser")->click(); QVERIFY(slider->isVisible());
+        slider->setValue(5); QCOMPARE(size->value(), 5);
+        QTest::keyClick(canvas, Qt::Key_BracketRight); QCOMPARE(size->value(), 6); QCOMPARE(slider->value(), 6);
+        QTest::keyClick(canvas, Qt::Key_BracketLeft); QCOMPARE(size->value(), 5);
+        QWheelEvent wheel(QPointF(100, 100), QPointF(canvas->mapToGlobal(QPoint(100, 100))), QPoint(), QPoint(0, 120), Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+        const auto zoom = canvas->imageTransform().m11(); QApplication::sendEvent(canvas, &wheel);
+        QCOMPARE(size->value(), 6); QCOMPARE(canvas->imageTransform().m11(), zoom);
+        size->setValue(3);
+        const auto point = canvas->imageTransform().map(QPointF(8.5, 8.5)).toPoint();
+        QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, point);
+        QCOMPARE(editor.draft()->regions[0].masks[0].analyze().pixels, 256 - 9);
+        editor.findChild<QToolButton *>("StaticDraftUndo")->click(); QCOMPARE(editor.draft()->regions[0].masks[0].analyze().pixels, 256);
+        editor.grab().save(QCoreApplication::applicationDirPath() + "/static-editor-brush-controls.png");
+        editor.resize(680, 460); QTest::qWait(5);
+        for (auto *button : editor.findChildren<QAbstractButton *>())
+            if (button->isVisible()) QVERIFY(editor.rect().contains(QRect(button->mapTo(&editor, QPoint()), button->size())));
+        editor.grab().save(QCoreApplication::applicationDirPath() + "/static-editor-brush-compact.png");
+        editor.cancelEditing();
     }
     void staticMaskFragmentsAndEraseModel() {
         StaticImageDocument document; document.size = QSize(40, 20); document.originalCells = 1600;

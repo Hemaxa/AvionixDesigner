@@ -45,7 +45,7 @@ class StaticImageCanvas : public QWidget
     void masksMergeRequested(const QList<int> &indexes, int target);
     void masksSelected(const QList<int> &indexes, int target);
     void regionOpened(int region);
-    void hintChanged(const QString &hint);
+    void brushSizeChanged(int size);
     void selectionInfoChanged(const QString &info);
     void cutsExtensionRequested(const QList<int> &regions, Qt::Orientation orientation, int coordinate);
     void eraseFinished(const StaticImageDocument &document);

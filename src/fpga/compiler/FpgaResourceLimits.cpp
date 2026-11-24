@@ -17,8 +17,8 @@ Report inspect(const BaseObject &object)
 {
     Report report;
     if (const auto *optimized = dynamic_cast<const OptimizedStaticImageObject *>(&object)) {
-        QString error;
-        if (!optimized->document.validate(&error)) report.errors.append(error);
+        const auto error = optimized->documentValidationError();
+        if (!error.isEmpty()) report.errors.append(error);
         report.errors += optimized->document.hardwareErrors();
         if (!qIsFinite(optimized->x) || !qIsFinite(optimized->y) || optimized->x < 0 || optimized->y < 0
             || optimized->x > 4095 || optimized->y > 4095) report.errors.append(QStringLiteral("Положение статического изображения выходит за 0…4095."));

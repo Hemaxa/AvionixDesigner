@@ -14,8 +14,13 @@ QSharedPointer<BaseObject> OptimizedStaticImageObject::clone() const
 
 void OptimizedStaticImageObject::draw(QPainter &painter)
 {
-    if (m_preview.isNull())
+    if (m_preview.isNull() || m_preview.size() != document.size ||
+        m_previewRegions.constData() != document.regions.constData())
+    {
         m_preview = document.render();
+        // Keeping the shared list makes direct edits detach; movement keeps the same local raster.
+        m_previewRegions = document.regions;
+    }
     painter.save();
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter.drawImage(QPoint(qRound(x), qRound(y)), m_preview);
@@ -29,6 +34,21 @@ void OptimizedStaticImageObject::moveBy(double dx, double dy)
     x += dx;
     y += dy;
     emit changed();
+}
+
+QString OptimizedStaticImageObject::documentValidationError() const
+{
+    if (!m_validationReady || m_validationDocument.size != document.size ||
+        m_validationDocument.originalCells != document.originalCells ||
+        m_validationDocument.nextId != document.nextId ||
+        m_validationDocument.regions.constData() != document.regions.constData())
+    {
+        m_validationDocument = document;
+        m_validationError.clear();
+        document.validate(&m_validationError);
+        m_validationReady = true;
+    }
+    return m_validationError;
 }
 
 QList<QPair<QString, QString>> OptimizedStaticImageObject::getProperties() const

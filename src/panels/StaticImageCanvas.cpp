@@ -71,6 +71,9 @@ void StaticImageCanvas::setDocument(const StaticImageDocument *document, int reg
     m_mergeBoundary.clear();
     m_selectedMasks.clear();
     m_maskHighlight = {};
+    m_isolatedImage = {};
+    if (changed || !document)
+        m_before = {};
     update();
 }
 
@@ -181,7 +184,11 @@ void StaticImageCanvas::setEraserTool(bool enabled)
 }
 void StaticImageCanvas::setBrushSize(int size)
 {
-    m_brushSize = qBound(1, size, 64);
+    size = qBound(1, size, 64);
+    if (m_brushSize == size)
+        return;
+    m_brushSize = size;
+    emit brushSizeChanged(size);
     update();
 }
 void StaticImageCanvas::setExactCut(int region, Qt::Orientation orientation, int coordinate)
@@ -351,10 +358,10 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
                              : QLineF(r.x(), coordinate, r.x() + r.width(), coordinate));
     };
     if (!m_showBefore && m_exactCut)
-        drawCut(m_exactRegion, m_exactOrientation, m_exactCoordinate, QColor("#ffd28a"));
+        drawCut(m_exactRegion, m_exactOrientation, m_exactCoordinate, QColor("#00c8f0"));
     if (!m_showBefore)
         for (int target : m_extensionRegions)
-            drawCut(target, m_cutOrientation, m_cutCoordinate, QColor("#ffd28a"));
+            drawCut(target, m_cutOrientation, m_cutCoordinate, QColor("#00c8f0"));
     if (!m_showBefore && m_eraserTool && m_region >= 0 && underMouse())
     {
         const auto pixel = toImage(m_lastMouse);
@@ -461,7 +468,7 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
     if (!m_showBefore && !m_erasing)
     {
         painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(QPen(QColor("#ffd28a"), 1.5));
+        painter.setPen(QPen(QColor("#ff5c7a"), 1.5));
         painter.setBrush(Qt::NoBrush);
         const auto viewport = rect().adjusted(ruler + margin, ruler + margin, -margin, -margin);
         for (const auto &fragment : m_fragments)
@@ -560,9 +567,6 @@ void StaticImageCanvas::updateHover(const QPointF &point)
             m_cutOrientation = verticalRuler ? Qt::Vertical : Qt::Horizontal;
             m_cutPreview = true;
             setCursor(Qt::CrossCursor);
-            emit hintChanged(tr("Потяните разрез в нужную область: %1 = %2. Shift — зафиксировать область.")
-                                 .arg(verticalRuler ? "X" : "Y")
-                                 .arg(coordinate));
         }
     }
     else if (!m_mergeTool && m_hoverRegion >= 0)
@@ -602,7 +606,6 @@ void StaticImageCanvas::updateHover(const QPointF &point)
         if (m_extendPreview)
         {
             m_cutRegion = m_activeRegion;
-            emit hintChanged(tr("Нажмите на стык, чтобы продолжить разрез в подсвеченную область."));
         }
         else
         {
@@ -636,13 +639,8 @@ void StaticImageCanvas::updateHover(const QPointF &point)
                         m_mergeBoundary = {a, b};
                     }
                 }
-            emit hintChanged(m_mergeBoundary.isEmpty() ? tr("Щелчок — крестик. Двойной щелчок — маски части.")
-                                                       : tr("Нажмите на границу, чтобы убрать разрез."));
         }
     }
-    else
-        emit hintChanged(
-            tr("Тяните разрез с линейки в нужную область. H / V + щелчок — разрез внутри области."));
     update();
 }
 
@@ -663,9 +661,6 @@ void StaticImageCanvas::updateCut(const QPointF &point, bool lockRegion)
     m_cutCoordinate = qBound(start + 1, qRound(vertical ? p.x() : p.y()), start + length - 1);
     m_cutPreview = true;
     m_hoverRegion = m_cutRegion;
-    emit hintChanged(tr("%1 · %2 = %3 px · Shift — зафиксировать область · Esc — отменить")
-                         .arg(m_document->regions[m_cutRegion].name, vertical ? "X" : "Y")
-                         .arg(m_cutCoordinate));
 }
 
 void StaticImageCanvas::cancelGesture()
@@ -679,6 +674,7 @@ void StaticImageCanvas::cancelGesture()
         m_preview = m_document->render(m_region, m_region >= 0);
         setSelectedMasks(m_selectedMasks);
     }
+    m_eraseDraft = {};
     m_extensionRegions.clear();
     m_spaceHeld = false;
     m_pressedRegion = -1;
@@ -886,7 +882,8 @@ void StaticImageCanvas::mouseReleaseEvent(QMouseEvent *event)
     {
         eraseTo(event->position());
         m_erasing = false;
-        const auto result = m_eraseDraft;
+        const auto result = std::move(m_eraseDraft);
+        m_eraseDraft = {};
         if (m_eraseChanged)
             emit eraseFinished(result);
         else
@@ -958,6 +955,14 @@ void StaticImageCanvas::wheelEvent(QWheelEvent *event)
 {
     if (!m_document)
         return;
+    if (m_eraserTool && m_editable && !m_showBefore && event->modifiers().testFlag(Qt::ControlModifier))
+    {
+        const int delta = event->angleDelta().y() ? event->angleDelta().y() : event->pixelDelta().y();
+        if (delta)
+            setBrushSize(m_brushSize + (delta > 0 ? 1 : -1));
+        event->accept();
+        return;
+    }
     if (!event->pixelDelta().isNull() && !event->modifiers().testFlag(Qt::ControlModifier))
     {
         m_pan += event->pixelDelta();
@@ -983,14 +988,20 @@ void StaticImageCanvas::leaveEvent(QEvent *)
         m_hoverRegion = -1;
         m_mergeBoundary.clear();
         unsetCursor();
-        emit hintChanged(
-            tr("Тяните разрез с линейки в нужную область. H / V + щелчок — разрез внутри области."));
         update();
     }
 }
 
 void StaticImageCanvas::keyPressEvent(QKeyEvent *event)
 {
+    if (m_eraserTool && m_editable && !m_showBefore &&
+        (event->key() == Qt::Key_BracketLeft || event->key() == Qt::Key_BracketRight))
+    {
+        const int step = event->modifiers().testFlag(Qt::ShiftModifier) ? 4 : 1;
+        setBrushSize(m_brushSize + (event->key() == Qt::Key_BracketRight ? step : -step));
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_Space && !event->isAutoRepeat())
     {
         m_spaceHeld = true;

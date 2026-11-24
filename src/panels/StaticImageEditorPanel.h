@@ -16,6 +16,7 @@ class QStackedWidget;
 class QPropertyAnimation;
 class QComboBox;
 class QSpinBox;
+class QSlider;
 
 // StaticImageEditorPanel — обзор разрезов и выезжающая страница масок; один Apply в историю сцены.
 class StaticImageEditorPanel : public BasePanel
@@ -46,6 +47,7 @@ class StaticImageEditorPanel : public BasePanel
         QList<StaticImageDocument> undo, redo;
         bool editing = false;
         QImage beforeImage;
+        QByteArray sourceKey;
     };
     void refresh(bool rebuildList = true);
     void saveHistory();
@@ -66,6 +68,7 @@ class StaticImageEditorPanel : public BasePanel
     QSet<int> selectedMasks() const;
     void showError(const QString &message);
     void pruneSessions();
+    void trimHistory();
     QHash<BaseObject *, QSharedPointer<Session>> m_sessions;
     QSharedPointer<Session> m_session;
     QStackedWidget *m_pages = nullptr;
@@ -84,6 +87,7 @@ class StaticImageEditorPanel : public BasePanel
                 *m_after = nullptr, *m_split = nullptr;
     QComboBox *m_cutRegion = nullptr, *m_cutAxis = nullptr;
     QSpinBox *m_cutPosition = nullptr, *m_brushSize = nullptr;
+    QSlider *m_brushSlider = nullptr;
     QLabel *m_maskInfo = nullptr, *m_coordinateLabel = nullptr;
     QPropertyAnimation *m_transition = nullptr;
     int m_part = -1;

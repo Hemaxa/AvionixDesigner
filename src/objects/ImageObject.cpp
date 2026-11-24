@@ -539,6 +539,7 @@ ImageObject::ImageObject(Kind kind, QObject *parent) : BaseObject(parent), m_kin
 
 void ImageObject::setRasterImage(const QImage &image, const QString &name)
 {
+    ++m_sourceRevision;
     m_restoredComponents.clear();
     m_hasRestoredRotation = false;
     m_sourceImage = image.convertToFormat(QImage::Format_ARGB32);
@@ -557,6 +558,7 @@ void ImageObject::setRasterImage(const QImage &image, const QString &name)
 
 void ImageObject::setSvgData(const QByteArray &data, const QString &name, const QSize &defaultSize)
 {
+    ++m_sourceRevision;
     m_restoredComponents.clear();
     m_hasRestoredRotation = false;
     m_sourceBytes = data;
@@ -568,7 +570,70 @@ void ImageObject::setSvgData(const QByteArray &data, const QString &name, const 
     rebuildColorLayers();
 }
 
+void ImageObject::ensureRasterCache() const
+{
+    const auto &cache = m_rasterCache;
+    if (cache.valid && cache.width == width && cache.height == height &&
+        cache.mirrorHorizontal == mirrorHorizontal && cache.mirrorVertical == mirrorVertical &&
+        cache.autoMaskColor == autoMaskColor && cache.maskColor == maskColor && cache.format == format &&
+        cache.sourceRevision == m_sourceRevision && cache.layers == m_colorLayers)
+        return;
+    // Положение и угол меняют матрицу отрисовки, но не локальные пиксели маски.
+    m_rasterCache = {};
+    auto &updated = m_rasterCache;
+    updated.width = width;
+    updated.height = height;
+    updated.mirrorHorizontal = mirrorHorizontal;
+    updated.mirrorVertical = mirrorVertical;
+    updated.autoMaskColor = autoMaskColor;
+    updated.maskColor = maskColor;
+    updated.format = format;
+    updated.sourceRevision = m_sourceRevision;
+    updated.layers = m_colorLayers;
+    updated.valid = true;
+    ++m_rasterRevision;
+}
+
+quint64 ImageObject::rasterRevision() const
+{
+    ensureRasterCache();
+    return m_rasterRevision;
+}
+
 QImage ImageObject::renderedSourceImage() const
+{
+    ensureRasterCache();
+    if (!m_rasterCache.sourceReady)
+    {
+        m_rasterCache.source = buildSourceImage();
+        m_rasterCache.sourceReady = true;
+    }
+    return m_rasterCache.source;
+}
+
+QList<ImageMaskComponent> ImageObject::maskComponents() const
+{
+    ensureRasterCache();
+    if (!m_rasterCache.componentsReady)
+    {
+        m_rasterCache.components = buildMaskComponents();
+        m_rasterCache.componentsReady = true;
+    }
+    return m_rasterCache.components;
+}
+
+QImage ImageObject::renderedImage() const
+{
+    ensureRasterCache();
+    if (!m_rasterCache.imageReady)
+    {
+        m_rasterCache.image = buildRenderedImage();
+        m_rasterCache.imageReady = true;
+    }
+    return m_rasterCache.image;
+}
+
+QImage ImageObject::buildSourceImage() const
 {
     const int outW = qMax(1, qRound(width));
     const int outH = qMax(1, qRound(height));
@@ -589,7 +654,7 @@ QImage ImageObject::renderedSourceImage() const
     return image;
 }
 
-QImage ImageObject::renderedImage() const
+QImage ImageObject::buildRenderedImage() const
 {
     const QImage source = renderedSourceImage();
     if (source.isNull())
@@ -651,7 +716,7 @@ QColor ImageObject::effectiveMaskColor() const
     return QColor(bestRgb);
 }
 
-QList<ImageMaskComponent> ImageObject::maskComponents() const
+QList<ImageMaskComponent> ImageObject::buildMaskComponents() const
 {
     if (!m_restoredComponents.isEmpty()) {
         auto components = m_restoredComponents;
@@ -744,6 +809,7 @@ void ImageObject::restoreRasterComponents(const QList<ImageMaskComponent> &compo
     setRasterImage(image, {});
     m_restoredComponents = components;
     m_restoredSize = size;
+    ++m_sourceRevision;
     m_colorLayers.clear();
     for (const auto &c : components)
         m_colorLayers.append({c.color, c.color, true, relativeBounds(c.bounds, size), int(m_colorLayers.size())});
@@ -751,6 +817,7 @@ void ImageObject::restoreRasterComponents(const QList<ImageMaskComponent> &compo
 
 void ImageObject::copyRasterSource(const ImageObject &source)
 {
+    ++m_sourceRevision;
     mirrorHorizontal = source.mirrorHorizontal;
     mirrorVertical = source.mirrorVertical;
     m_sourceImage = source.m_sourceImage;
@@ -864,6 +931,7 @@ QByteArray ImageObject::sourcePayload() const
 
 void ImageObject::setSourcePayload(const QByteArray &payload)
 {
+    ++m_sourceRevision;
     m_restoredComponents.clear();
     m_hasRestoredRotation = false;
     m_sourceBytes = payload;
