@@ -8,6 +8,13 @@
     <qresource prefix="/icons">
         <file>icons/static-editor/optimized.svg</file>
         <file>icons/static-editor/shape-builder.svg</file>
+        <file>icons/static-editor/select.svg</file>
+        <file>icons/static-editor/extend-cut.svg</file>
+        <file>icons/static-editor/eraser.svg</file>
+        <file>icons/static-editor/hand.svg</file>
+        <file>icons/static-editor/isolate.svg</file>
+        <file>icons/static-editor/find-fragment.svg</file>
+        <file>icons/static-editor/split.svg</file>
         <file>icons/static-editor/fit.svg</file>
         <file>icons/static-editor/back.svg</file>
         <file>icons/static-editor/move-up.svg</file>

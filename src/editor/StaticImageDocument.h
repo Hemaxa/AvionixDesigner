@@ -10,6 +10,15 @@
 
 class BaseObject;
 
+// StaticMaskAnalysis — содержимое маски и мелкие несвязанные фрагменты без изменения её данных.
+struct StaticMaskAnalysis
+{
+    QRect bounds;
+    QList<QRect> fragments;
+    qint64 pixels = 0;
+    int components = 0;
+};
+
 // StaticImageMask — один init; значения маски 0…7 хранятся без повторного сглаживания.
 struct StaticImageMask
 {
@@ -19,6 +28,7 @@ struct StaticImageMask
     bool enabled = true;
     StaticImageMask clipped(const QRect &bounds) const;
     QImage image() const;
+    StaticMaskAnalysis analyze() const;
     static StaticImageMask fromImage(const QRect &rect, const QColor &color, const QImage &image,
                                      bool enabled = true);
 };
@@ -56,6 +66,7 @@ class StaticImageDocument
     bool split(int region, Qt::Orientation orientation, int coordinate);
     bool mergeRegions(QList<int> indexes);
     bool mergeMasks(int region, QList<int> indexes, const QColor &color);
+    bool eraseMasks(int region, const QList<int> &indexes, QPointF from, QPointF to, int diameter);
     void excludeEmpty();
     QImage render(int region = -1, bool includeExcluded = false) const;
 };

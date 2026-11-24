@@ -14,6 +14,8 @@ class QToolButton;
 class QListWidget;
 class QStackedWidget;
 class QPropertyAnimation;
+class QComboBox;
+class QSpinBox;
 
 // StaticImageEditorPanel — обзор разрезов и выезжающая страница масок; один Apply в историю сцены.
 class StaticImageEditorPanel : public BasePanel
@@ -43,6 +45,7 @@ class StaticImageEditorPanel : public BasePanel
         StaticImageDocument document;
         QList<StaticImageDocument> undo, redo;
         bool editing = false;
+        QImage beforeImage;
     };
     void refresh(bool rebuildList = true);
     void saveHistory();
@@ -57,6 +60,9 @@ class StaticImageEditorPanel : public BasePanel
     void updateMaskActions();
     void moveMasks(int direction, bool edge = false);
     void updateHint();
+    void updateCutControls(bool preview = false);
+    void chooseTool(int mode);
+    void showBefore(bool before);
     QSet<int> selectedMasks() const;
     void showError(const QString &message);
     void pruneSessions();
@@ -73,8 +79,16 @@ class StaticImageEditorPanel : public BasePanel
     QListWidget *m_masks = nullptr;
     QToolButton *m_mergeTool = nullptr, *m_empty = nullptr, *m_undo = nullptr, *m_redo = nullptr;
     QToolButton *m_top = nullptr, *m_up = nullptr, *m_down = nullptr, *m_bottom = nullptr;
+    QToolButton *m_selectTool = nullptr, *m_partTool = nullptr, *m_extendTool = nullptr, *m_eraser = nullptr,
+                *m_hand = nullptr, *m_isolate = nullptr, *m_find = nullptr, *m_before = nullptr,
+                *m_after = nullptr, *m_split = nullptr;
+    QComboBox *m_cutRegion = nullptr, *m_cutAxis = nullptr;
+    QSpinBox *m_cutPosition = nullptr, *m_brushSize = nullptr;
+    QLabel *m_maskInfo = nullptr, *m_coordinateLabel = nullptr;
     QPropertyAnimation *m_transition = nullptr;
     int m_part = -1;
     bool m_updating = false, m_applying = false, m_inDetail = false;
     bool m_reorderPending = false;
+    bool m_showBefore = false;
+    int m_toolMode = 0;
 };

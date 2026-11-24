@@ -56,7 +56,10 @@ void StaticImageCanvas::setDocument(const StaticImageDocument *document, int reg
     cancelGesture();
     m_cutKey = cutKey;
     m_hoverRegion = -1;
-    m_preview = document ? document->render(region, true) : QImage();
+    m_preview = document ? document->render(region, region >= 0) : QImage();
+    m_analysis.clear();
+    m_fragments.clear();
+    m_exactCut = false;
     if (changed)
     {
         m_activeRegion = document && !document->regions.isEmpty() ? 0 : -1;
@@ -89,11 +92,18 @@ void StaticImageCanvas::setSelectedMasks(const QSet<int> &indexes)
 {
     m_selectedMasks = indexes;
     m_maskHighlight = {};
-    if (m_document && m_region >= 0 && m_region < m_document->regions.size() && !indexes.isEmpty())
+    m_isolatedImage = {};
+    m_fragments.clear();
+    const auto *document = m_erasing ? &m_eraseDraft : m_document;
+    if (document && m_region >= 0 && m_region < document->regions.size() && !indexes.isEmpty())
     {
-        const auto &region = m_document->regions[m_region];
+        const auto &region = document->regions[m_region];
         m_maskHighlight = QImage(region.rect.size(), QImage::Format_ARGB32_Premultiplied);
         m_maskHighlight.fill(Qt::transparent);
+        m_isolatedImage = m_maskHighlight;
+        qint64 pixels = 0;
+        int components = 0;
+        QRect occupied;
         QColor highlight("#00c8f0");
         highlight.setAlpha(150);
         const QRgb pixel = qPremultiply(highlight.rgba());
@@ -102,6 +112,19 @@ void StaticImageCanvas::setSelectedMasks(const QSet<int> &indexes)
             if (index < 0 || index >= region.masks.size())
                 continue;
             const auto &mask = region.masks[index];
+            if (!m_erasing)
+            {
+                if (!m_analysis.contains(index))
+                    m_analysis.insert(index, mask.analyze());
+                const auto &analysis = m_analysis[index];
+                m_fragments += analysis.fragments;
+                pixels += analysis.pixels;
+                components += analysis.components;
+                occupied = occupied.united(analysis.bounds);
+            }
+            QPainter isolated(&m_isolatedImage);
+            isolated.drawImage(mask.rect.topLeft() - region.rect.topLeft(), mask.image());
+            isolated.end();
             for (int y = 0; y < mask.rect.height(); ++y)
                 for (int x = 0; x < mask.rect.width(); ++x)
                     if (mask.data[y * mask.rect.width() + x] != 0)
@@ -109,7 +132,76 @@ void StaticImageCanvas::setSelectedMasks(const QSet<int> &indexes)
                             y + mask.rect.y() - region.rect.y()))[x + mask.rect.x() - region.rect.x()] =
                             pixel;
         }
+        if (!m_erasing)
+            emit selectionInfoChanged(tr("%1 × %2 px · %3 пикселей\nФрагментов: %4 · мелких: %5")
+                                          .arg(occupied.width())
+                                          .arg(occupied.height())
+                                          .arg(pixels)
+                                          .arg(components)
+                                          .arg(m_fragments.size()));
     }
+    else
+        emit selectionInfoChanged(QString());
+    update();
+}
+
+void StaticImageCanvas::setBeforeImage(const QImage &image)
+{
+    m_before = m_region < 0 ? image : image.copy(contentRect());
+    update();
+}
+void StaticImageCanvas::setShowBefore(bool before)
+{
+    if (m_showBefore == before)
+        return;
+    cancelGesture();
+    m_showBefore = before;
+    update();
+}
+void StaticImageCanvas::setIsolated(bool isolated)
+{
+    m_isolated = isolated;
+    update();
+}
+void StaticImageCanvas::setHandTool(bool enabled)
+{
+    m_handTool = enabled;
+    setCursor(enabled ? Qt::OpenHandCursor : Qt::ArrowCursor);
+}
+void StaticImageCanvas::setExtendTool(bool enabled)
+{
+    m_extendTool = enabled;
+    m_extensionRegions.clear();
+    update();
+}
+void StaticImageCanvas::setEraserTool(bool enabled)
+{
+    m_eraserTool = enabled;
+    update();
+}
+void StaticImageCanvas::setBrushSize(int size)
+{
+    m_brushSize = qBound(1, size, 64);
+    update();
+}
+void StaticImageCanvas::setExactCut(int region, Qt::Orientation orientation, int coordinate)
+{
+    m_exactCut = region >= 0;
+    m_exactRegion = region;
+    m_exactOrientation = orientation;
+    m_exactCoordinate = coordinate;
+    update();
+}
+void StaticImageCanvas::focusNextFragment()
+{
+    if (m_fragments.isEmpty())
+        return;
+    m_fragment = (m_fragment + 1) % m_fragments.size();
+    const auto center = QRectF(m_fragments[m_fragment]).center();
+    const double baseScale = imageTransform().m11() / m_zoom;
+    m_zoom = qBound(.25, 24.0 / baseScale, 64.0);
+    const QPointF target(ruler + (width() - ruler) / 2.0, ruler + (height() - ruler) / 2.0);
+    m_pan += target - imageTransform().map(center);
     update();
 }
 
@@ -187,7 +279,11 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
                 painter.fillRect(QRect(x, y, tile, tile), QColor("#17212b"));
     painter.restore();
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-    painter.drawImage(bounds.topLeft(), m_preview);
+    const QImage &preview =
+        m_showBefore
+            ? m_before
+            : (m_region >= 0 && m_isolated && !m_selectedMasks.isEmpty() ? m_isolatedImage : m_preview);
+    painter.drawImage(bounds.topLeft(), preview);
     if (scale >= 10)
     {
         painter.setPen(QPen(QColor("#22303c"), 1 / scale));
@@ -200,7 +296,7 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
         for (int y = visible.y(); y <= visible.y() + visible.height(); ++y)
             painter.drawLine(QPointF(visible.left(), y), QPointF(visible.x() + visible.width(), y));
     }
-    if (m_region < 0)
+    if (!m_showBefore && m_region < 0)
     {
         for (int i = 0; i < m_document->regions.size(); ++i)
         {
@@ -226,20 +322,49 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
             }
         }
     }
-    else
+    else if (!m_showBefore && m_region >= 0)
     {
-        if (!m_maskHighlight.isNull())
+        if (!m_maskHighlight.isNull() && (m_isolated || m_eraserTool))
             painter.drawImage(bounds.topLeft(), m_maskHighlight);
         for (int i : m_selectedMasks)
             if (i >= 0 && i < m_document->regions[m_region].masks.size())
             {
                 const auto &mask = m_document->regions[m_region].masks[i];
-                painter.setPen(QPen(accent, 1.5 / scale));
+                painter.setPen(QPen(line, 1 / scale, Qt::DashLine));
                 painter.setBrush(Qt::NoBrush);
                 painter.drawRect(QRectF(mask.rect));
+                if (m_analysis.contains(i) && !m_analysis[i].bounds.isEmpty())
+                {
+                    painter.setPen(QPen(accent, 1.5 / scale));
+                    painter.drawRect(QRectF(m_analysis[i].bounds));
+                }
             }
     }
-    if (m_cutPreview && m_cutRegion >= 0 && m_cutRegion < m_document->regions.size())
+    auto drawCut = [&](int region, Qt::Orientation orientation, int coordinate, const QColor &color)
+    {
+        if (region < 0 || region >= m_document->regions.size())
+            return;
+        const auto r = m_document->regions[region].rect;
+        painter.setPen(QPen(color, 1.5 / scale, Qt::DashLine));
+        painter.drawLine(orientation == Qt::Vertical
+                             ? QLineF(coordinate, r.y(), coordinate, r.y() + r.height())
+                             : QLineF(r.x(), coordinate, r.x() + r.width(), coordinate));
+    };
+    if (!m_showBefore && m_exactCut)
+        drawCut(m_exactRegion, m_exactOrientation, m_exactCoordinate, QColor("#ffd28a"));
+    if (!m_showBefore)
+        for (int target : m_extensionRegions)
+            drawCut(target, m_cutOrientation, m_cutCoordinate, QColor("#ffd28a"));
+    if (!m_showBefore && m_eraserTool && m_region >= 0 && underMouse())
+    {
+        const auto pixel = toImage(m_lastMouse);
+        const QRect brush(int(std::floor(pixel.x())) - m_brushSize / 2,
+                          int(std::floor(pixel.y())) - m_brushSize / 2, m_brushSize, m_brushSize);
+        painter.setPen(QPen(QColor("#ff5c7a"), 1.5 / scale));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(QRectF(brush));
+    }
+    if (!m_showBefore && m_cutPreview && m_cutRegion >= 0 && m_cutRegion < m_document->regions.size())
     {
         const auto rect = m_document->regions[m_cutRegion].rect;
         painter.setPen(QPen(accent, 1.5 / scale, Qt::DashLine));
@@ -251,7 +376,7 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
         painter.drawEllipse(cut.p1(), 3 / scale, 3 / scale);
         painter.drawEllipse(cut.p2(), 3 / scale, 3 / scale);
     }
-    if (!m_mergeBoundary.isEmpty())
+    if (!m_showBefore && !m_mergeBoundary.isEmpty())
     {
         painter.setPen(QPen(accent, 3 / scale, Qt::DashLine));
         painter.drawLine(m_boundaryLine);
@@ -332,6 +457,22 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
     };
     drawRuler(topRuler, true);
     drawRuler(leftRuler, false);
+    // Markers use screen coordinates so corner pixels remain visible outside the image clip.
+    if (!m_showBefore && !m_erasing)
+    {
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(QColor("#ffd28a"), 1.5));
+        painter.setBrush(Qt::NoBrush);
+        const auto viewport = rect().adjusted(ruler + margin, ruler + margin, -margin, -margin);
+        for (const auto &fragment : m_fragments)
+        {
+            const auto center = transform.map(QRectF(fragment).center());
+            if (!viewport.contains(center.toPoint()))
+                continue;
+            const double radius = qMax(6.0, qMax(fragment.width(), fragment.height()) * scale / 2.0 + 2.0);
+            painter.drawEllipse(center, radius, radius);
+        }
+    }
 }
 
 int StaticImageCanvas::maskAt(const QPointF &point) const
@@ -355,9 +496,12 @@ void StaticImageCanvas::updateHover(const QPointF &point)
 {
     m_cutPreview = m_extendPreview = false;
     m_mergeBoundary.clear();
+    m_extensionRegions.clear();
     m_hoverRegion = -1;
     unsetCursor();
-    if (!m_document || m_region >= 0 || !m_editable)
+    if (m_handTool || m_spaceHeld)
+        setCursor(Qt::OpenHandCursor);
+    if (!m_document || m_region >= 0 || !m_editable || m_showBefore || m_handTool || m_spaceHeld)
     {
         update();
         return;
@@ -373,6 +517,13 @@ void StaticImageCanvas::updateHover(const QPointF &point)
     }
     const bool verticalRuler = horizontalRulerRect().contains(point);
     const bool horizontalRuler = verticalRulerRect().contains(point);
+    if (m_extendTool)
+    {
+        findExtension(imagePoint);
+        setCursor(Qt::CrossCursor);
+        update();
+        return;
+    }
     if (m_cutKey && m_hoverRegion >= 0)
     {
         m_cutRegion = m_hoverRegion;
@@ -521,6 +672,15 @@ void StaticImageCanvas::cancelGesture()
 {
     m_clickTimer.stop();
     m_cutDragging = m_stroking = m_panning = m_cutPreview = m_extendPreview = false;
+    const bool wasErasing = m_erasing;
+    m_erasing = false;
+    if (wasErasing && m_document)
+    {
+        m_preview = m_document->render(m_region, m_region >= 0);
+        setSelectedMasks(m_selectedMasks);
+    }
+    m_extensionRegions.clear();
+    m_spaceHeld = false;
     m_pressedRegion = -1;
     m_cutKey = 0;
     m_skipRelease = true;
@@ -551,13 +711,73 @@ void StaticImageCanvas::collectStroke(const QPointF &point)
     update();
 }
 
+void StaticImageCanvas::findExtension(const QPointF &point)
+{
+    double nearest = 8.0 / imageTransform().m11();
+    for (int a = 0; a < m_document->regions.size(); ++a)
+        for (int b = a + 1; b < m_document->regions.size(); ++b)
+        {
+            const auto ra = m_document->regions[a].rect, rb = m_document->regions[b].rect;
+            QLineF edge;
+            Qt::Orientation orientation = Qt::Vertical;
+            if (ra.x() + ra.width() == rb.x() || rb.x() + rb.width() == ra.x())
+            {
+                const int top = qMax(ra.y(), rb.y()),
+                          bottom = qMin(ra.y() + ra.height(), rb.y() + rb.height());
+                if (top < bottom)
+                    edge = QLineF(qMax(ra.x(), rb.x()), top, qMax(ra.x(), rb.x()), bottom);
+            }
+            else if (ra.y() + ra.height() == rb.y() || rb.y() + rb.height() == ra.y())
+            {
+                const int left = qMax(ra.x(), rb.x()), right = qMin(ra.x() + ra.width(), rb.x() + rb.width());
+                if (left < right)
+                    edge = QLineF(left, qMax(ra.y(), rb.y()), right, qMax(ra.y(), rb.y()));
+                orientation = Qt::Horizontal;
+            }
+            if (edge.isNull() || distanceToLine(point, edge) >= nearest)
+                continue;
+            QList<int> targets;
+            const QPointF direction = orientation == Qt::Vertical ? QPointF(0, .01) : QPointF(.01, 0);
+            const int coordinate = qRound(orientation == Qt::Vertical ? edge.x1() : edge.y1());
+            for (const auto probe : {edge.p1() - direction, edge.p2() + direction})
+            {
+                const int region = m_document->regionAt(probe);
+                if (region < 0 || targets.contains(region))
+                    continue;
+                const auto r = m_document->regions[region].rect;
+                const int start = orientation == Qt::Vertical ? r.x() : r.y();
+                const int length = orientation == Qt::Vertical ? r.width() : r.height();
+                if (coordinate > start && coordinate < start + length)
+                    targets.append(region);
+            }
+            if (targets.isEmpty())
+                continue;
+            nearest = distanceToLine(point, edge);
+            m_extensionRegions = targets;
+            m_cutOrientation = orientation;
+            m_cutCoordinate = coordinate;
+            m_boundaryLine = edge;
+            m_mergeBoundary = {a, b};
+        }
+}
+
+void StaticImageCanvas::eraseTo(const QPointF &point)
+{
+    m_eraseChanged |= m_eraseDraft.eraseMasks(m_region, sorted(m_selectedMasks), toImage(m_strokeLast),
+                                              toImage(point), m_brushSize);
+    m_strokeLast = point;
+    m_preview = m_eraseDraft.render(m_region, true);
+    setSelectedMasks(m_selectedMasks);
+}
+
 void StaticImageCanvas::mousePressEvent(QMouseEvent *event)
 {
     m_skipRelease = false;
     m_lastMouse = m_pressPosition = event->position();
     m_pressedRegion = -1;
     setFocus(Qt::MouseFocusReason);
-    if (event->button() == Qt::MiddleButton || event->button() == Qt::RightButton)
+    if (event->button() == Qt::MiddleButton || event->button() == Qt::RightButton ||
+        (event->button() == Qt::LeftButton && (m_handTool || m_spaceHeld)))
     {
         m_panning = true;
         setCursor(Qt::ClosedHandCursor);
@@ -565,7 +785,22 @@ void StaticImageCanvas::mousePressEvent(QMouseEvent *event)
     }
     if (event->button() != Qt::LeftButton || !m_document)
         return;
+    if (m_showBefore)
+        return;
+    if (m_eraserTool && m_editable && m_region >= 0)
+    {
+        if (m_selectedMasks.isEmpty())
+            return;
+        m_erasing = true;
+        m_eraseChanged = false;
+        m_eraseDraft = *m_document;
+        m_strokeLast = event->position();
+        eraseTo(event->position());
+        return;
+    }
     updateHover(event->position());
+    if (m_extendTool)
+        return;
     if (m_editable && m_cutPreview && !m_extendPreview)
     {
         m_clickTimer.stop();
@@ -604,6 +839,12 @@ void StaticImageCanvas::mousePressEvent(QMouseEvent *event)
 
 void StaticImageCanvas::mouseMoveEvent(QMouseEvent *event)
 {
+    if (m_erasing)
+    {
+        m_lastMouse = event->position();
+        eraseTo(event->position());
+        return;
+    }
     if (m_panning)
     {
         m_pan += event->position() - m_lastMouse;
@@ -636,11 +877,29 @@ void StaticImageCanvas::mouseReleaseEvent(QMouseEvent *event)
     if (m_panning)
     {
         m_panning = false;
-        unsetCursor();
+        setCursor(m_handTool || m_spaceHeld ? Qt::OpenHandCursor : Qt::ArrowCursor);
         return;
     }
-    if (event->button() != Qt::LeftButton || !m_document)
+    if (event->button() != Qt::LeftButton || !m_document || m_showBefore)
         return;
+    if (m_erasing)
+    {
+        eraseTo(event->position());
+        m_erasing = false;
+        const auto result = m_eraseDraft;
+        if (m_eraseChanged)
+            emit eraseFinished(result);
+        else
+            setSelectedMasks(m_selectedMasks);
+        return;
+    }
+    if (m_extendTool)
+    {
+        updateHover(event->position());
+        if (!m_extensionRegions.isEmpty())
+            emit cutsExtensionRequested(m_extensionRegions, m_cutOrientation, m_cutCoordinate);
+        return;
+    }
     if (m_cutDragging)
     {
         m_cutDragging = false;
@@ -686,7 +945,8 @@ void StaticImageCanvas::mouseDoubleClickEvent(QMouseEvent *event)
 {
     m_clickTimer.stop();
     m_skipRelease = true;
-    if (m_document && m_region < 0 && event->button() == Qt::LeftButton)
+    if (m_document && !m_showBefore && !m_extendTool && !m_handTool && m_region < 0 &&
+        event->button() == Qt::LeftButton)
     {
         const int index = m_document->regionAt(toImage(event->position()));
         if (index >= 0)
@@ -698,8 +958,17 @@ void StaticImageCanvas::wheelEvent(QWheelEvent *event)
 {
     if (!m_document)
         return;
+    if (!event->pixelDelta().isNull() && !event->modifiers().testFlag(Qt::ControlModifier))
+    {
+        m_pan += event->pixelDelta();
+        update();
+        event->accept();
+        return;
+    }
     const QPointF anchor = toImage(event->position());
-    m_zoom = qBound(.25, m_zoom * std::pow(1.0015, event->angleDelta().y()), 64.0);
+    const double delta =
+        event->angleDelta().y() != 0 ? event->angleDelta().y() : event->pixelDelta().y() * 3.0;
+    m_zoom = qBound(.25, m_zoom * std::pow(1.0015, delta), 64.0);
     m_pan += event->position() - imageTransform().map(anchor);
     update();
     event->accept();
@@ -707,8 +976,9 @@ void StaticImageCanvas::wheelEvent(QWheelEvent *event)
 
 void StaticImageCanvas::leaveEvent(QEvent *)
 {
-    if (!m_cutDragging)
+    if (!m_cutDragging && !m_erasing)
     {
+        m_extensionRegions.clear();
         m_cutPreview = false;
         m_hoverRegion = -1;
         m_mergeBoundary.clear();
@@ -721,6 +991,13 @@ void StaticImageCanvas::leaveEvent(QEvent *)
 
 void StaticImageCanvas::keyPressEvent(QKeyEvent *event)
 {
+    if (event->key() == Qt::Key_Space && !event->isAutoRepeat())
+    {
+        m_spaceHeld = true;
+        setCursor(Qt::OpenHandCursor);
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_Escape)
     {
         cancelGesture();
@@ -748,6 +1025,14 @@ void StaticImageCanvas::keyPressEvent(QKeyEvent *event)
 
 void StaticImageCanvas::keyReleaseEvent(QKeyEvent *event)
 {
+    if (event->key() == Qt::Key_Space && !event->isAutoRepeat())
+    {
+        m_spaceHeld = false;
+        if (!m_panning)
+            unsetCursor();
+        event->accept();
+        return;
+    }
     if (!event->isAutoRepeat() && (event->key() == Qt::Key_H || event->key() == Qt::Key_V))
     {
         m_cutKey = 0;

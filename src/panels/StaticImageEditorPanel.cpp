@@ -1,11 +1,13 @@
 // StaticImageEditorPanel — черновики, навигация, маски и применение к сцене.
 #include "StaticImageEditorPanel.h"
+#include "ExpressionSpinBox.h"
 #include "ProjectManager.h"
 #include "StaticImageCanvas.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QColorDialog>
+#include <QComboBox>
 #include <QDrag>
 #include <QDropEvent>
 #include <QFrame>
@@ -177,11 +179,105 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(10);
+    auto *header = new QHBoxLayout;
+    layout->addLayout(header);
+    auto *back = new QPushButton(QIcon(":/icons/icons/static-editor/back.svg"), QString(), this);
+    back->setObjectName("StaticPartBack");
+    back->setProperty("staticTool", true);
+    back->setIconSize(QSize(28, 28));
+    back->setFixedSize(44, 44);
+    back->setToolTip(tr("К разбиению"));
+    back->setAccessibleName(back->toolTip());
+    back->hide();
+    header->addWidget(back);
     m_name = new QLabel(tr("Статическое изображение"), this);
     m_name->setObjectName("StaticEditorTitle");
     m_name->setTextFormat(Qt::PlainText);
     m_name->setWordWrap(true);
-    layout->addWidget(m_name);
+    header->addWidget(m_name, 1);
+    m_partName = new QLabel(this);
+    m_partName->setObjectName("StaticSectionTitle");
+    m_partName->setTextFormat(Qt::PlainText);
+    m_partName->hide();
+    header->addWidget(m_partName);
+    auto *toolbar = new QHBoxLayout;
+    toolbar->setSpacing(8);
+    layout->addLayout(toolbar);
+    auto group = [&](const QString &title)
+    {
+        auto *frame = new QFrame(this);
+        frame->setObjectName("StaticToolGroup");
+        auto *column = new QVBoxLayout(frame);
+        column->setContentsMargins(8, 6, 8, 8);
+        column->setSpacing(4);
+        auto *label = new QLabel(title);
+        label->setObjectName("StaticToolGroupTitle");
+        column->addWidget(label);
+        auto *bar = new QHBoxLayout;
+        bar->setSpacing(6);
+        column->addLayout(bar);
+        toolbar->addWidget(frame);
+        return bar;
+    };
+    auto tool =
+        [&](QHBoxLayout *bar, QWidget *parent, const char *name, const QString &icon, const QString &tip)
+    {
+        auto *button = new QToolButton(parent);
+        button->setObjectName(name);
+        button->setIcon(QIcon(icon));
+        button->setIconSize(QSize(28, 28));
+        button->setFixedSize(44, 44);
+        button->setToolTip(tip);
+        button->setAccessibleName(tip);
+        bar->addWidget(button);
+        return button;
+    };
+    auto *historyBar = group(tr("История"));
+    m_undo = tool(historyBar, this, "StaticDraftUndo", ":/icons/icons/selection/undo.svg",
+                  tr("Отменить изменение в окне"));
+    m_redo = tool(historyBar, this, "StaticDraftRedo", ":/icons/icons/selection/redo.svg",
+                  tr("Повторить изменение в окне"));
+    auto *editBar = group(tr("Инструменты"));
+    m_selectTool =
+        tool(editBar, this, "StaticSelectTool", ":/icons/icons/static-editor/select.svg", tr("Выбор"));
+    m_mergeTool = tool(editBar, this, "StaticShapeBuilder", ":/icons/icons/static-editor/shape-builder.svg",
+                       tr("Объединить области жестом"));
+    m_partTool = tool(editBar, this, "StaticMaskShapeBuilder",
+                      ":/icons/icons/static-editor/shape-builder.svg", tr("Объединить маски жестом"));
+    m_extendTool = tool(editBar, this, "StaticExtendCut", ":/icons/icons/static-editor/extend-cut.svg",
+                        tr("Продлить разрез: нажмите на существующую линию"));
+    m_empty = tool(editBar, this, "StaticExcludeEmpty", ":/icons/icons/static-editor/exclude-empty.svg",
+                   tr("Исключить области с полностью нулевыми масками"));
+    m_eraser = tool(editBar, this, "StaticEraser", ":/icons/icons/static-editor/eraser.svg",
+                    tr("Ластик: стереть пиксели выбранных масок"));
+    for (auto *button : {m_selectTool, m_mergeTool, m_partTool, m_extendTool, m_eraser})
+        button->setCheckable(true);
+    m_selectTool->setChecked(true);
+    m_partTool->hide();
+    m_eraser->hide();
+    auto *viewBar = group(tr("Просмотр"));
+    m_hand = tool(viewBar, this, "StaticPan", ":/icons/icons/static-editor/hand.svg",
+                  tr("Панорама · также Пробел + перетаскивание, правая или средняя кнопка"));
+    m_hand->setCheckable(true);
+    auto *fit =
+        tool(viewBar, this, "StaticFit", ":/icons/icons/static-editor/fit.svg", tr("Вписать изображение"));
+    auto comparison = [&](const char *name, const QString &text)
+    {
+        auto *button = new QToolButton(this);
+        button->setObjectName(name);
+        button->setProperty("compare", true);
+        button->setText(text);
+        button->setCheckable(true);
+        button->setFixedSize(50, 44);
+        viewBar->addWidget(button);
+        return button;
+    };
+    m_before = comparison("StaticPreviewBefore", tr("До"));
+    m_after = comparison("StaticPreviewAfter", tr("После"));
+    m_before->setToolTip(tr("Исходное изображение"));
+    m_after->setToolTip(tr("Текущий черновик"));
+    m_after->setChecked(true);
+    toolbar->addStretch();
     m_pages = new QStackedWidget(this);
     layout->addWidget(m_pages, 1);
     m_overview = new QWidget(m_pages);
@@ -194,55 +290,48 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_canvas = new StaticImageCanvas(m_overview);
     m_canvas->setObjectName("StaticPartitionCanvas");
     overview->addWidget(m_canvas, 1);
-    // Common tools stay in the same place when entering a region.
-    auto *toolbar = new QHBoxLayout;
-    toolbar->setSpacing(6);
-    layout->insertLayout(1, toolbar);
-    auto tool =
-        [&](QHBoxLayout *bar, QWidget *parent, const char *name, const QString &icon, const QString &tip)
-    {
-        auto *button = new QToolButton(parent);
-        button->setObjectName(name);
-        button->setIcon(QIcon(icon));
-        button->setIconSize(QSize(22, 22));
-        button->setFixedSize(36, 36);
-        button->setToolTip(tip);
-        button->setAccessibleName(tip);
-        bar->addWidget(button);
-        return button;
-    };
-    m_mergeTool = tool(toolbar, this, "StaticShapeBuilder", ":/icons/icons/static-editor/shape-builder.svg",
-                       tr("Объединение: проведите по областям или маскам"));
-    m_mergeTool->setCheckable(true);
-    auto *partTool =
-        tool(toolbar, this, "StaticMaskShapeBuilder", ":/icons/icons/static-editor/shape-builder.svg",
-             tr("Объединение масок: отпустите мышь на цвете результата"));
-    partTool->setCheckable(true);
-    partTool->hide();
-    m_empty = tool(toolbar, this, "StaticExcludeEmpty", ":/icons/icons/static-editor/exclude-empty.svg",
-                   tr("Автоматически исключить области, в которых все значения масок равны 0"));
-    toolbar->addSpacing(8);
-    m_undo = tool(toolbar, this, "StaticDraftUndo", ":/icons/icons/selection/undo.svg",
-                  tr("Отменить изменение в окне"));
-    m_redo = tool(toolbar, this, "StaticDraftRedo", ":/icons/icons/selection/redo.svg",
-                  tr("Повторить изменение в окне"));
-    toolbar->addStretch();
-    auto *fit =
-        tool(toolbar, this, "StaticFit", ":/icons/icons/static-editor/fit.svg", tr("Вписать изображение"));
-
     auto *sideScroll = new QScrollArea(m_overview);
     sideScroll->setObjectName("StaticStatsScroll");
     sideScroll->setWidgetResizable(true);
     sideScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    sideScroll->setMinimumWidth(258);
+    sideScroll->setMinimumWidth(280);
     sideScroll->setMaximumWidth(320);
     sideScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     overview->addWidget(sideScroll);
     auto *side = new QWidget;
     auto *sideLayout = new QVBoxLayout(side);
     sideLayout->setContentsMargins(0, 0, 0, 0);
-    sideLayout->setSpacing(10);
+    sideLayout->setSpacing(8);
     sideScroll->setWidget(side);
+    auto *cutCard = new QFrame;
+    cutCard->setObjectName("StaticCutCard");
+    sideLayout->addWidget(cutCard);
+    auto *cutLayout = new QVBoxLayout(cutCard);
+    cutLayout->setContentsMargins(10, 10, 10, 10);
+    cutLayout->setSpacing(6);
+    auto *cutTitle = new QLabel(tr("Разрез"));
+    cutTitle->setObjectName("StaticSectionTitle");
+    cutLayout->addWidget(cutTitle);
+    m_cutRegion = new QComboBox;
+    m_cutRegion->setObjectName("StaticCutRegion");
+    m_cutRegion->setToolTip(tr("Область разреза"));
+    cutLayout->addWidget(m_cutRegion);
+    m_cutAxis = new QComboBox;
+    m_cutAxis->setObjectName("StaticCutAxis");
+    m_cutAxis->addItem(tr("Вертикальный"), int(Qt::Vertical));
+    m_cutAxis->addItem(tr("Горизонтальный"), int(Qt::Horizontal));
+    cutLayout->addWidget(m_cutAxis);
+    auto *coordinate = new QHBoxLayout;
+    coordinate->setSpacing(6);
+    m_coordinateLabel = new QLabel("X");
+    coordinate->addWidget(m_coordinateLabel);
+    m_cutPosition = new ExpressionSpinBox;
+    m_cutPosition->setObjectName("StaticCutCoordinate");
+    m_cutPosition->setSuffix(" px");
+    coordinate->addWidget(m_cutPosition, 1);
+    m_split = tool(coordinate, cutCard, "StaticSplitExact", ":/icons/icons/static-editor/split.svg",
+                   tr("Разрезать по заданной координате"));
+    cutLayout->addLayout(coordinate);
     auto *statsTitle = new QLabel(tr("Данные изображения"));
     statsTitle->setObjectName("StaticSectionTitle");
     sideLayout->addWidget(statsTitle);
@@ -293,31 +382,9 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     stat("bits", tr("Маски, бит"), tr("Одна ячейка маски занимает 3 бита."));
     stat("uart", tr("UART масок, байт"),
          tr("В протоколе значение каждой ячейки передаётся отдельным байтом."));
-    auto *note = new QLabel(
-        tr("Одна экспортируемая область — один банк. Объём BRAM зависит от глубины банков в прошивке."));
-    note->setWordWrap(true);
-    note->setObjectName("StaticEditorNote");
-    sideLayout->addWidget(note);
     sideLayout->addStretch();
-
     auto *detailLayout = new QVBoxLayout(m_detail);
     detailLayout->setContentsMargins(0, 0, 0, 0);
-    detailLayout->setSpacing(10);
-    auto *navigation = new QHBoxLayout;
-    detailLayout->addLayout(navigation);
-    auto *back = new QPushButton(QIcon(":/icons/icons/static-editor/back.svg"), QString(), m_detail);
-    back->setObjectName("StaticPartBack");
-    back->setProperty("staticTool", true);
-    back->setIconSize(QSize(22, 22));
-    back->setFixedSize(36, 36);
-    back->setToolTip(tr("К разбиению"));
-    back->setAccessibleName(back->toolTip());
-    navigation->addWidget(back);
-    m_partName = new QLabel(m_detail);
-    m_partName->setTextFormat(Qt::PlainText);
-    m_partName->setObjectName("StaticSectionTitle");
-    m_partName->setWordWrap(true);
-    navigation->addWidget(m_partName, 1);
     auto *body = new QSplitter(m_detail);
     body->setChildrenCollapsible(false);
     body->setHandleWidth(8);
@@ -325,19 +392,49 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_partCanvas = new StaticImageCanvas(body);
     m_partCanvas->setObjectName("StaticMaskCanvas");
     auto *maskPanel = new QWidget(body);
-    maskPanel->setMinimumWidth(260);
+    maskPanel->setMinimumWidth(280);
+    maskPanel->setMaximumWidth(440);
     auto *maskSide = new QVBoxLayout(maskPanel);
     maskSide->setContentsMargins(0, 0, 0, 0);
     maskSide->setSpacing(8);
+    auto *maskHeader = new QHBoxLayout;
+    maskSide->addLayout(maskHeader);
     auto *maskTitle = new QLabel(tr("Маски части"));
     maskTitle->setObjectName("StaticSectionTitle");
-    maskSide->addWidget(maskTitle);
-    auto *maskNote = new QLabel(tr("Сверху — первый init, передний план"));
-    maskNote->setObjectName("StaticEditorNote");
-    maskNote->setWordWrap(true);
-    maskNote->setToolTip(tr("Габаритный прямоугольник первой маски перекрывает следующие, в том числе при "
-                            "нулевом значении маски."));
-    maskSide->addWidget(maskNote);
+    maskHeader->addWidget(maskTitle, 1);
+    auto iconAction = [&](const char *name, const QString &icon, const QString &tip)
+    {
+        auto *button = new QPushButton(QIcon(icon), QString(), maskPanel);
+        button->setObjectName(name);
+        button->setProperty("staticTool", true);
+        button->setIconSize(QSize(28, 28));
+        button->setFixedSize(44, 44);
+        button->setToolTip(tip);
+        button->setAccessibleName(tip);
+        maskHeader->addWidget(button);
+        return button;
+    };
+    m_color = iconAction("StaticMaskColor", ":/icons/icons/static-editor/color.svg",
+                         tr("Изменить цвет выбранных масок"));
+    m_merge = iconAction("StaticMergeMasks", ":/icons/icons/static-editor/shape-builder.svg",
+                         tr("Объединить выбранные маски"));
+    auto *inspect = new QHBoxLayout;
+    inspect->setSpacing(6);
+    maskSide->addLayout(inspect);
+    m_isolate = tool(inspect, maskPanel, "StaticIsolateMask", ":/icons/icons/static-editor/isolate.svg",
+                     tr("Показать только выбранные маски"));
+    m_isolate->setCheckable(true);
+    m_find = tool(inspect, maskPanel, "StaticFindFragment", ":/icons/icons/static-editor/find-fragment.svg",
+                  tr("Приблизить следующий мелкий фрагмент"));
+    inspect->addStretch();
+    m_brushSize = new ExpressionSpinBox;
+    m_brushSize->setObjectName("StaticEraserSize");
+    m_brushSize->setRange(1, 64);
+    m_brushSize->setValue(1);
+    m_brushSize->setSuffix(" px");
+    m_brushSize->setToolTip(tr("Размер ластика в пикселях изображения"));
+    m_brushSize->setFixedWidth(88);
+    inspect->addWidget(m_brushSize);
     m_masks = new StaticMaskList(maskPanel);
     m_masks->setObjectName("StaticMaskList");
     m_masks->setItemDelegate(new StaticMaskDelegate(m_masks));
@@ -362,33 +459,22 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_bottom = tool(maskActions, maskPanel, "StaticMaskBottom", ":/icons/icons/static-editor/move-bottom.svg",
                     tr("В самый конец"));
     maskActions->addStretch();
-    auto iconAction = [&](const char *name, const QString &icon, const QString &tip)
-    {
-        auto *button = new QPushButton(QIcon(icon), QString(), maskPanel);
-        button->setObjectName(name);
-        button->setProperty("staticTool", true);
-        button->setIconSize(QSize(22, 22));
-        button->setFixedSize(36, 36);
-        button->setToolTip(tip);
-        button->setAccessibleName(tip);
-        maskActions->addWidget(button);
-        return button;
-    };
-    m_color = iconAction("StaticMaskColor", ":/icons/icons/static-editor/color.svg",
-                         tr("Изменить цвет выбранных масок"));
-    m_merge = iconAction("StaticMergeMasks", ":/icons/icons/static-editor/shape-builder.svg",
-                         tr("Объединить выбранные маски"));
+    m_maskInfo = new QLabel;
+    m_maskInfo->setObjectName("StaticMaskInfo");
+    m_maskInfo->setWordWrap(true);
+    m_maskInfo->hide();
+    maskSide->addWidget(m_maskInfo);
     body->setStretchFactor(0, 1);
     body->setStretchFactor(1, 0);
-    body->setSizes({650, 280});
+    body->setSizes({650, 300});
 
     m_hint = new QLabel(this);
     m_hint->setObjectName("StaticEditorHint");
     m_hint->setWordWrap(true);
-    m_hint->setMinimumHeight(40);
-    layout->addWidget(m_hint);
+    m_hint->hide();
     auto *footer = new QHBoxLayout;
     layout->addLayout(footer);
+    footer->addWidget(m_hint, 1);
     footer->addStretch();
     m_begin = new QPushButton(tr("Начать редактировать"), this);
     m_begin->setObjectName("StaticBeginEditing");
@@ -413,15 +499,70 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     connect(m_apply, &QPushButton::clicked, this, [this] { applyEditing(); });
     connect(back, &QPushButton::clicked, this, &StaticImageEditorPanel::showOverview);
     connect(fit, &QToolButton::clicked, this, [this] { (m_inDetail ? m_partCanvas : m_canvas)->fit(); });
-    connect(m_mergeTool, &QToolButton::toggled, this,
-            [this, partTool](bool checked)
+    for (const auto &entry : {qMakePair(m_selectTool, 0), qMakePair(m_mergeTool, 1), qMakePair(m_partTool, 1),
+                              qMakePair(m_extendTool, 2), qMakePair(m_eraser, 3), qMakePair(m_hand, 4)})
+        connect(entry.first, &QToolButton::clicked, this,
+                [this, mode = entry.second](bool checked) { chooseTool(checked ? mode : 0); });
+    connect(m_before, &QToolButton::clicked, this, [this] { showBefore(true); });
+    connect(m_after, &QToolButton::clicked, this, [this] { showBefore(false); });
+    connect(m_isolate, &QToolButton::toggled, m_partCanvas, &StaticImageCanvas::setIsolated);
+    connect(m_find, &QToolButton::clicked, m_partCanvas, &StaticImageCanvas::focusNextFragment);
+    connect(m_brushSize, &QSpinBox::valueChanged, m_partCanvas, &StaticImageCanvas::setBrushSize);
+    connect(m_partCanvas, &StaticImageCanvas::selectionInfoChanged, this,
+            [this](const QString &info)
             {
-                m_canvas->setMergeTool(checked);
-                m_partCanvas->setMergeTool(checked);
-                QSignalBlocker blocker(partTool);
-                partTool->setChecked(checked);
+                m_maskInfo->setText(info);
+                m_maskInfo->setVisible(!info.isEmpty());
             });
-    connect(partTool, &QToolButton::toggled, m_mergeTool, &QToolButton::setChecked);
+    connect(m_partCanvas, &StaticImageCanvas::eraseFinished, this,
+            [this](const StaticImageDocument &document)
+            {
+                if (!editing() || m_showBefore)
+                    return;
+                saveHistory();
+                m_session->document = document;
+                refresh();
+            });
+    connect(m_canvas, &StaticImageCanvas::cutsExtensionRequested, this,
+            [this](QList<int> regions, Qt::Orientation orientation, int coordinate)
+            {
+                if (!editing() || m_showBefore)
+                    return;
+                auto next = m_session->document;
+                std::sort(regions.begin(), regions.end(), std::greater<int>());
+                if (regions.isEmpty())
+                    return;
+                for (int region : regions)
+                    if (!next.split(region, orientation, coordinate))
+                    {
+                        showError(tr("Не удалось продлить разрез: достигнут предел количества областей."));
+                        return;
+                    }
+                saveHistory();
+                m_session->document = next;
+                refresh();
+            });
+    connect(m_cutRegion, &QComboBox::currentIndexChanged, this, [this] { updateCutControls(true); });
+    connect(m_cutAxis, &QComboBox::currentIndexChanged, this, [this] { updateCutControls(true); });
+    connect(m_cutPosition, &QSpinBox::valueChanged, this, [this] { updateCutControls(true); });
+    connect(
+        m_split, &QToolButton::clicked, this,
+        [this]
+        {
+            if (!editing() || m_showBefore)
+                return;
+            const int id = m_cutRegion->currentData().toInt();
+            auto next = m_session->document;
+            for (int i = 0; i < next.regions.size(); ++i)
+                if (next.regions[i].id == id &&
+                    next.split(i, Qt::Orientation(m_cutAxis->currentData().toInt()), m_cutPosition->value()))
+                {
+                    saveHistory();
+                    m_session->document = next;
+                    refresh();
+                    break;
+                }
+        });
     connect(m_undo, &QToolButton::clicked, this, [this] { undoDraft(); });
     connect(m_redo, &QToolButton::clicked, this, [this] { undoDraft(true); });
     connect(m_empty, &QToolButton::clicked, this,
@@ -479,16 +620,6 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
                 refresh();
             });
     connect(m_canvas, &StaticImageCanvas::regionOpened, this, &StaticImageEditorPanel::openRegion);
-    connect(m_canvas, &StaticImageCanvas::hintChanged, this,
-            [this](const QString &hint)
-            {
-                if (!m_session || !editing() || !m_session->document.hardwareErrors().isEmpty())
-                    return;
-                m_hint->setProperty("severity", "normal");
-                m_hint->setText(hint);
-                m_hint->style()->unpolish(m_hint);
-                m_hint->style()->polish(m_hint);
-            });
     connect(m_partCanvas, &StaticImageCanvas::masksMergeRequested, this, &StaticImageEditorPanel::mergeMasks);
     connect(m_partCanvas, &StaticImageCanvas::masksSelected, this, &StaticImageEditorPanel::selectMasks);
     connect(m_masks, &QListWidget::itemSelectionChanged, this,
@@ -509,12 +640,18 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     connect(m_down, &QToolButton::clicked, this, [this] { moveMasks(1); });
     connect(m_bottom, &QToolButton::clicked, this, [this] { moveMasks(1, true); });
     connect(m_pages, &QStackedWidget::currentChanged, this,
-            [this, partTool]
+            [this, back]
             {
                 const bool detail = m_pages->currentWidget() == m_detail;
                 m_mergeTool->setVisible(!detail);
                 m_empty->setVisible(!detail);
-                partTool->setVisible(detail);
+                m_extendTool->setVisible(!detail);
+                m_partTool->setVisible(detail);
+                m_eraser->setVisible(detail);
+                m_partName->setVisible(detail);
+                back->setVisible(detail);
+                if ((!detail && m_toolMode == 3) || (detail && m_toolMode == 2))
+                    chooseTool(0);
             });
     installEventFilter(this);
     for (auto *widget : findChildren<QWidget *>())
@@ -621,6 +758,7 @@ void StaticImageEditorPanel::setSelectedObjects(const QList<int> &indexes)
     {
         QString error;
         m_session->document = StaticImageDocument::fromObject(*source, &error);
+        m_session->beforeImage = m_session->document.render();
         if (!error.isEmpty())
         {
             m_session.clear();
@@ -721,6 +859,7 @@ void StaticImageEditorPanel::showError(const QString &message)
 {
     m_hint->setProperty("severity", "warning");
     m_hint->setText(message);
+    m_hint->show();
     m_hint->style()->unpolish(m_hint);
     m_hint->style()->polish(m_hint);
 }
@@ -731,12 +870,28 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
     const auto *document = draft();
     m_canvas->setDocument(document);
     m_canvas->setEditable(editing());
+    m_canvas->setBeforeImage(m_session ? m_session->beforeImage : QImage());
+    m_canvas->setShowBefore(m_showBefore);
+    m_before->setEnabled(bool(m_session));
+    m_after->setEnabled(bool(m_session));
+    for (auto *button : {m_mergeTool, m_partTool, m_empty, m_extendTool})
+        button->setEnabled(editing() && !m_showBefore);
+    const int selectedId = m_cutRegion->currentData().toInt();
+    {
+        QSignalBlocker blocker(m_cutRegion);
+        m_cutRegion->clear();
+        if (document)
+            for (const auto &region : document->regions)
+                m_cutRegion->addItem(
+                    tr("%1 · %2 × %3").arg(region.name).arg(region.rect.width()).arg(region.rect.height()),
+                    region.id);
+        m_cutRegion->setCurrentIndex(qMax(0, m_cutRegion->findData(selectedId)));
+    }
+    updateCutControls();
     m_begin->setVisible(!editing());
     m_begin->setEnabled(m_session && !m_session->source->isSelectionLocked());
     m_apply->setVisible(editing() && !m_inDetail);
     m_cancel->setVisible(editing() && !m_inDetail);
-    for (auto *button : {m_mergeTool, m_empty})
-        button->setEnabled(editing());
     m_undo->setEnabled(editing() && !m_session->undo.isEmpty());
     m_redo->setEnabled(editing() && !m_session->redo.isEmpty());
     m_name->setText(m_session
@@ -748,6 +903,7 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
         m_stats->hide();
         m_statsEmpty->show();
         m_hint->clear();
+        m_hint->hide();
         m_partCanvas->setDocument(nullptr);
         m_masks->clear();
         m_updating = false;
@@ -782,7 +938,7 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
     m_statValues["init"]->setText(number(document->initCount()));
     m_statValues["bits"]->setText(number(document->cells() * 3));
     m_statValues["uart"]->setText(number(document->cells()));
-    m_apply->setEnabled(editing() && document->hardwareErrors().isEmpty());
+    m_apply->setEnabled(editing() && !m_showBefore && document->hardwareErrors().isEmpty());
     updateHint();
     if (m_part >= 0 && m_part < document->regions.size())
     {
@@ -790,6 +946,8 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
         m_partName->setText(tr("%1 · %2 init").arg(region.name).arg(region.masks.size()));
         m_partCanvas->setDocument(document, m_part);
         m_partCanvas->setEditable(editing());
+        m_partCanvas->setBeforeImage(m_session->beforeImage);
+        m_partCanvas->setShowBefore(m_showBefore);
         if (rebuildList)
         {
             const auto selection = selectedMasks();
@@ -818,7 +976,7 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
                     item->setSelected(true);
             m_partCanvas->setSelectedMasks(selectedMasks());
         }
-        m_masks->setDragEnabled(editing());
+        m_masks->setDragEnabled(editing() && !m_showBefore);
         m_color->setEnabled(editing() && !m_masks->selectedItems().isEmpty());
         m_merge->setEnabled(editing() && m_masks->selectedItems().size() > 1);
     }
@@ -862,7 +1020,10 @@ void StaticImageEditorPanel::openRegion(int region)
     if (!editing())
         return;
     m_part = region;
+    m_masks->clear();
     refresh();
+    if (m_masks->count())
+        m_masks->setCurrentRow(0, QItemSelectionModel::ClearAndSelect);
     animatePage(true);
 }
 
@@ -897,9 +1058,13 @@ void StaticImageEditorPanel::selectMasks(const QList<int> &indexes, int target)
 void StaticImageEditorPanel::updateMaskActions()
 {
     const auto selection = selectedMasks();
-    m_merge->setEnabled(editing() && selection.size() > 1);
-    m_color->setEnabled(editing() && !selection.isEmpty());
-    const bool canMove = editing() && !selection.isEmpty();
+    m_merge->setEnabled(editing() && !m_showBefore && selection.size() > 1);
+    m_color->setEnabled(editing() && !m_showBefore && !selection.isEmpty());
+    m_eraser->setEnabled(editing() && !m_showBefore && !selection.isEmpty());
+    m_isolate->setEnabled(!m_showBefore && !selection.isEmpty());
+    m_find->setEnabled(!m_showBefore && m_partCanvas->hasFragments());
+    m_brushSize->setEnabled(editing() && !m_showBefore && m_toolMode == 3);
+    const bool canMove = editing() && !m_showBefore && !selection.isEmpty();
     const int first = canMove ? *std::min_element(selection.begin(), selection.end()) : -1;
     const int last = canMove ? *std::max_element(selection.begin(), selection.end()) : -1;
     m_top->setEnabled(canMove && first > 0);
@@ -919,7 +1084,7 @@ void StaticImageEditorPanel::updateMaskActions()
 
 void StaticImageEditorPanel::moveMasks(int direction, bool edge)
 {
-    if (!editing() || !m_inDetail || selectedMasks().isEmpty() || m_reorderPending)
+    if (!editing() || m_showBefore || !m_inDetail || selectedMasks().isEmpty() || m_reorderPending)
         return;
     auto rows = selectedMasks().values();
     std::sort(rows.begin(), rows.end());
@@ -938,17 +1103,76 @@ void StaticImageEditorPanel::moveMasks(int direction, bool edge)
 void StaticImageEditorPanel::updateHint()
 {
     const auto errors = draft() ? draft()->hardwareErrors() : QStringList();
-    m_hint->setProperty("severity", errors.isEmpty() ? "normal" : "error");
-    m_hint->setText(!errors.isEmpty()
-                        ? errors.join('\n')
-                        : (m_inDetail ? tr("Перетаскивайте маски между строками. Alt+↑/↓ — порядок; "
-                                           "Alt+Shift+↑/↓ — в начало/конец.")
-                           : editing() ? tr("Линейка → нужная область — разрез. H / V + щелчок — разрез на "
-                                            "месте. Щелчок — исключить; двойной — маски.")
-                                       : tr("Начните редактирование, чтобы разбить изображение на части и "
-                                            "исключить пустые области.")));
+    m_hint->setProperty("severity", "error");
+    m_hint->setText(errors.mid(0, 2).join('\n'));
+    m_hint->setToolTip(errors.join('\n'));
+    m_hint->setVisible(!errors.isEmpty());
     m_hint->style()->unpolish(m_hint);
     m_hint->style()->polish(m_hint);
+}
+
+void StaticImageEditorPanel::chooseTool(int mode)
+{
+    m_toolMode = mode;
+    for (const auto &entry : {qMakePair(m_selectTool, 0), qMakePair(m_mergeTool, 1), qMakePair(m_partTool, 1),
+                              qMakePair(m_extendTool, 2), qMakePair(m_eraser, 3), qMakePair(m_hand, 4)})
+    {
+        QSignalBlocker blocker(entry.first);
+        entry.first->setChecked(mode == entry.second);
+    }
+    for (auto *canvas : {m_canvas, m_partCanvas})
+    {
+        canvas->setMergeTool(mode == 1);
+        canvas->setExtendTool(mode == 2);
+        canvas->setEraserTool(mode == 3);
+        canvas->setHandTool(mode == 4);
+    }
+    updateMaskActions();
+}
+
+void StaticImageEditorPanel::showBefore(bool before)
+{
+    if (before)
+        m_isolate->setChecked(false);
+    m_showBefore = before;
+    m_before->setChecked(before);
+    m_after->setChecked(!before);
+    if (before && m_toolMode != 4)
+        chooseTool(0);
+    refresh(false);
+    if (m_part >= 0)
+        m_partCanvas->setSelectedMasks(selectedMasks());
+}
+
+void StaticImageEditorPanel::updateCutControls(bool preview)
+{
+    const auto *document = draft();
+    int region = -1;
+    if (document)
+        for (int i = 0; i < document->regions.size(); ++i)
+            if (document->regions[i].id == m_cutRegion->currentData().toInt())
+                region = i;
+    const bool vertical = m_cutAxis->currentData().toInt() == int(Qt::Vertical);
+    const auto bounds = region >= 0 ? document->regions[region].rect : QRect();
+    const int start = vertical ? bounds.x() : bounds.y(),
+              length = vertical ? bounds.width() : bounds.height();
+    const bool available = editing() && !m_showBefore && region >= 0;
+    m_cutRegion->setEnabled(available);
+    m_cutAxis->setEnabled(available);
+    m_cutPosition->setEnabled(available && length > 1);
+    m_split->setEnabled(available && length > 1);
+    m_coordinateLabel->setText(vertical ? "X" : "Y");
+    {
+        QSignalBlocker blocker(m_cutPosition);
+        const int value = m_cutPosition->value();
+        m_cutPosition->setRange(length > 1 ? start + 1 : 0, length > 1 ? start + length - 1 : 0);
+        if (value <= start || value >= start + length)
+            m_cutPosition->setValue(start + length / 2);
+    }
+    if (preview && available && length > 1)
+        m_canvas->setExactCut(region, vertical ? Qt::Vertical : Qt::Horizontal, m_cutPosition->value());
+    else
+        m_canvas->setExactCut(-1, Qt::Vertical, 0);
 }
 
 void StaticImageEditorPanel::mergeMasks(const QList<int> &indexes, int target)

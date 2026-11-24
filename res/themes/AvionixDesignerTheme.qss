@@ -740,12 +740,12 @@ QScrollBar::sub-page:horizontal {
 #LayerNameEdit:focus { border: 1px solid #334656; }
 #LayerNumber { background: transparent; color: #9fb3c1; }
 #LayerColorButton, #DuplicateLayerButton, #MergeLayerButton, #DeleteLayerButton, #AddLayerButton {
-    min-width: 30px; max-width: 30px;
-    min-height: 30px; max-height: 30px;
+    min-width: 42px; max-width: 42px;
+    min-height: 42px; max-height: 42px;
     padding: 0; border-radius: 5px;
 }
 #DeleteLayerButton:hover { color: #ff5c7a; border-color: #ff5c7a; }
-#ShowAllLayersButton { min-height: 30px; padding: 3px 8px; }
+#ShowAllLayersButton { min-height: 42px; max-height: 42px; padding: 0 8px; }
 #ShowAllLayersButton:checked { background: #063847; border-color: #00c8f0; color: #8bdff2; }
 
 /* Диалоги экспорта структуры аппаратного конвейера. */
@@ -777,7 +777,7 @@ QDialog#UartStreamingDialog QPushButton {
 #StaticImageEditorPanel QToolButton,
 #StaticImageEditorPanel QPushButton[staticTool="true"] {
     background: #121922; border: 1px solid #22303c; border-radius: 6px;
-    padding: 0; min-width: 34px; max-width: 34px; min-height: 34px; max-height: 34px;
+    padding: 0; min-width: 42px; max-width: 42px; min-height: 42px; max-height: 42px;
 }
 #StaticImageEditorPanel QToolButton:hover,
 #StaticImageEditorPanel QPushButton[staticTool="true"]:hover { border-color: #00c8f0; background: #17212b; }
@@ -792,3 +792,11 @@ QDialog#UartStreamingDialog QPushButton {
 #StaticImageEditorPanel #StaticMaskList { background: #121922; border: 1px solid #22303c; border-radius: 8px; padding: 4px; }
 #StaticImageEditorPanel QSplitter::handle { background: transparent; }
 #StaticImageEditorPanel QSplitter::handle:hover { background: #22303c; }
+
+#StaticImageEditorPanel #StaticToolGroup { background: #121922; border: 1px solid #22303c; border-radius: 8px; }
+#StaticImageEditorPanel #StaticToolGroupTitle { color: #9fb3c1; font-size: 11px; background: transparent; border: none; }
+#StaticImageEditorPanel QToolButton[compare="true"] { min-width: 48px; max-width: 48px; font-weight: 600; }
+#StaticImageEditorPanel #StaticCutCard { background: #121922; border: 1px solid #22303c; border-radius: 8px; }
+#StaticImageEditorPanel #StaticCutRegion, #StaticImageEditorPanel #StaticCutAxis { min-height: 24px; padding: 2px 6px; }
+#StaticImageEditorPanel #StaticCutCoordinate, #StaticImageEditorPanel #StaticEraserSize { min-height: 32px; padding: 4px 6px; }
+#StaticImageEditorPanel #StaticMaskInfo { color: #9fb3c1; background: transparent; font-size: 12px; }

@@ -1,10 +1,11 @@
 // StaticImageDocument — разбиение без интерполяции и операции над уровнями масок 0…7.
 #include "StaticImageDocument.h"
 #include "ImageObject.h"
-#include "StaticGroupObject.h"
 #include "OptimizedStaticImageObject.h"
+#include "StaticGroupObject.h"
 #include "TextObject.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
+#include <QBitArray>
 #include <QSet>
 #include <algorithm>
 #include <cmath>
@@ -62,6 +63,117 @@ QImage StaticImageMask::image() const
             result.setPixelColor(x, y, pixel);
         }
     return result;
+}
+
+StaticMaskAnalysis StaticImageMask::analyze() const
+{
+    StaticMaskAnalysis result;
+    if (rect.isEmpty() || data.size() != qint64(rect.width()) * rect.height())
+        return result;
+    const int width = rect.width(), height = rect.height();
+    QBitArray visited(data.size());
+    auto available = [&](int x, int y)
+    {
+        const int i = y * width + x;
+        return data[i] != 0 && !visited.testBit(i);
+    };
+    // Fill horizontal spans: memory use stays small for large solid masks.
+    QList<QPoint> pending;
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+        {
+            if (!available(x, y))
+                continue;
+            QRect bounds;
+            qint64 pixels = 0;
+            pending.append(QPoint(x, y));
+            while (!pending.isEmpty())
+            {
+                const auto seed = pending.takeLast();
+                if (!available(seed.x(), seed.y()))
+                    continue;
+                int left = seed.x(), right = seed.x();
+                while (left > 0 && available(left - 1, seed.y()))
+                    --left;
+                while (right + 1 < width && available(right + 1, seed.y()))
+                    ++right;
+                for (int column = left; column <= right; ++column)
+                    visited.setBit(seed.y() * width + column);
+                pixels += right - left + 1;
+                bounds = bounds.united(QRect(left, seed.y(), right - left + 1, 1));
+                for (int row : {seed.y() - 1, seed.y() + 1})
+                {
+                    if (row < 0 || row >= height)
+                        continue;
+                    bool inRun = false;
+                    for (int column = qMax(0, left - 1); column <= qMin(width - 1, right + 1); ++column)
+                    {
+                        const bool filled = available(column, row);
+                        if (filled && !inRun)
+                            pending.append(QPoint(column, row));
+                        inRun = filled;
+                    }
+                }
+            }
+            bounds.translate(rect.topLeft());
+            result.bounds = result.bounds.united(bounds);
+            result.pixels += pixels;
+            ++result.components;
+            if (pixels <= 4 && result.fragments.size() < 256)
+                result.fragments.append(bounds);
+        }
+    if (result.components < 2)
+        result.fragments.clear();
+    return result;
+}
+
+bool StaticImageDocument::eraseMasks(int region, const QList<int> &indexes, QPointF from, QPointF to,
+                                     int diameter)
+{
+    if (region < 0 || region >= regions.size() || diameter < 1 || diameter > 64)
+        return false;
+    const auto area = QRectF(regions[region].rect).adjusted(-diameter, -diameter, diameter, diameter);
+    const QPointF delta = to - from;
+    double begin = 0, end = 1;
+    auto clip = [&](double p, double q)
+    {
+        if (qFuzzyIsNull(p))
+            return q >= 0;
+        const double t = q / p;
+        if (p < 0)
+            begin = qMax(begin, t);
+        else
+            end = qMin(end, t);
+        return begin <= end;
+    };
+    if (!clip(-delta.x(), from.x() - area.left()) || !clip(delta.x(), area.right() - from.x()) ||
+        !clip(-delta.y(), from.y() - area.top()) || !clip(delta.y(), area.bottom() - from.y()))
+        return false;
+    to = from + delta * end;
+    from += delta * begin;
+    const int steps = qMax(1, int(std::ceil(qMax(std::abs(to.x() - from.x()), std::abs(to.y() - from.y())))));
+    bool changed = false;
+    for (int index : QSet<int>(indexes.begin(), indexes.end()))
+    {
+        if (index < 0 || index >= regions[region].masks.size())
+            continue;
+        auto &mask = regions[region].masks[index];
+        for (int step = 0; step <= steps; ++step)
+        {
+            const auto point = from + (to - from) * (double(step) / steps);
+            const QRect brush(int(std::floor(point.x())) - diameter / 2,
+                              int(std::floor(point.y())) - diameter / 2, diameter, diameter);
+            const auto hit = brush.intersected(mask.rect);
+            for (int y = hit.top(); y <= hit.bottom(); ++y)
+                for (int x = hit.left(); x <= hit.right(); ++x)
+                {
+                    auto &value = mask.data[(y - mask.rect.y()) * mask.rect.width() + x - mask.rect.x()];
+                    changed |= value != 0;
+                    value = 0;
+                }
+        }
+    }
+    return changed;
 }
 
 qint64 StaticImageRegion::cells() const

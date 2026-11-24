@@ -2,6 +2,7 @@
 #pragma once
 
 #include "editor/StaticImageDocument.h"
+#include <QHash>
 #include <QSet>
 #include <QTimer>
 #include <QWidget>
@@ -20,6 +21,19 @@ class StaticImageCanvas : public QWidget
         update();
     }
     void setSelectedMasks(const QSet<int> &indexes);
+    void setBeforeImage(const QImage &image);
+    void setShowBefore(bool before);
+    void setIsolated(bool isolated);
+    void setHandTool(bool enabled);
+    void setExtendTool(bool enabled);
+    void setEraserTool(bool enabled);
+    void setBrushSize(int size);
+    void focusNextFragment();
+    bool hasFragments() const
+    {
+        return !m_fragments.isEmpty();
+    }
+    void setExactCut(int region, Qt::Orientation orientation, int coordinate);
     void fit();
     QTransform imageTransform() const;
     QRectF horizontalRulerRect() const;
@@ -32,6 +46,9 @@ class StaticImageCanvas : public QWidget
     void masksSelected(const QList<int> &indexes, int target);
     void regionOpened(int region);
     void hintChanged(const QString &hint);
+    void selectionInfoChanged(const QString &info);
+    void cutsExtensionRequested(const QList<int> &regions, Qt::Orientation orientation, int coordinate);
+    void eraseFinished(const StaticImageDocument &document);
 
   protected:
     void paintEvent(QPaintEvent *) override;
@@ -53,10 +70,24 @@ class StaticImageCanvas : public QWidget
     void collectStroke(const QPointF &point);
     void updateCut(const QPointF &point, bool lockRegion);
     void cancelGesture();
+    void findExtension(const QPointF &point);
+    void eraseTo(const QPointF &point);
     const StaticImageDocument *m_document = nullptr;
     int m_region = -1, m_activeRegion = -1, m_hoverRegion = -1;
     QImage m_preview;
     QImage m_maskHighlight;
+    QImage m_before, m_isolatedImage;
+    QHash<int, StaticMaskAnalysis> m_analysis;
+    QList<QRect> m_fragments;
+    int m_fragment = -1;
+    StaticImageDocument m_eraseDraft;
+    bool m_showBefore = false, m_isolated = false, m_handTool = false, m_extendTool = false,
+         m_eraserTool = false, m_erasing = false, m_eraseChanged = false, m_spaceHeld = false;
+    int m_brushSize = 1;
+    QList<int> m_extensionRegions;
+    bool m_exactCut = false;
+    int m_exactRegion = -1, m_exactCoordinate = 0;
+    Qt::Orientation m_exactOrientation = Qt::Vertical;
     bool m_editable = false, m_mergeTool = false, m_panning = false, m_stroking = false,
          m_cutDragging = false;
     QPointF m_pan, m_lastMouse, m_strokeLast;
