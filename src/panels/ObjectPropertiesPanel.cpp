@@ -108,6 +108,7 @@ public:
 
         const QSet<QString> boolNames = {
             QStringLiteral("Включен"),
+            QStringLiteral("Применять цвета"),
             QStringLiteral("Видимость"),
             QStringLiteral("Автоцвет")
         };

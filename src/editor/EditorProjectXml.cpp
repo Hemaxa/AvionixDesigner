@@ -6,6 +6,7 @@
 #include "DashedLineObject.h"
 #include "RibbonScaleObject.h"
 #include "PitchScaleObject.h"
+#include "BankScaleObject.h"
 #include "AviaHorizonObject.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
@@ -272,6 +273,7 @@ QString objectType(BaseObject *object)
     if (dynamic_cast<DashedLineObject *>(object)) return "dashline";
     if (dynamic_cast<RibbonScaleObject *>(object)) return "speed_scale";
     if (dynamic_cast<PitchScaleObject *>(object)) return "pitch_scale";
+    if (dynamic_cast<BankScaleObject *>(object)) return "bank_scale";
     if (dynamic_cast<AviaHorizonObject *>(object)) return "aviahorizont";
     if (dynamic_cast<ThreeDViewObject *>(object)) return "layer3d";
     if (dynamic_cast<ImageObject *>(object)) return "image";
@@ -288,6 +290,7 @@ QSharedPointer<BaseObject> createObject(const QDomElement &n)
     if (type == "dashline") return QSharedPointer<DashedLineObject>::create();
     if (type == "RibonScale" || type == "speed_scale") return QSharedPointer<RibbonScaleObject>::create();
     if (type == "pitch_scale") return QSharedPointer<PitchScaleObject>::create();
+    if (type == "bank_scale") return QSharedPointer<BankScaleObject>::create();
     if (type == "aviahorizont") return QSharedPointer<AviaHorizonObject>::create();
     if (type == "layer3d") return QSharedPointer<ThreeDViewObject>::create();
     if (type == "text") return QSharedPointer<TextObject>::create();
@@ -389,6 +392,11 @@ void objectFields(Fields &a, BaseObject &object, Resources &resources)
         a.value("center-x", v->centerX); a.value("center-y", v->centerY);
         a.value("pitch-angle", v->pitchAngle); a.value("rotation-angle", v->rotationAngle);
         if (!v->hasValidParameters()) a.fail("Параметры шкалы тангажа выходят за диапазоны Python.");
+    } else if (auto *v = dynamic_cast<BankScaleObject *>(&object)) {
+        a.value("enabled", v->enabled); a.value("center-x", v->centerX); a.value("center-y", v->centerY);
+        a.value("bank-angle", v->bankAngle); a.value("radius", v->radius);
+        a.value("tick-color", v->tickColor); a.value("mark20-color", v->mark20Color); a.value("color-valid", v->colorValid);
+        if (!v->hasValidParameters()) a.fail("Параметры шкалы крена выходят за диапазоны Python.");
     } else if (auto *v = dynamic_cast<AviaHorizonObject *>(&object)) {
         a.value("enabled", v->enabled); a.value("earth-color", v->earthColor); a.value("sky-color", v->skyColor); a.value("line-color", v->horizonLineColor);
         a.value("line-width", v->lineWidth); a.value("center-x", v->xCenter); a.value("center-y", v->yCenter);
@@ -826,14 +834,14 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
                 editing.value("restricted-atlas-editing", restricted);
             }
             const bool speedScale = type == "RibonScale" || type == "speed_scale";
-            const bool scaleParameters = (speedScale || type == "pitch_scale") && (!reading || !object.firstChildElement("parameters").isNull());
+            const bool scaleParameters = (speedScale || type == "pitch_scale" || type == "bank_scale") && (!reading || !object.firstChildElement("parameters").isNull());
             if (reading && speedScale && !scaleParameters
                 && !hardware[reference].firstChildElement("init").nextSiblingElement("init").isNull()) {
                 root.fail("У трёхсловной заглушки шкалы отсутствуют исходные параметры редактора."); return false;
             }
             if (reading && !scaleParameters && !restoreHardware(*ptr, hardware[reference], compiled, restricted, error)) return false;
             if (scaleParameters) {
-                // У скорости аппаратный init фиксирован; у тангажа сохраняем также
+                // У скорости аппаратный init фиксирован; у тангажа и крена сохраняем также
                 // дробное положение центра редактора до аппаратного округления.
                 // Старые проекты без parameters восстанавливаются из прежнего init.
                 Fields parameters(meta.child("parameters"), reading, error);

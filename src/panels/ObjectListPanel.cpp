@@ -47,6 +47,7 @@ QString typeLabelForObject(const BaseObject *object) {
       {QStringLiteral("DashedLine"), QStringLiteral("dashline")},
       {QStringLiteral("RibbonScale"), QStringLiteral("speed_scale")},
       {QStringLiteral("PitchScale"), QStringLiteral("pitch_scale")},
+      {QStringLiteral("BankScale"), QStringLiteral("bank_scale")},
       {QStringLiteral("AviaHorizon"), QStringLiteral("aviahorizont")},
       {QStringLiteral("ThreeDView"), QStringLiteral("layer3d")},
       {QStringLiteral("Text"), QStringLiteral("text")},

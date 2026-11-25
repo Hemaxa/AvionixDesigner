@@ -45,7 +45,6 @@ private:
     void updatePreview() const;
     QTransform drawingTransform() const;
     mutable QImage m_preview;
-    mutable QRect m_localBounds;
     mutable int m_cachedPitch = 0;
     mutable int m_cachedMode = -1;
 };

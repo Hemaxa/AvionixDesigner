@@ -26,6 +26,7 @@
 #include "DashedLineObject.h"
 #include "RibbonScaleObject.h"
 #include "PitchScaleObject.h"
+#include "BankScaleObject.h"
 #include "CanvasGeometry.h"
 #include "fpga/model/PitchScaleFormat.h"
 #include "AviaHorizonObject.h"
@@ -220,7 +221,7 @@ private slots:
     }
     void polymorphicClonesPreserveState() {
         auto *p = ProjectManager::instance();
-        for (const auto &type : {"rectangle", "rectangle_a", "dashline", "RibonScale", "speed_scale", "pitch_scale", "rotationobject",
+        for (const auto &type : {"rectangle", "rectangle_a", "dashline", "RibonScale", "speed_scale", "pitch_scale", "bank_scale", "rotationobject",
                                   "staticgroup", "aviahorizont", "layer3d", "text"}) {
             p->createNewProject("Clone",640,480,Qt::black);
             QVERIFY(p->addObject(type) >= 0);
@@ -3726,9 +3727,169 @@ private slots:
         QSet<QString> titles;
         for (auto *button : library->findChildren<QToolButton *>()) titles.insert(button->statusTip());
         QVERIFY(titles.contains("Шкала скорости")); QVERIFY(titles.contains("Шкала тангажа"));
+        QVERIFY(titles.contains("Шкала крена"));
+        QVERIFY(!QIcon(":/icons/icons/library/bankscale.svg").isNull());
         QVERIFY(!QIcon(":/icons/icons/library/pitchscale.svg").isNull());
         QVERIFY(!QIcon(":/icons/icons/library/speedscale.svg").isNull());
         QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/pitch-workspace.png"));
+    }
+    void bankScalePythonPackets() {
+        QFile file(QFileInfo(QString::fromUtf8(PROTOCOL_VECTOR_FILE)).absolutePath() + "/bank-vectors.json");
+        QVERIFY2(file.open(QIODevice::ReadOnly), "Run packet_reference to generate bank-scale Python vectors.");
+        const auto vectors = QJsonDocument::fromJson(file.readAll()).array();
+        QVERIFY(vectors.size() >= 130);
+        for (const auto &value : vectors) {
+            const auto v = value.toObject();
+            BankScaleObject bank;
+            bank.enabled = v["enable"].toInt(); bank.centerX = v["cx"].toDouble(); bank.centerY = v["cy"].toDouble();
+            bank.bankAngle = v["bank"].toDouble(); bank.radius = v["radius"].toInt();
+            bank.tickColor = QColor(v["tick"].toString()); bank.mark20Color = QColor(v["mark20"].toString());
+            bank.colorValid = v["valid"].toInt();
+            QVERIFY(bank.hasValidParameters());
+            const auto hex = testInit("bank_scale", bank.serializeParams());
+            QCOMPARE(hex.toLower(), v["payload"].toString());
+            FpgaHardwareScene scene; scene.width = 1920; scene.height = 1080;
+            scene.schemas.insert("bank_scale", FpgaSchemaRegistry::instance()->buildSchema("bank_scale"));
+            FpgaHardwareObject object; object.type = "bank_scale"; object.iparams = {hex};
+            object.startParamIndex = v["param_id"].toInt(); scene.objects = {object};
+            QString error; const auto bundle = FpgaPacketCompiler().compile(scene, &error);
+            QVERIFY2(bundle.document.isValid(), qPrintable(error));
+            QVERIFY(bundle.document.memories.isEmpty());
+            QCOMPARE(bundle.packets.size(), 1); QCOMPARE(bundle.packets[0].payloadSize, 19);
+            QCOMPARE(bundle.packets[0].bytes.toHex(), v["packet"].toString().toLatin1());
+            BankScaleObject restored; restored.parse(hex, scene.schemas.value("bank_scale"));
+            QCOMPARE(testInit("bank_scale", restored.serializeParams()), hex);
+        }
+    }
+    void bankScaleProjectAndPipeline() {
+        auto *p = ProjectManager::instance(); QString error; QTemporaryDir temp;
+        QVERIFY(p->createNewProject("Three scales", 1920, 1080, Qt::black));
+        for (const auto &type : {"speed_scale", "pitch_scale", "bank_scale"}) QVERIFY(p->addObject(type) >= 0);
+        auto bank = qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0)); QVERIFY(bank);
+        QCOMPARE(bank->centerX, 960.); QCOMPARE(bank->centerY, 540.); QCOMPARE(bank->radius, 78);
+        QVERIFY(p->setObjectProperty(bank.data(), "Крен (°)", "-30.5"));
+        QVERIFY(p->setObjectProperty(bank.data(), "Цвет рисок", "#123456"));
+        QVERIFY(p->setObjectProperty(bank.data(), "Цвет отметок 20°", "#ABCDEF"));
+        QVERIFY(p->setObjectProperty(bank.data(), "Применять цвета", "нет"));
+        QVERIFY(p->undo());
+        QVERIFY(qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0))->colorValid);
+        QVERIFY(p->redo()); bank = qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0));
+        QVERIFY(!bank->colorValid); bank->moveBy(.125, .375);
+        // Импорт сохраняет radius из протокола, даже если текущая плата его игнорирует.
+        bank->radius = 123;
+        const auto properties = bank->getProperties();
+        const auto before = p->buildCompiledFpgaXml();
+        const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY2(bundle.document.isValid(), qPrintable(error));
+        QVERIFY(bundle.document.memories.isEmpty()); QCOMPARE(bundle.packets.size(), 5);
+        QCOMPARE(bundle.document.objects[0].iparams, FpgaScalePlaceholder::parameters(true));
+        QCOMPARE(bundle.document.objects[1].type, QString("pitch_scale"));
+        QCOMPARE(bundle.document.objects[1].startParamIndex, 3);
+        QCOMPARE(bundle.document.objects[2].type, QString("bank_scale"));
+        QCOMPARE(bundle.document.objects[2].startParamIndex, 4);
+        const auto config = FpgaPipelineConfig::fromScene(bundle.document, &error);
+        QVERIFY2(config.isValid(), qPrintable(error)); QCOMPARE(config.parameterCount(), 5);
+        QCOMPARE(config.stages.size(), 3); QCOMPARE(config.stages[2].type, 9);
+        QCOMPARE(config.stages[2].parameterCount, 1); QCOMPARE(config.stages[2].ramId, 0);
+        QVERIFY(config.systemVerilog().contains("TYPE_BANKSCALE = 9"));
+        QVERIFY(p->saveToFile(temp.filePath("scales.xml")));
+        QVERIFY2(p->loadFromFile(temp.filePath("scales.xml")), qPrintable(p->lastErrorMessage()));
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), before.toByteArray());
+        QCOMPARE(p->getObjectAt(0)->getProperties(), properties);
+        QCOMPARE(qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0))->radius, 123);
+        QVERIFY(p->setObjectExportEnabled(0, false));
+        QVERIFY(p->saveToFile(temp.filePath("disabled.xml")));
+        QVERIFY(p->loadFromFile(temp.filePath("disabled.xml")));
+        QCOMPARE(p->getObjectAt(0)->getProperties(), properties);
+        QVERIFY(!p->getObjectAt(0)->isExportEnabled());
+        QCOMPARE(FpgaProjectPacketBuilder::buildCurrentProject(&error).packets.size(), 4);
+        // При отсутствии дублирующих parameters восстанавливаем шкалу из init.
+        QDomDocument saved; QVERIFY(ProjectXmlFile::read(temp.filePath("scales.xml"), &saved, &error));
+        auto object = saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        while (!object.isNull() && object.attribute("type") != "bank_scale") object = object.nextSiblingElement("object");
+        QVERIFY(!object.isNull()); object.removeChild(object.firstChildElement("parameters"));
+        if (saved.firstChild().isProcessingInstruction()) saved.removeChild(saved.firstChild());
+        const auto hardware = temp.filePath("from-init.xml"); QVERIFY(ProjectXmlFile::write(hardware, saved, &error));
+        QVERIFY2(p->loadFromFile(hardware), qPrintable(p->lastErrorMessage()));
+        bank = qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0)); QVERIFY(bank);
+        QCOMPARE(bank->radius, 123); QCOMPARE(bank->centerX, 960.); QCOMPARE(bank->centerY, 540.);
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), before.toByteArray());
+    }
+    void bankScaleValidationAndFixedSizes() {
+        auto *p = ProjectManager::instance();
+        QVERIFY(p->createNewProject("Fixed scales", 640, 480, Qt::black));
+        QVERIFY(p->addObject("bank_scale") >= 0);
+        auto bank = qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0)); QVERIFY(bank);
+        QCOMPARE(bank->centerX, 320.); QCOMPARE(bank->centerY, 240.);
+        QVERIFY(!bank->canResize()); QVERIFY(bank->supportsRotationHandle());
+        QVERIFY(!p->isObjectPropertyEditable(bank.data(), "Радиус (фикс.)"));
+        for (const auto &invalid : QList<QPair<QString, QString>>{{"Крен (°)", "180.1"}, {"Крен (°)", "-180.1"},
+            {"Крен (°)", "nan"}, {"Центр X", "4096"}, {"Центр Y", "-1"},
+            {"Радиус (фикс.)", "100"}, {"Цвет рисок", "bad-color"}, {"Цвет отметок 20°", "#80123456"}}) {
+            const auto params = bank->serializeParams();
+            QVERIFY(!bank->setObjectProperty(invalid.first, invalid.second)); QCOMPARE(bank->serializeParams(), params);
+        }
+        bank->moveBy(12, 15); CanvasGeometry::keepInside(bank.data(), 640, 480);
+        QCOMPARE(bank->centerX, 332.); QCOMPARE(bank->centerY, 255.);
+        ViewportPanel viewport; viewport.setSelectedIndexes({0});
+        QTest::keyClick(&viewport, Qt::Key_Down); QCOMPARE(bank->centerY, 256.);
+        const auto baseline = p->buildCompiledFpgaXml(); QString error;
+        for (int variant = 0; variant < 5; ++variant) {
+            auto invalid = baseline.cloneNode(true).toDocument();
+            auto object = invalid.documentElement().firstChildElement("objects").firstChildElement("bank_scale");
+            if (variant == 0) object.appendChild(object.firstChildElement("init").cloneNode(true));
+            else if (variant == 1) object.appendChild(invalid.createElement("data"));
+            else {
+                QString hex = object.firstChildElement("init").text();
+                if (variant == 2) BitParser::inject(hex, BankScaleFormat::bankOffset, 16, 180 * 128 + 1);
+                if (variant == 3) BitParser::inject(hex, BankScaleFormat::reservedFlagOffset, 1, 1);
+                if (variant == 4) BitParser::inject(hex, BankScaleFormat::reservedAngleOffset, 16, 1);
+                object.firstChildElement("init").firstChild().setNodeValue(hex);
+            }
+            QVERIFY(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error)); QVERIFY(!error.isEmpty());
+        }
+        bank->bankAngle = 181;
+        QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid());
+        PitchScaleObject pitch;
+        const auto bounds = pitch.getBoundingRect();
+        QCOMPARE(bounds.size(), QSizeF(280, 1080));
+        for (int mode : {0, 1}) for (double angle : {-90., 0., 90.}) {
+            pitch.pitchAngle = angle; pitch.scaleMode = mode;
+            QCOMPARE(pitch.getBoundingRect(), bounds);
+        }
+    }
+    void bankScalePreviewAndSimulator() {
+        const QColor background("#303840");
+        for (double angle : {-180., -45., 0., 20., 90., 180.}) for (bool colors : {false, true}) {
+            BankScaleObject bank; bank.centerX = 320; bank.centerY = 240;
+            bank.bankAngle = angle; bank.colorValid = colors;
+            bank.tickColor = QColor("#12ABCD"); bank.mark20Color = QColor("#FF1234");
+            FpgaHardwareScene scene; scene.width = 640; scene.height = 480; scene.backgroundColor = background;
+            scene.schemas.insert("bank_scale", FpgaSchemaRegistry::instance()->buildSchema("bank_scale"));
+            FpgaHardwareObject object; object.type = "bank_scale"; object.iparams = {testInit("bank_scale", bank.serializeParams())};
+            scene.objects = {object}; QString error;
+            const auto bundle = FpgaPacketCompiler().compile(scene, &error); QVERIFY2(bundle.document.isValid(), qPrintable(error));
+            FpgaSimulator sim; sim.loadBundle(bundle);
+            QImage editor(640, 480, QImage::Format_ARGB32); editor.fill(background);
+            { QPainter painter(&editor); bank.draw(painter); }
+            QCOMPARE(sim.renderFrame(), editor);
+            const auto bounds = bank.getBoundingRect();
+            bank.radius = 4095; QCOMPARE(bank.getBoundingRect(), bounds);
+            QImage fixed(640, 480, QImage::Format_ARGB32); fixed.fill(background);
+            { QPainter painter(&fixed); bank.draw(painter); } QCOMPARE(fixed, editor);
+            bank.enabled = false;
+            QImage disabled(640, 480, QImage::Format_ARGB32); disabled.fill(background);
+            { QPainter painter(&disabled); bank.draw(painter); }
+            QImage empty(640, 480, QImage::Format_ARGB32); empty.fill(background); QCOMPARE(disabled, empty);
+            QVERIFY(editor != empty);
+            if (angle == 0) {
+                QCOMPARE(editor.pixelColor(320, 165), colors ? bank.tickColor : QColor("#D3D3D3"));
+                int marked = 0;
+                for (int y = 0; y < editor.height(); ++y) for (int x = 0; x < editor.width(); ++x)
+                    if (editor.pixelColor(x, y) == (colors ? bank.mark20Color : QColor("#9C4868"))) ++marked;
+                QVERIFY(marked > 0);
+            }
+        }
     }
     void ribbonScalePlaceholderPackets() {
         // Проверяем все шесть присланных кадров, включая FCS. В двух сценах

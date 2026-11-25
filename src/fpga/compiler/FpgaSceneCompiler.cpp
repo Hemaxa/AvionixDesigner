@@ -69,6 +69,7 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
     bool overlappingGlyphs = false;
     bool firstScale = true;
     bool pitchScaleWarning = false;
+    bool bankScaleWarning = false;
     int nextParameter = 0;
     const auto textSchema = document.schemas.value("text");
     for (const auto &source : document.objects) {
@@ -188,6 +189,12 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
         if (source.type == QStringLiteral("pitch_scale") && !pitchScaleWarning) {
             scene.warnings.append(QStringLiteral("Шкала тангажа: рисунок редактора и симулятора приближённый; параметры UART соответствуют Python."));
             pitchScaleWarning = true;
+        }
+        if (source.type == QStringLiteral("bank_scale") && (source.iparams.size() != 1 || !source.data.isEmpty()))
+            return fail(QStringLiteral("BANK_SCALE требует одно слово iparam и не использует растровую память."));
+        if (source.type == QStringLiteral("bank_scale") && !bankScaleWarning) {
+            scene.warnings.append(QStringLiteral("Шкала крена: рисунок приближённый, радиус фиксирован для 1920×1080; UART соответствует scale_control_raw.py."));
+            bankScaleWarning = true;
         }
         if (source.type == QStringLiteral("RibonScale") || source.type == QStringLiteral("speed_scale")) {
             // Старые XML с одним init также отправляются как трёхсловная заглушка.

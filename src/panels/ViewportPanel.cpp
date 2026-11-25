@@ -9,6 +9,7 @@
 #include "ImageObject.h"
 #include "RotationObject.h"
 #include "PitchScaleObject.h"
+#include "BankScaleObject.h"
 #include "ApplicationSettings.h"
 #include "EditorGestures.h"
 #include <cmath>
@@ -1090,6 +1091,7 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                     if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data())) m_rotationStartAngle = rotation->getAngleDegrees();
                     else if (const auto *image = dynamic_cast<const ImageObject *>(object.data())) m_rotationStartAngle = image->rotationDegrees;
                     else if (const auto *pitch = dynamic_cast<const PitchScaleObject *>(object.data())) m_rotationStartAngle = pitch->rotationAngle;
+                    else if (const auto *bank = dynamic_cast<const BankScaleObject *>(object.data())) m_rotationStartAngle = bank->bankAngle;
                     m_rotationStartPointerAngle = qRadiansToDegrees(qAtan2(canvasPos.y() - m_rotationCenter.y(), canvasPos.x() - m_rotationCenter.x()));
                     return;
                 }

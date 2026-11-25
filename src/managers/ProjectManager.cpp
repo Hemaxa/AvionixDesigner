@@ -26,6 +26,7 @@
 #include "DashedLineObject.h"
 #include "RibbonScaleObject.h"
 #include "PitchScaleObject.h"
+#include "BankScaleObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
 #include "OptimizedStaticImageObject.h"
@@ -266,6 +267,7 @@ void ProjectManager::registerStandardTypes()
     om->registerType("RibonScale", []() { return new RibbonScaleObject(); });
     om->registerType("speed_scale", []() { return new RibbonScaleObject(); });
     om->registerType("pitch_scale", []() { return new PitchScaleObject(); });
+    om->registerType("bank_scale", []() { return new BankScaleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
     om->registerType("aviahorizont", []() { return new AviaHorizonObject(); });
@@ -339,6 +341,10 @@ int ProjectManager::addObject(const QString &typeName)
         // На 1920x1080 совпадает с центром (960, 540) из Python; меньший холст тоже видит шкалу.
         pitch->centerX = qMin(4095.0, m_document.canvasWidth() / 2.0);
         pitch->centerY = qMin(4095.0, m_document.canvasHeight() / 2.0);
+    }
+    else if (auto bank = dynamic_cast<BankScaleObject*>(rawObject)) {
+        bank->centerX = qMin(4095.0, m_document.canvasWidth() / 2.0);
+        bank->centerY = qMin(4095.0, m_document.canvasHeight() / 2.0);
     }
     else if (auto horizon = dynamic_cast<AviaHorizonObject*>(rawObject)) {
         horizon->enabled = true;

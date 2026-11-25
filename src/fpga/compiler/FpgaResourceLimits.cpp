@@ -7,6 +7,7 @@
 #include "StaticGroupObject.h"
 #include "TextObject.h"
 #include "PitchScaleObject.h"
+#include "BankScaleObject.h"
 #include "OptimizedStaticImageObject.h"
 #include "RasterGeometry.h"
 
@@ -30,6 +31,11 @@ Report inspect(const BaseObject &object)
     if (const auto *pitch = dynamic_cast<const PitchScaleObject *>(&object)) {
         if (!pitch->hasValidParameters())
             report.errors.append(QStringLiteral("PITCH_SCALE: центр должен быть 0…4095, тангаж ±90°, поворот ±180°, режим 0 или 1."));
+        return report;
+    }
+    if (const auto *bank = dynamic_cast<const BankScaleObject *>(&object)) {
+        if (!bank->hasValidParameters())
+            report.errors.append(QStringLiteral("BANK_SCALE: центр и радиус должны быть 0…4095, крен ±180°, цвета RGB888."));
         return report;
     }
     // TextObject наследуется от StaticGroupObject для предпросмотра. Память

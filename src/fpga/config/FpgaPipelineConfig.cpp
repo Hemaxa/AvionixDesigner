@@ -8,7 +8,7 @@
 QString FpgaPipelineConfig::stageTypeName(int type)
 {
     static const QStringList names = {"TYPE_RECTANGLE", "TYPE_ROTATIONOBJECT", "TYPE_STATICGROUP", "TYPE_RECTANGLEa",
-        "TYPE_DASHLINE", "TYPE_AVIAHORIZONT", "TYPE_SPEEDSCALE", "TYPE_SYMBOLs", "TYPE_PITCHSCALE"};
+        "TYPE_DASHLINE", "TYPE_AVIAHORIZONT", "TYPE_SPEEDSCALE", "TYPE_SYMBOLs", "TYPE_PITCHSCALE", "TYPE_BANKSCALE"};
     return names.value(type);
 }
 
@@ -48,7 +48,7 @@ FpgaPipelineConfig FpgaPipelineConfig::fromScene(const FpgaHardwareScene &scene,
     };
     if (!scene.isValid()) return fail(QStringLiteral("Не задана аппаратная сцена для экспорта конфигурации."));
     static const QMap<QString, int> types = {{"rectangle", 0}, {"rotationobject", 1}, {"staticgroup", 2}, {"rectangle_a", 3},
-        {"dashline", 4}, {"aviahorizont", 5}, {"RibonScale", 6}, {"speed_scale", 6}, {"symbols", 7}, {"pitch_scale", 8}};
+        {"dashline", 4}, {"aviahorizont", 5}, {"RibonScale", 6}, {"speed_scale", 6}, {"symbols", 7}, {"pitch_scale", 8}, {"bank_scale", 9}};
     FpgaPipelineConfig config;
     int nextParameter = 0;
     for (const auto &object : scene.objects) {
@@ -72,8 +72,8 @@ FpgaPipelineConfig FpgaPipelineConfig::fromScene(const FpgaHardwareScene &scene,
         const int ramId = memory ? object.memId : 0;
         if (type == 6 && count != FpgaScalePlaceholder::parameterCount)
             return fail(QStringLiteral("Шкала должна содержать три 150-битных слова параметров."));
-        if (type == 8 && count != 1)
-            return fail(QStringLiteral("Шкала тангажа должна содержать одно 150-битное слово параметров."));
+        if ((type == 8 || type == 9) && count != 1)
+            return fail(QStringLiteral("Шкала тангажа/крена должна содержать одно 150-битное слово параметров."));
         // STATICGROUP/SYMBOLs и 450-битная шкала получают вектор init. Остальные RTL-модули
         // принимают одно слово: состояния разворачиваются в последовательные этапы.
         if (type == 2 || type == 6 || type == 7) config.stages.append({type, count, ramId});

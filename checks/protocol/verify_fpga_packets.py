@@ -240,6 +240,36 @@ def generate_pitch_vectors(ref, output):
     output.write_text(json.dumps(vectors, indent=2))
 
 
+def generate_bank_vectors(output):
+    """Исполняем упаковщик из присланного Python, без Tk, UART и главного цикла."""
+    path = ROOT / 'docs/scale_control_raw.py'
+    names = {'signed_q7', 'hex_to_rgb24', 'pack_bank_scale', 'fletcher32', 'make_packet', 'make_raw_packet'}
+    selected = [node for node in ast.parse(path.read_text(encoding='utf-8')).body
+                if isinstance(node, ast.FunctionDef) and node.name in names]
+    namespace = {'MAGIC': b'SAIN'}
+    exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), 'exec'), namespace)
+    cases = [(1, 960, 540, 0, 78, '#D3D3D3', '#9C4868', 1),
+             (0, 0, 0, -180, 0, '#000000', '#FFFFFF', 0),
+             (1, 4095, 4095, 180, 4095, '#FFFFFF', '#000000', 1)]
+    for value in [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]:
+        cases.append((1, 960, 540, value / 128, 78, '#123456', '#ABCDEF', 1))
+    rng = random.Random(20261125)
+    for _ in range(128):
+        cases.append((rng.randrange(2), rng.randrange(4096), rng.randrange(4096),
+                      rng.uniform(-180, 180), rng.randrange(4096),
+                      f'#{rng.randrange(1 << 24):06X}', f'#{rng.randrange(1 << 24):06X}', rng.randrange(2)))
+    vectors = []
+    for i, case in enumerate(cases):
+        word = namespace['pack_bank_scale'](*case)
+        enable, cx, cy, bank, radius, tick, mark20, valid = case
+        param_id = i * 397 % 65536
+        vectors.append(dict(enable=enable, cx=cx, cy=cy, bank=bank, radius=radius,
+                            tick=tick, mark20=mark20, valid=valid, param_id=param_id,
+                            payload=word.to_bytes(19, 'big').hex(),
+                            packet=namespace['make_raw_packet'](param_id, word).hex()))
+    output.write_text(json.dumps(vectors, indent=2))
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app',type=Path,required=True)
@@ -265,6 +295,7 @@ def main():
     verify_rejected_xml(args.app, args.output/'reference-right.xml', args.output)
     generate_vectors(ref,args.output/'position-vectors.json')
     generate_pitch_vectors(ref,args.output/'pitch-vectors.json')
+    generate_bank_vectors(args.output/'bank-vectors.json')
     print('Generated Python position vectors for AvionixProtocolTests.')
 
 

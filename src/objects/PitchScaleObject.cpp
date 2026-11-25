@@ -9,14 +9,15 @@
 #include <cmath>
 
 namespace {
-constexpr int halfHeight = 540;
-constexpr int halfWidth = 140;
+constexpr int halfHeight = PitchScaleFormat::previewHeight / 2;
+constexpr int halfWidth = PitchScaleFormat::previewWidth / 2;
+const QRect localBounds(-halfWidth, -halfHeight, PitchScaleFormat::previewWidth, PitchScaleFormat::previewHeight);
 constexpr int gap = 35;
 constexpr int textX = 115;
 constexpr int outline = 2;
 constexpr int digitScale = 2;
 
-// Рисунок не задаётся UART: размеры, цвет, шрифт и линейный масштаб пока приблизительные.
+// Рисунок не задаётся UART: фиксируем размеры для 1920×1080; цвет, шрифт и масштаб приблизительные.
 // 44 угла восстановлены по кадрам: 22 положительных, затем 22 отрицательных.
 const std::array<double, 22> positiveAngles = {
     2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90
@@ -35,12 +36,6 @@ struct Tick {
     int rank;
     int end;
     QString label;
-};
-
-// Preview — общий кэш рисунка по тангажу и режиму, включая повторные кадры симулятора.
-struct Preview {
-    QImage image;
-    QRect bounds;
 };
 
 bool glyphPixel(const QString &text, int x, int y)
@@ -165,10 +160,10 @@ void PitchScaleObject::updatePreview() const
     const int pitch = PitchScaleFormat::roundEven(pitchAngle * 128.0);
     if (!m_preview.isNull() && m_cachedPitch == pitch && m_cachedMode == scaleMode) return;
     m_cachedPitch = pitch; m_cachedMode = scaleMode;
-    static QCache<int, Preview> cache(16);
+    static QCache<int, QImage> cache(16);
     const int key = (pitch + 90 * 128) * 2 + scaleMode;
     if (const auto *preview = cache.object(key)) {
-        m_preview = preview->image; m_localBounds = preview->bounds; return;
+        m_preview = *preview; return;
     }
     std::array<Tick, 44> ticks;
     for (int i = 0; i < int(ticks.size()); ++i) {
@@ -178,12 +173,11 @@ void PitchScaleObject::updatePreview() const
         ticks[i] = {tickOffset(angle - pitch / 128.0, scaleMode), rank,
             rank == 2 ? 105 : (rank == 1 ? 75 : 51), rank == 2 ? QString::number(int(magnitude)) : QString()};
     }
-    m_preview = QImage(halfWidth * 2 + 1, halfHeight * 2 + 1, QImage::Format_ARGB32_Premultiplied);
+    m_preview = QImage(localBounds.size(), QImage::Format_ARGB32_Premultiplied);
     m_preview.fill(Qt::transparent);
     const QRgb foreground = QColor("#a3bf55").rgba();
     const QRgb black = qRgb(0, 0, 0);
-    m_localBounds = {};
-    for (int v = -halfHeight; v <= halfHeight; ++v) {
+    for (int v = -halfHeight; v < halfHeight; ++v) {
         int bar = -1, text = -1;
         double barDistance = std::numeric_limits<double>::max(), textDistance = barDistance;
         for (int i = 0; i < int(ticks.size()); ++i) {
@@ -196,7 +190,7 @@ void PitchScaleObject::updatePreview() const
         }
         if (bar < 0 && text < 0) continue;
         auto *row = reinterpret_cast<QRgb *>(m_preview.scanLine(v + halfHeight));
-        for (int u = -halfWidth; u <= halfWidth; ++u) {
+        for (int u = -halfWidth; u < halfWidth; ++u) {
             bool color = false, border = false;
             if (bar >= 0) {
                 const int x = std::abs(u);
@@ -211,11 +205,10 @@ void PitchScaleObject::updatePreview() const
             }
             if (color || border) {
                 row[u + halfWidth] = color ? foreground : black;
-                m_localBounds = m_localBounds.united(QRect(u, v, 1, 1));
             }
         }
     }
-    cache.insert(key, new Preview{m_preview, m_localBounds});
+    cache.insert(key, new QImage(m_preview));
 }
 
 QTransform PitchScaleObject::drawingTransform() const
@@ -240,8 +233,7 @@ void PitchScaleObject::draw(QPainter &painter)
 QPolygonF PitchScaleObject::selectionPolygon() const
 {
     if (!hasValidParameters()) return {};
-    updatePreview();
-    return drawingTransform().map(QPolygonF(QRectF(m_localBounds)));
+    return drawingTransform().map(QPolygonF(QRectF(localBounds)));
 }
 
 QRectF PitchScaleObject::getBoundingRect() const { return selectionPolygon().boundingRect(); }
@@ -249,16 +241,14 @@ QRectF PitchScaleObject::getBoundingRect() const { return selectionPolygon().bou
 bool PitchScaleObject::contains(const QPointF &point) const
 {
     if (!hasValidParameters()) return false;
-    updatePreview();
-    return QRectF(m_localBounds).contains(drawingTransform().inverted().map(point));
+    return QRectF(localBounds).contains(drawingTransform().inverted().map(point));
 }
 
 QTransform PitchScaleObject::rotationFrame() const
 {
-    updatePreview();
     QTransform transform = drawingTransform();
-    transform.translate(m_localBounds.x(), m_localBounds.y());
-    transform.scale(m_localBounds.width(), m_localBounds.height());
+    transform.translate(localBounds.x(), localBounds.y());
+    transform.scale(localBounds.width(), localBounds.height());
     return transform;
 }
 
