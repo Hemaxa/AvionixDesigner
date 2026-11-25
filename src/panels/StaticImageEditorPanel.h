@@ -39,6 +39,13 @@ class StaticImageEditorPanel : public BasePanel
     bool eventFilter(QObject *watched, QEvent *event) override;
 
   private:
+    // ImageStatistics — числовой снимок без копий исходника и растровых масок.
+    struct ImageStatistics
+    {
+        QSize size;
+        int regions = 0, excluded = 0, groups = 0, init = 0;
+        qint64 cells = 0, originalCells = 0;
+    };
     // Session — отдельный черновик и локальная история, переживающие смену выделения.
     struct Session
     {
@@ -47,9 +54,12 @@ class StaticImageEditorPanel : public BasePanel
         QList<StaticImageDocument> undo, redo;
         bool editing = false;
         QImage beforeImage;
+        ImageStatistics beforeStatistics;
         QByteArray sourceKey;
     };
     void refresh(bool rebuildList = true);
+    static ImageStatistics statisticsFor(const StaticImageDocument &document);
+    void updateStatistics();
     void saveHistory();
     void undoDraft(bool redo = false);
     void openRegion(int region);

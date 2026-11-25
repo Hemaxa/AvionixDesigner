@@ -1099,7 +1099,7 @@ private slots:
         p->createNewProject("Layer selection", 640, 480, Qt::black);
         QList<int> ids{1}; p->addObject("rectangle");
         for (int i = 0; i < 4; ++i) { ids.append(p->addEditorLayer()); p->addObject("rectangle"); }
-        LayersPanel panel; panel.resize(280, 300); panel.show(); QTest::qWait(5);
+        LayersPanel panel; panel.resize(440, 300); panel.show(); QTest::qWait(5);
         auto nameFor = [&panel](int id) -> QLineEdit * {
             for (auto *name : panel.findChildren<QLineEdit *>("LayerNameEdit"))
                 if (name->property("layerId").toInt() == id) return name;
@@ -1330,21 +1330,29 @@ private slots:
             dock->setFloating(true); dock->show(); dock->resize(440, 350); QTest::qWait(5);
             settings.setValue("windowGeometry", window.saveGeometry());
             settings.setValue("windowState", window.saveState());
-            settings.remove("layersPanelLayoutVersion");
+            settings.setValue("layersPanelLayoutVersion", 1);
         }
         {
             MainWindow window; QTest::qWait(5);
             auto *dock = window.findChild<QDockWidget *>("LayersDock"); QVERIFY(dock);
-            QCOMPARE(dock->width(), 320);
-            QCOMPARE(settings.value("layersPanelLayoutVersion").toInt(), 1);
-            dock->show(); dock->resize(360, 350); QTest::qWait(5);
+            QCOMPARE(dock->width(), 480);
+            QCOMPARE(settings.value("layersPanelLayoutVersion").toInt(), 2);
+            dock->show(); dock->resize(560, 350); QTest::qWait(5);
             settings.setValue("windowGeometry", window.saveGeometry());
             settings.setValue("windowState", window.saveState());
         }
         {
             MainWindow window; QTest::qWait(5);
             auto *dock = window.findChild<QDockWidget *>("LayersDock"); QVERIFY(dock);
-            QCOMPARE(dock->width(), 360);
+            QCOMPARE(dock->width(), 560);
+            dock->resize(640, 350); QTest::qWait(5);
+            settings.setValue("windowGeometry", window.saveGeometry()); settings.setValue("windowState", window.saveState());
+            settings.setValue("layersPanelLayoutVersion", 1);
+        }
+        {
+            MainWindow window; QTest::qWait(5);
+            auto *dock = window.findChild<QDockWidget *>("LayersDock"); QVERIFY(dock);
+            QCOMPARE(dock->width(), 640);
         }
         settings.remove("windowGeometry"); settings.remove("windowState");
     }
@@ -1352,9 +1360,17 @@ private slots:
         auto *p = ProjectManager::instance();
         p->createNewProject("Layers UI", 640, 480, Qt::black);
         p->addObject("rectangle"); p->addEditorLayer(); p->addObject("dashline");
-        LayersPanel layers; layers.resize(320, 350); layers.show(); QTest::qWait(5);
+        LayersPanel layers; layers.resize(480, 350); layers.show(); QTest::qWait(5);
         auto *list = layers.findChild<QScrollArea *>("LayersScrollArea"); QVERIFY(list);
         QCOMPARE(list->widget()->findChildren<QWidget *>("LayerRow", Qt::FindDirectChildrenOnly).size(), 2);
+        for (auto *row : list->widget()->findChildren<QWidget *>("LayerRow", Qt::FindDirectChildrenOnly)) {
+            auto *name = row->findChild<QLineEdit *>("LayerNameEdit"); QVERIFY(name);
+            for (auto *button : row->findChildren<QToolButton *>()) {
+                QVERIFY(row->rect().contains(button->geometry()));
+                QVERIFY(qAbs(button->geometry().center().y() - name->geometry().center().y()) <= 1);
+                QVERIFY(!button->geometry().intersects(name->geometry()));
+            }
+        }
         auto *all = layers.findChild<QToolButton *>("ShowAllLayersButton"); QVERIFY(all);
         all->click(); QVERIFY(p->showAllLayers());
         auto edits = layers.findChildren<QLineEdit *>("LayerNameEdit"); QCOMPARE(edits.size(), 2);
@@ -1374,7 +1390,7 @@ private slots:
         auto *add = layers.findChild<QToolButton *>("AddLayerButton"); QVERIFY(add);
         QVERIFY(add->text().isEmpty()); QVERIFY(!add->icon().isNull());
         layers.grab().save(QCoreApplication::applicationDirPath() + "/layers-panel.png");
-        layers.resize(280, 350); QTest::qWait(5);
+        layers.resize(440, 350); QTest::qWait(5);
         for (auto *button : list->findChildren<QToolButton *>())
             QVERIFY2(list->viewport()->rect().contains(QRect(button->mapTo(list->viewport(), QPoint()), button->size())),
                 qPrintable(QString("%1; view=%2x%3; button x=%4; row min=%5; row sizehint=%6")
@@ -1807,6 +1823,54 @@ private slots:
         QCOMPARE(image.renderedSourceImage().pixelColor(5, 4), QColor(Qt::blue));
         auto clone = qSharedPointerDynamicCast<ImageObject>(image.clone()); QVERIFY(clone);
         QCOMPARE(clone->renderedImage(), image.renderedImage());
+    }
+    void staticEditorBeforeAfterStatistics() {
+        auto *p = ProjectManager::instance(); QVERIFY(p->createNewProject("Statistics snapshots", 100, 100, Qt::black));
+        QVERIFY(p->addObject("staticgroup") >= 0);
+        auto *group = static_cast<StaticGroupObject *>(p->getObjectAt(0).data());
+        QImage image(40, 20, QImage::Format_ARGB32); image.fill(Qt::transparent);
+        { QPainter painter(&image); painter.fillRect(0, 0, 20, 20, Qt::white); }
+        group->states = {{0, 0, 40, 20, 0, Qt::white, true}}; group->maskImages = {image};
+        StaticImageEditorPanel editor; editor.resize(1100, 760); editor.show(); editor.setSelectedObjects({0}); editor.beginEditing();
+        auto readStatistics = [&] {
+            QMap<QString, QString> values;
+            for (auto *label : editor.findChildren<QLabel *>("StaticStatValue"))
+                values.insert(label->property("statistic").toString(), label->text());
+            return values;
+        };
+        const auto baseline = readStatistics(); const QLocale locale;
+        QCOMPARE(baseline["regions"], locale.toString(1)); QCOMPARE(baseline["after"], locale.toString(800));
+        auto *cut = editor.findChild<QFrame *>("StaticCutCard"); QVERIFY(cut);
+        QLabel *statsTitle = nullptr;
+        for (auto *label : editor.findChildren<QLabel *>()) if (label->text() == "Данные изображения") statsTitle = label;
+        QVERIFY(statsTitle); QTest::qWait(5);
+        const int gap = statsTitle->mapTo(&editor, QPoint()).y() - cut->mapTo(&editor, QPoint(0, cut->height())).y();
+        QVERIFY2(gap >= 16, qPrintable(QString("Statistics gap: %1").arg(gap)));
+        editor.findChild<QSpinBox *>("StaticCutCoordinate")->setValue(20);
+        editor.findChild<QToolButton *>("StaticSplitExact")->click();
+        QCOMPARE(readStatistics()["groups"], locale.toString(2));
+        QCOMPARE(readStatistics()["init"], locale.toString(2));
+        auto *before = editor.findChild<QToolButton *>("StaticPreviewBefore");
+        auto *after = editor.findChild<QToolButton *>("StaticPreviewAfter");
+        before->click(); QCOMPARE(readStatistics(), baseline);
+        after->click(); QCOMPARE(readStatistics()["regions"], locale.toString(2));
+        editor.findChild<QToolButton *>("StaticExcludeEmpty")->click();
+        const auto optimized = readStatistics();
+        QCOMPARE(optimized["excluded"], locale.toString(1)); QCOMPARE(optimized["after"], locale.toString(400));
+        QCOMPARE(optimized["saved"], locale.toString(400)); QCOMPARE(optimized["bits"], locale.toString(1200));
+        QCOMPARE(optimized["uart"], locale.toString(400));
+        editor.grab().save(QCoreApplication::applicationDirPath() + "/static-statistics-after.png");
+        before->click(); QCOMPARE(readStatistics(), baseline);
+        editor.grab().save(QCoreApplication::applicationDirPath() + "/static-statistics-before.png");
+        editor.findChild<QToolButton *>("StaticDraftUndo")->click(); QCOMPARE(readStatistics(), baseline);
+        editor.findChild<QToolButton *>("StaticDraftRedo")->click(); QCOMPARE(readStatistics(), baseline);
+        // Returning to a suspended draft must retain the original numeric snapshot.
+        QVERIFY(p->addObject("rectangle") >= 0); editor.setSelectedObjects({0}); QVERIFY(!editor.draft());
+        editor.setSelectedObjects({1}); QVERIFY(editor.editing()); QCOMPARE(readStatistics(), baseline);
+        after->click(); QCOMPARE(readStatistics(), optimized);
+        QVERIFY(editor.applyEditing());
+        editor.beginEditing(); before->click(); QCOMPARE(readStatistics(), optimized);
+        editor.cancelEditing();
     }
     void staticEditorSourceReuseAndLifetime() {
         auto *p = ProjectManager::instance(); p->createNewProject("Source reuse", 320, 240, Qt::black);

@@ -354,6 +354,7 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_split = tool(coordinate, cutCard, "StaticSplitExact", ":/icons/icons/static-editor/split.svg",
                    tr("Разрезать по заданной координате"));
     cutLayout->addLayout(coordinate);
+    sideLayout->addSpacing(8);
     auto *statsTitle = new QLabel(tr("Данные изображения"));
     statsTitle->setObjectName("StaticSectionTitle");
     sideLayout->addWidget(statsTitle);
@@ -382,6 +383,8 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
         auto *caption = new QLabel(title), *value = new QLabel;
         caption->setObjectName("StaticStatCaption");
         value->setObjectName("StaticStatValue");
+        value->setProperty("statistic", key);
+        value->setAccessibleName(title);
         value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         caption->setToolTip(tip);
         value->setToolTip(tip);
@@ -864,6 +867,7 @@ void StaticImageEditorPanel::setSelectedObjects(const QList<int> &indexes)
         QString error;
         m_session->document = StaticImageDocument::fromObject(*source, &error);
         m_session->beforeImage = m_session->document.render();
+        m_session->beforeStatistics = statisticsFor(m_session->document);
         m_session->sourceKey = key;
         if (!error.isEmpty())
         {
@@ -881,6 +885,7 @@ void StaticImageEditorPanel::beginEditing()
 {
     if (!m_session || m_session->editing || m_session->source->isSelectionLocked())
         return;
+    m_session->beforeStatistics = statisticsFor(m_session->document);
     m_session->editing = true;
     m_session->source->setStaticImageEditing(true);
     refresh();
@@ -898,6 +903,7 @@ void StaticImageEditorPanel::cancelEditing()
     m_session->document = StaticImageDocument::fromObject(*m_session->source);
     m_session->sourceKey = sourceKey(*m_session->source);
     m_session->beforeImage = m_session->document.render();
+    m_session->beforeStatistics = statisticsFor(m_session->document);
     m_part = -1;
     showOverview();
     refresh();
@@ -1021,32 +1027,7 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
     }
     m_stats->show();
     m_statsEmpty->hide();
-    int excluded = 0;
-    for (const auto &region : document->regions)
-        excluded += region.excluded;
-    const auto saved = document->originalCells - document->cells();
-    const double percent = document->originalCells ? 100.0 * saved / document->originalCells : 0;
-    const QLocale locale;
-    auto number = [&](qint64 value) { return locale.toString(value); };
-    m_statValues["size"]->setText(tr("%1 × %2").arg(document->size.width()).arg(document->size.height()));
-    m_statValues["regions"]->setText(number(document->regions.size()));
-    m_statValues["excluded"]->setText(number(excluded));
-    m_statValues["before"]->setText(number(document->originalCells));
-    m_statValues["after"]->setText(number(document->cells()));
-    m_statValues["saved"]->setText(number(saved));
-    m_statValues["percent"]->setText(locale.toString(percent, 'f', 1) + "%");
-    for (const auto &key : {QStringLiteral("saved"), QStringLiteral("percent")})
-    {
-        auto *value = m_statValues[key];
-        value->setProperty("saving", saved > 0);
-        value->setProperty("growth", saved < 0);
-        value->style()->unpolish(value);
-        value->style()->polish(value);
-    }
-    m_statValues["groups"]->setText(number(document->exportedRegions().size()));
-    m_statValues["init"]->setText(number(document->initCount()));
-    m_statValues["bits"]->setText(number(document->cells() * 3));
-    m_statValues["uart"]->setText(number(document->cells()));
+    updateStatistics();
     m_apply->setEnabled(editing() && !m_showBefore && document->hardwareErrors().isEmpty());
     updateHint();
     if (m_part >= 0 && m_part < document->regions.size())
@@ -1091,6 +1072,55 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
     }
     m_updating = false;
     updateMaskActions();
+}
+
+StaticImageEditorPanel::ImageStatistics
+StaticImageEditorPanel::statisticsFor(const StaticImageDocument &document)
+{
+    ImageStatistics result;
+    result.size = document.size;
+    result.originalCells = document.originalCells;
+    result.regions = document.regions.size();
+    for (const auto &region : document.regions)
+    {
+        result.excluded += region.excluded;
+        if (region.excluded || region.masks.isEmpty())
+            continue;
+        ++result.groups;
+        result.init += region.masks.size();
+        result.cells += region.cells();
+    }
+    return result;
+}
+
+void StaticImageEditorPanel::updateStatistics()
+{
+    if (!m_session)
+        return;
+    const auto statistics = m_showBefore ? m_session->beforeStatistics : statisticsFor(m_session->document);
+    const auto saved = statistics.originalCells - statistics.cells;
+    const double percent = statistics.originalCells ? 100.0 * saved / statistics.originalCells : 0;
+    const QLocale locale;
+    auto number = [&](qint64 value) { return locale.toString(value); };
+    m_statValues["size"]->setText(tr("%1 × %2").arg(statistics.size.width()).arg(statistics.size.height()));
+    m_statValues["regions"]->setText(number(statistics.regions));
+    m_statValues["excluded"]->setText(number(statistics.excluded));
+    m_statValues["before"]->setText(number(statistics.originalCells));
+    m_statValues["after"]->setText(number(statistics.cells));
+    m_statValues["saved"]->setText(number(saved));
+    m_statValues["percent"]->setText(locale.toString(percent, 'f', 1) + "%");
+    for (const auto &key : {QStringLiteral("saved"), QStringLiteral("percent")})
+    {
+        auto *value = m_statValues[key];
+        value->setProperty("saving", saved > 0);
+        value->setProperty("growth", saved < 0);
+        value->style()->unpolish(value);
+        value->style()->polish(value);
+    }
+    m_statValues["groups"]->setText(number(statistics.groups));
+    m_statValues["init"]->setText(number(statistics.init));
+    m_statValues["bits"]->setText(number(statistics.cells * 3));
+    m_statValues["uart"]->setText(number(statistics.cells));
 }
 
 void StaticImageEditorPanel::animatePage(bool detail)

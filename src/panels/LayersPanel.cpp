@@ -24,7 +24,7 @@
 LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("LayersPanel");
-    setMinimumSize(280, 220);
+    setMinimumSize(440, 220);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
@@ -228,16 +228,13 @@ void LayersPanel::refreshLayers()
     int number = 0;
     for (const auto &layer : project->editorLayers()) {
         auto *row = new QWidget(m_rows);
-        row->setFixedHeight(88);
+        row->setFixedHeight(56);
         row->setObjectName("LayerRow");
         row->setProperty("layerId", layer.id);
         row->installEventFilter(this);
-        auto *column = new QVBoxLayout(row);
-        column->setContentsMargins(6, 6, 6, 6); column->setSpacing(4);
-        auto *title = new QHBoxLayout;
-        title->setSpacing(4); column->addLayout(title);
-        auto *layout = new QHBoxLayout;
-        layout->setSpacing(6); column->addLayout(layout);
+        auto *layout = new QHBoxLayout(row);
+        layout->setContentsMargins(6, 4, 6, 4);
+        layout->setSpacing(6);
         auto *color = new QToolButton(row);
         color->setObjectName("LayerColorButton");
         color->setFixedSize(44, 44);
@@ -251,7 +248,7 @@ void LayersPanel::refreshLayers()
         order->setFixedWidth(18);
         order->setProperty("layerId", layer.id);
         order->installEventFilter(this);
-        title->addWidget(order);
+        layout->addWidget(order);
         auto *name = new QLineEdit(layer.name, row);
         name->setObjectName("LayerNameEdit");
         name->setProperty("layerId", layer.id);
@@ -260,8 +257,7 @@ void LayersPanel::refreshLayers()
         name->setReadOnly(true);
         name->setCursor(Qt::ArrowCursor);
         name->setToolTip(tr("Ctrl/⌘ — несколько слоёв, Shift — диапазон. F2 или двойной щелчок — изменить имя. Объектов: %1").arg(project->layerObjectCount(layer.id)));
-        title->addWidget(name, 1);
-        layout->addStretch();
+        layout->addWidget(name, 1);
         auto action = [&](const QString &icon, const QString &tip, const QString &objectName) {
             auto *button = new QToolButton(row);
             button->setObjectName(objectName);

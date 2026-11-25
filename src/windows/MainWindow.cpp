@@ -48,7 +48,7 @@ constexpr int kDefaultFpgaSimulatorDockWidth = 620;
 constexpr int kDefaultFpgaSimulatorDockHeight = 420;
 constexpr int kDefaultAircraftPositionDockWidth = 1030;
 constexpr int kDefaultAircraftPositionDockHeight = 460;
-constexpr int kDefaultLayersDockWidth = 320;
+constexpr int kDefaultLayersDockWidth = 480;
 constexpr int kDefaultLayersDockHeight = 350;
 
 QString fontExportKey(const QString &family, int pixelSize) {
@@ -832,10 +832,10 @@ void MainWindow::restoreLayoutSettings() {
     }
   }
   // Один раз обновляем ширину старого плавающего окна, затем сохраняем ручную настройку.
-  if (settings.value("layersPanelLayoutVersion", 0).toInt() < 1) {
-    if (m_layersDock->isFloating())
+  if (settings.value("layersPanelLayoutVersion", 0).toInt() < 2) {
+    if (m_layersDock->isFloating() && m_layersDock->width() < kDefaultLayersDockWidth)
       m_layersDock->resize(kDefaultLayersDockWidth, m_layersDock->height());
-    settings.setValue("layersPanelLayoutVersion", 1);
+    settings.setValue("layersPanelLayoutVersion", 2);
   }
 }
 
