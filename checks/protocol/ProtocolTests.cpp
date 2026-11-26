@@ -86,6 +86,7 @@
 #include <QListWidget>
 #include <QLayout>
 #include <QFormLayout>
+#include <QHeaderView>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
@@ -3723,6 +3724,76 @@ private slots:
         }
         window.grab().save(QCoreApplication::applicationDirPath()+"/workspace.png");
     }
+    void fontExportColumnToggles() {
+        QList<FontExportDialogEntry> entries;
+        for (int i = 0; i < 10; ++i) {
+            FontExportDialogEntry entry;
+            entry.fontFamily = QString("Font %1").arg(i + 1); entry.pixelSize = 14 + i;
+            entry.alphabetGroups = {"latin_upper"};
+            if (i % 2 == 0) entry.alphabetGroups.append("digits");
+            entries.append(entry);
+        }
+        FontExportDialog dialog(entries); dialog.resize(1100, 560); dialog.show(); QTest::qWait(5);
+        auto *table = dialog.findChild<QTableWidget *>("FontExportTable"); QVERIFY(table);
+        const auto toggles = dialog.findChildren<QCheckBox *>("FontAlphabetColumnToggle");
+        QCOMPARE(toggles.size(), 6);
+        auto toggleFor = [&toggles](const QString &group) -> QCheckBox * {
+            for (auto *toggle : toggles) if (toggle->property("alphabetGroup").toString() == group) return toggle;
+            return nullptr;
+        };
+        auto *digits = toggleFor("digits"); auto *upper = toggleFor("latin_upper");
+        auto *symbols = toggleFor("symbols"); QVERIFY(digits && upper && symbols);
+        QCOMPARE(digits->checkState(), Qt::PartiallyChecked);
+        QCOMPARE(upper->checkState(), Qt::Checked); QCOMPARE(symbols->checkState(), Qt::Unchecked);
+        QTest::mouseClick(digits, Qt::LeftButton); QCOMPARE(digits->checkState(), Qt::Checked);
+        for (const auto &entry : dialog.entries()) {
+            QVERIFY(entry.alphabetGroups.contains("digits")); QVERIFY(entry.alphabetGroups.contains("latin_upper"));
+            QVERIFY(!entry.alphabetGroups.contains("symbols"));
+        }
+        QTest::mouseClick(digits, Qt::LeftButton); QCOMPARE(digits->checkState(), Qt::Unchecked);
+        for (const auto &entry : dialog.entries()) QVERIFY(!entry.alphabetGroups.contains("digits"));
+        table->item(0, 3)->setCheckState(Qt::Checked); QCOMPARE(digits->checkState(), Qt::PartiallyChecked);
+        QTest::mouseClick(digits, Qt::LeftButton); QCOMPARE(digits->checkState(), Qt::Checked);
+        digits->setFocus(); QTest::keyClick(digits, Qt::Key_Space);
+        QCOMPARE(digits->checkState(), Qt::Unchecked);
+        symbols->click();
+        for (const auto &entry : dialog.entries()) {
+            QVERIFY(entry.alphabetGroups.contains("symbols")); QVERIFY(entry.alphabetGroups.contains("latin_upper"));
+            QVERIFY(!entry.alphabetGroups.contains("digits"));
+        }
+        dialog.grab().save(QCoreApplication::applicationDirPath() + "/font-export-column-toggles.png");
+        dialog.resize(640, 420); table->setColumnWidth(0, 260); QTest::qWait(5);
+        table->horizontalScrollBar()->setValue(table->horizontalScrollBar()->maximum()); QTest::qWait(5);
+        const QStringList groups = {"digits", "latin_upper", "latin_lower", "cyrillic_upper", "cyrillic_lower", "symbols"};
+        for (int column = 0; column < groups.size(); ++column) {
+            auto *toggle = toggleFor(groups[column]);
+            const int center = table->horizontalHeader()->sectionViewportPosition(column + 3)
+                               + table->columnWidth(column + 3) / 2;
+            QVERIFY2(qAbs(toggle->geometry().center().x() - center) <= 1,
+                     qPrintable(QString("%1: actual=%2 expected=%3").arg(groups[column]).arg(toggle->geometry().center().x()).arg(center)));
+        }
+        dialog.grab().save(QCoreApplication::applicationDirPath() + "/font-export-column-toggles-compact.png");
+        FontExportDialog empty({});
+        for (auto *toggle : empty.findChildren<QCheckBox *>("FontAlphabetColumnToggle")) QVERIFY(!toggle->isEnabled());
+    }
+    void scaleNamesAndIcons() {
+        auto *project = ProjectManager::instance(); QVERIFY(project->createNewProject("Scale names", 1920, 1080, Qt::black));
+        const QMap<QString, QString> names = {{"speed_scale", "SpeedScale"}, {"bank_scale", "RollScale"}, {"pitch_scale", "PitchScale"}};
+        const QMap<QString, QString> icons = {{"speed_scale", "speedscale.svg"}, {"bank_scale", "rollscale.svg"}, {"pitch_scale", "pitchscale.svg"}};
+        for (const auto &descriptor : FpgaSchemaRegistry::instance()->editorObjectCatalog()) {
+            if (!names.contains(descriptor.typeName)) continue;
+            QCOMPARE(descriptor.iconPath, ":/icons/icons/library/" + icons.value(descriptor.typeName));
+            QVERIFY(!QIcon(descriptor.iconPath).isNull());
+            QVERIFY(project->addObject(descriptor.typeName) >= 0);
+            QCOMPARE(project->getObjectAt(0)->getTypeName(), names.value(descriptor.typeName));
+        }
+        ObjectListPanel list; list.refreshList(); list.resize(540, 260); list.show(); QTest::qWait(5);
+        QSet<QString> labels;
+        for (auto *label : list.findChildren<QLabel *>("ObjectListTypeLabel")) labels.insert(label->text());
+        QCOMPARE(labels, (QSet<QString>{"SpeedScale", "RollScale", "PitchScale"}));
+        ObjectLibraryPanel library; library.resize(650, 100); library.show(); QTest::qWait(5);
+        library.grab().save(QCoreApplication::applicationDirPath() + "/scale-library-icons.png");
+    }
     void pitchScalePythonPackets() {
         QFile file(QFileInfo(QString::fromUtf8(PROTOCOL_VECTOR_FILE)).absolutePath() + "/pitch-vectors.json");
         QVERIFY2(file.open(QIODevice::ReadOnly), "Run packet_reference to generate pitch-scale Python vectors.");
@@ -3891,7 +3962,7 @@ private slots:
         for (auto *button : library->findChildren<QToolButton *>()) titles.insert(button->statusTip());
         QVERIFY(titles.contains("Шкала скорости")); QVERIFY(titles.contains("Шкала тангажа"));
         QVERIFY(titles.contains("Шкала крена"));
-        QVERIFY(!QIcon(":/icons/icons/library/bankscale.svg").isNull());
+        QVERIFY(!QIcon(":/icons/icons/library/rollscale.svg").isNull());
         QVERIFY(!QIcon(":/icons/icons/library/pitchscale.svg").isNull());
         QVERIFY(!QIcon(":/icons/icons/library/speedscale.svg").isNull());
         QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/pitch-workspace.png"));

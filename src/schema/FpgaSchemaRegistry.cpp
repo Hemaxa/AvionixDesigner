@@ -339,7 +339,7 @@ QList<EditorObjectDescriptor> FpgaSchemaRegistry::editorObjectCatalog() const
         {"dashline", QStringLiteral("Штриховая линия"), QStringLiteral(":/icons/icons/library/dashedline.svg"), true, true},
         {"speed_scale", QStringLiteral("Шкала скорости"), QStringLiteral(":/icons/icons/library/speedscale.svg"), true, true},
         {"pitch_scale", QStringLiteral("Шкала тангажа"), QStringLiteral(":/icons/icons/library/pitchscale.svg"), true, true},
-        {"bank_scale", QStringLiteral("Шкала крена"), QStringLiteral(":/icons/icons/library/bankscale.svg"), true, true},
+        {"bank_scale", QStringLiteral("Шкала крена"), QStringLiteral(":/icons/icons/library/rollscale.svg"), true, true},
         {"aviahorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
         {"layer3d", QStringLiteral("3D вид"), QStringLiteral(":/icons/icons/library/three-d-view.svg"), true, true},
         {"text", QStringLiteral("Текст"), QStringLiteral(":/icons/icons/library/text.svg"), true, true},

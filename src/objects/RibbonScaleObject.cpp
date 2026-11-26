@@ -61,7 +61,7 @@ void RibbonScaleObject::draw(QPainter &painter)
 
 QString RibbonScaleObject::getTypeName() const
 {
-    return "RibbonScale";
+    return "SpeedScale";
 }
 
 QString RibbonScaleObject::getDisplayName() const

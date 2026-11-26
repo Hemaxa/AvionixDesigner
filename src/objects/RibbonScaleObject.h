@@ -1,10 +1,10 @@
-// RibbonScaleObject - объект аппаратной ленточной шкалы.
+// RibbonScaleObject — SpeedScale в интерфейсе; speed_scale/RibonScale в XML.
 
 #pragma once
 
 #include "BaseObject.h"
 
-// RibbonScaleObject - объект аппаратной ленточной шкалы.
+// RibbonScaleObject — SpeedScale в интерфейсе; speed_scale/RibonScale в XML.
 class RibbonScaleObject : public BaseObject
 {
     Q_OBJECT

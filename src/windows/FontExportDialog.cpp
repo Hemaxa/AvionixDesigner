@@ -3,14 +3,100 @@
 #include "FontExportDialog.h"
 
 #include <QDialogButtonBox>
+#include <QCheckBox>
 #include <QHeaderView>
+#include <QHash>
 #include <QLabel>
+#include <QPainter>
 #include <QPushButton>
+#include <QResizeEvent>
+#include <QScrollBar>
+#include <QSignalBlocker>
+#include <QStyleOptionHeader>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
 
 namespace {
+// AlphabetColumnToggle — смешанное состояние показывается, а нажатие выбирает все или ничего.
+class AlphabetColumnToggle : public QCheckBox
+{
+public:
+    using QCheckBox::QCheckBox;
+protected:
+    void nextCheckState() override
+    {
+        setCheckState(checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+    }
+};
+
+// AlphabetHeaderView — переключатели остаются над своими столбцами при прокрутке и изменении ширины.
+class AlphabetHeaderView : public QHeaderView
+{
+public:
+    explicit AlphabetHeaderView(QWidget *parent) : QHeaderView(Qt::Horizontal, parent)
+    {
+        connect(this, &QHeaderView::geometriesChanged, this, &AlphabetHeaderView::positionToggles);
+        connect(this, &QHeaderView::sectionResized, this, &AlphabetHeaderView::positionToggles);
+        connect(this, &QHeaderView::sectionMoved, this, &AlphabetHeaderView::positionToggles);
+    }
+
+    QCheckBox *addToggle(int section, const QString &title)
+    {
+        auto *toggle = new AlphabetColumnToggle(title, viewport());
+        toggle->setObjectName("FontAlphabetColumnToggle");
+        toggle->setTristate(true);
+        m_toggles.insert(section, toggle);
+        return toggle;
+    }
+
+    void positionToggles()
+    {
+        for (auto it = m_toggles.cbegin(); it != m_toggles.cend(); ++it) {
+            const int section = it.key();
+            auto *toggle = it.value();
+            const QRect area(sectionViewportPosition(section), 0, sectionSize(section), viewport()->height());
+            const QSize size = toggle->sizeHint();
+            toggle->setGeometry(QRect(QPoint(area.left() + (area.width() - size.width()) / 2,
+                                             area.top() + (area.height() - size.height()) / 2), size));
+            toggle->setVisible(!isSectionHidden(section) && area.intersects(viewport()->rect()));
+        }
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QHeaderView::resizeEvent(event);
+        positionToggles();
+    }
+
+    QSize sectionSizeFromContents(int section) const override
+    {
+        const QSize base = QHeaderView::sectionSizeFromContents(section);
+        if (auto *toggle = m_toggles.value(section))
+            return base.expandedTo(toggle->sizeHint());
+        return base;
+    }
+
+    void paintSection(QPainter *painter, const QRect &rect, int section) const override
+    {
+        if (!m_toggles.contains(section)) {
+            QHeaderView::paintSection(painter, rect, section);
+            return;
+        }
+        QStyleOptionHeader option;
+        initStyleOptionForIndex(&option, section);
+        option.rect = rect;
+        option.text.clear();
+        painter->save();
+        style()->drawControl(QStyle::CE_Header, &option, painter, this);
+        painter->restore();
+    }
+
+private:
+    QHash<int, QCheckBox *> m_toggles;
+};
+
 // AlphabetColumn - столбец выбора набора символов при экспорте шрифта.
 struct AlphabetColumn
 {
@@ -52,7 +138,8 @@ FontExportDialog::FontExportDialog(const QList<FontExportDialogEntry> &entries, 
 
     auto *description = new QLabel(
         QStringLiteral("Для каждого нового шрифта выберите полные наборы символов, которые должны получить init и data. "
-                       "Символы, уже использованные в строках, будут добавлены обязательно."),
+                       "Символы, уже использованные в строках, будут добавлены обязательно. "
+                       "Переключатели в заголовках включают или отключают столбец для всех шрифтов."),
         this
     );
     description->setObjectName(QStringLiteral("DialogDescriptionLabel"));
@@ -63,6 +150,21 @@ FontExportDialog::FontExportDialog(const QList<FontExportDialogEntry> &entries, 
     m_table->setObjectName(QStringLiteral("FontExportTable"));
     m_table->setColumnCount(3 + alphabetColumns().size());
     m_table->setRowCount(m_entries.size());
+    auto *header = new AlphabetHeaderView(m_table);
+    m_table->setHorizontalHeader(header);
+    const auto columns = alphabetColumns();
+    for (int column = 0; column < columns.size(); ++column) {
+        const auto &alphabet = columns[column];
+        auto *toggle = header->addToggle(column + 3, alphabet.title);
+        toggle->setProperty("alphabetGroup", alphabet.id);
+        toggle->setAccessibleName(alphabet.toolTip + QStringLiteral(" — для всех шрифтов"));
+        m_columnToggles.append(toggle);
+        connect(toggle, &QCheckBox::clicked, this, [this, toggle, column]() {
+            setAlphabetColumn(column + 3, toggle->checkState() == Qt::Checked);
+        });
+    }
+    connect(m_table->horizontalScrollBar(), &QScrollBar::valueChanged, header,
+            &AlphabetHeaderView::positionToggles, Qt::QueuedConnection);
     m_table->setSelectionMode(QAbstractItemView::NoSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->verticalHeader()->setVisible(false);
@@ -86,6 +188,10 @@ FontExportDialog::FontExportDialog(const QList<FontExportDialogEntry> &entries, 
     m_table->setHorizontalHeaderLabels(headers);
 
     populateTable();
+    connect(m_table, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
+        if (item->column() >= 3) updateColumnToggles();
+    });
+    updateColumnToggles();
     layout->addWidget(m_table, 1);
 
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, this);
@@ -145,4 +251,33 @@ void FontExportDialog::populateTable()
     m_table->resizeRowsToContents();
     for (int row = 0; row < m_table->rowCount(); ++row)
         m_table->setRowHeight(row, qMax(42, m_table->rowHeight(row)));
+}
+
+void FontExportDialog::setAlphabetColumn(int column, bool checked)
+{
+    {
+        const QSignalBlocker blocker(m_table);
+        for (int row = 0; row < m_table->rowCount(); ++row)
+            if (auto *item = m_table->item(row, column))
+                item->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+    }
+    updateColumnToggles();
+}
+
+void FontExportDialog::updateColumnToggles()
+{
+    const auto columns = alphabetColumns();
+    const int rows = m_table->rowCount();
+    for (int column = 0; column < m_columnToggles.size(); ++column) {
+        int checked = 0;
+        for (int row = 0; row < rows; ++row)
+            if (const auto *item = m_table->item(row, column + 3))
+                checked += item->checkState() == Qt::Checked;
+        auto *toggle = m_columnToggles[column];
+        toggle->setEnabled(rows > 0);
+        toggle->setCheckState(checked == 0 ? Qt::Unchecked : checked == rows ? Qt::Checked : Qt::PartiallyChecked);
+        toggle->setToolTip(QStringLiteral("%1: выбрано у %2 из %3 шрифтов. Нажмите, чтобы %4 весь столбец.")
+                               .arg(columns[column].toolTip).arg(checked).arg(rows)
+                               .arg(checked == rows && rows > 0 ? QStringLiteral("отключить") : QStringLiteral("включить")));
+    }
 }

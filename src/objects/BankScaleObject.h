@@ -4,7 +4,7 @@
 #include "BaseObject.h"
 #include "fpga/model/BankScaleFormat.h"
 
-// BankScaleObject — одно слово BANK_SCALE; рисунок общий для редактора и симулятора.
+// BankScaleObject — RollScale в интерфейсе; аппаратное имя BANK_SCALE сохранено.
 class BankScaleObject : public BaseObject
 {
     Q_OBJECT
@@ -23,7 +23,7 @@ public:
     QSharedPointer<BaseObject> clone() const override;
     void parse(const QString &hexInit, const ParamSchema &schema) override;
     void draw(QPainter &painter) override;
-    QString getTypeName() const override { return QStringLiteral("BankScale"); }
+    QString getTypeName() const override { return QStringLiteral("RollScale"); }
     QString getDisplayName() const override { return QStringLiteral("Шкала крена"); }
     QList<QPair<QString, QString>> getProperties() const override;
     QMap<QString, quint32> serializeParams() const override;

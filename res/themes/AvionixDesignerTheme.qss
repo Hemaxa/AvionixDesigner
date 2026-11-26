@@ -38,6 +38,7 @@
     Значение <svg ...> загрузчик превращает во временный URL для свойства image.
     @define control.arrowDown = <svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1 L6 6 L11 1" fill="none" stroke="${text}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>;
     @define control.arrowUp = <svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 7 L6 2 L11 7" fill="none" stroke="${text}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>;
+    @define control.checkboxPartial = <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8"><path d="M1 4 H7" stroke="${accent}" stroke-width="2" stroke-linecap="round"/></svg>;
 
     Начальные цвета пользовательских настроек и слоев (сохраненные цвета приоритетнее):
     @define workspace.grid = alpha(${softAccent}, 55);
@@ -322,7 +323,8 @@ QCheckBox {
     min-height: 20px;
 }
 
-QCheckBox::indicator {
+QCheckBox::indicator,
+#FontExportTable::indicator {
     width: 14px;
     height: 14px;
     border: 1px solid ${borderStrong};
@@ -330,11 +332,13 @@ QCheckBox::indicator {
     background-color: ${panel};
 }
 
-QCheckBox::indicator:hover {
+QCheckBox::indicator:hover,
+#FontExportTable::indicator:hover {
     border-color: ${accent};
 }
 
-QCheckBox::indicator:checked {
+QCheckBox::indicator:checked,
+#FontExportTable::indicator:checked {
     background-color: ${accent};
     border-color: ${accent};
 }
@@ -781,6 +785,36 @@ QDialog#FontExportDialog QTableWidget::item {
 
 QDialog#FontExportDialog QHeaderView::section {
     min-height: 34px;
+}
+
+QDialog#FontExportDialog #FontAlphabetColumnToggle {
+    background: transparent;
+    color: ${text};
+    padding: 0 10px;
+    spacing: 6px;
+    font-weight: 650;
+}
+
+QDialog#FontExportDialog #FontAlphabetColumnToggle::indicator:indeterminate {
+    background: ${active};
+    border-color: ${accent};
+    image: ${control.checkboxPartial};
+}
+
+QDialog#FontExportDialog QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 0 6px;
+}
+
+QDialog#FontExportDialog QScrollBar::handle:horizontal {
+    background: ${borderStrong};
+    border-radius: 5px;
+    min-width: 28px;
+}
+
+QDialog#FontExportDialog QScrollBar::handle:horizontal:hover {
+    background: ${accent};
 }
 
 QDialog#UartStreamingDialog {
