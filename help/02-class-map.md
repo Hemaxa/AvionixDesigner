@@ -41,6 +41,8 @@
 | `DashedLineObject` | Линия по двум концам, толщина, период, длина и фаза штрихов; XML-тип `dashline` |
 | `RibbonScaleObject` | Шкала скорости `speed_scale`, аппаратная заглушка; чтение прежнего `RibonScale` |
 | `PitchScaleObject` | Шкала тангажа `pitch_scale`, одно слово параметров и общий рисунок редактора/симулятора |
+| `BankScaleObject` | Шкала крена `bank_scale` / RollScale, все поля Python и фиксированная геометрия PDF |
+| `CompassScaleObject` | Шкала курса `compass_scale`, Y, 17-битный курс Q7 и цвет без растровой памяти |
 | `AviaHorizonObject` | Небо, земля и линия горизонта, параметры положения и поворота |
 | `RotationObject`, `RotationObjectLayer` | Аппаратный вращающийся объект, его маска и набор init-состояний |
 | `StaticGroupObject`, `GroupState` | Несколько состояний/прямоугольников с адресами в общей статической маске |

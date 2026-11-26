@@ -49,6 +49,7 @@ QString typeLabelForObject(const BaseObject *object) {
       {QStringLiteral("SpeedScale"), QStringLiteral("SpeedScale")},
       {QStringLiteral("PitchScale"), QStringLiteral("PitchScale")},
       {QStringLiteral("RollScale"), QStringLiteral("RollScale")},
+      {QStringLiteral("CompassScale"), QStringLiteral("CompassScale")},
       {QStringLiteral("AviaHorizon"), QStringLiteral("aviahorizont")},
       {QStringLiteral("ThreeDView"), QStringLiteral("layer3d")},
       {QStringLiteral("Text"), QStringLiteral("text")},

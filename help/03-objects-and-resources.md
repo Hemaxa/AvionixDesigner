@@ -26,6 +26,7 @@ classDiagram
     BaseObject <|-- DashedLineObject
     BaseObject <|-- RibbonScaleObject
     BaseObject <|-- PitchScaleObject
+    BaseObject <|-- CompassScaleObject
     BaseObject <|-- RotationObject
     BaseObject <|-- StaticGroupObject
     StaticGroupObject <|-- TextObject
@@ -56,7 +57,7 @@ classDiagram
 
 ## Шкалы
 
-В библиотеке доступны «Шкала скорости» (`speed_scale`, прежний `RibbonScaleObject`) и «Шкала тангажа» (`pitch_scale`, `PitchScaleObject`). Для скорости сохранена трёхсловная аппаратная заглушка и условный рисунок редактора; старые проекты с `RibonScale` открываются. Имена типов в интерфейсе: `SpeedScale`, `PitchScale` и `RollScale` (шкала крена, XML `bank_scale`). Иконки — `speedscale.svg`, `pitchscale.svg` и `rollscale.svg` соответственно.
+В библиотеке доступны четыре шкалы: `SpeedScale` (`speed_scale`, `RibbonScaleObject`), `PitchScale` (`pitch_scale`), `RollScale` (`bank_scale`) и `CompassScale` (`compass_scale`). Для скорости сохранена трёхсловная аппаратная заглушка и условный рисунок редактора; старые проекты с `RibonScale` открываются. Иконки — `speedscale.svg`, `pitchscale.svg`, `rollscale.svg` и `compassscale.svg`; последняя — независимая копия заглушки. У остальных шкал все описанные рабочие поля iparam редактируются, включая radius крена. У компаса доступны Y, знаковый 17-битный курс Q7 и цвет; резервные биты нулевые. Геометрия предпросмотра приблизительная, общая с симулятором, без растровых банков ПЛИС.
 
 Шкала тангажа содержит включение, линейный/логарифмический режим, центр X/Y, тангаж и поворот. Диапазоны и одно слово `iparam` соответствуют Python-пульту. Объект можно перемещать и вращать, но не масштабировать: в аппаратном формате нет размера. `canvasConstraintRect()` ограничивает центр холстом, позволяя рискам уходить за экран.
 

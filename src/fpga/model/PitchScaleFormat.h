@@ -1,4 +1,4 @@
-// PitchScaleFormat — раскладка PITCH_SCALE из docs/pitch_scale_control_raw.py.
+// PitchScaleFormat — раскладка PITCH_SCALE из docs/Все, что есть по шкалам/pitch_scale_control_raw.py.
 #pragma once
 
 #include "ScaleFormat.h"

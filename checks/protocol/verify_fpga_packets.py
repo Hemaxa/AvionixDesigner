@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import random
+import re
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -242,7 +243,7 @@ def generate_pitch_vectors(ref, output):
 
 def generate_bank_vectors(output):
     """Исполняем упаковщик из присланного Python, без Tk, UART и главного цикла."""
-    path = ROOT / 'docs/scale_control_raw.py'
+    path = ROOT / 'docs/Все, что есть по шкалам/scale_control_raw.py'
     names = {'signed_q7', 'hex_to_rgb24', 'pack_bank_scale', 'fletcher32', 'make_packet', 'make_raw_packet'}
     selected = [node for node in ast.parse(path.read_text(encoding='utf-8')).body
                 if isinstance(node, ast.FunctionDef) and node.name in names]
@@ -268,6 +269,33 @@ def generate_bank_vectors(output):
                             payload=word.to_bytes(19, 'big').hex(),
                             packet=namespace['make_raw_packet'](param_id, word).hex()))
     output.write_text(json.dumps(vectors, indent=2))
+
+
+def generate_compass_vectors(ref, output):
+    """Эталон по таблице COMPASS_SCALE из ПараметрыШкал.pdf; signed Q7 — 17 бит."""
+    cases = [(0, 0, 0), (4095, -512, 0xFFFFFF), (540, 511.9921875, 0x123456),
+             (540, 256, 0xABCDEF), (540, 360, 0xD3D3D3), (540, -360, 0x010203),
+             (540, 359.9921875, 0xFF0000)]
+    for raw in [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]:
+        cases.append((540.5, raw / 128, 0x123456))
+    rng = random.Random(20261126)
+    for _ in range(128):
+        cases.append((rng.randrange(4096), rng.uniform(-512, 511.9921875), rng.randrange(1 << 24)))
+    vectors = []
+    for i, (y, course, color) in enumerate(cases):
+        word = round(y) * 4 + (round(course * 128) % (1 << 17)) * (1 << 14) + color * (1 << 31)
+        payload = word.to_bytes(19, 'big')
+        param_id = i * 397 % 65536
+        vectors.append(dict(y=y, course=course, color=color, param_id=param_id,
+                            payload=payload.hex(), packet=ref['pack_parameters'](param_id, payload).hex()))
+    output.write_text(json.dumps(vectors, indent=2))
+
+
+def generate_pipeline_types(output):
+    source = (ROOT / 'docs/Все, что есть по шкалам/tube_config_pkg.sv').read_text()
+    enum = source.split('typedef enum int {', 1)[1].split('}', 1)[0]
+    output.write_text(json.dumps(dict((name, int(value)) for name, value in
+                                     re.findall(r'(TYPE_\w+)\s*=\s*(\d+)', enum)), indent=2))
 
 
 def main():
@@ -296,6 +324,8 @@ def main():
     generate_vectors(ref,args.output/'position-vectors.json')
     generate_pitch_vectors(ref,args.output/'pitch-vectors.json')
     generate_bank_vectors(args.output/'bank-vectors.json')
+    generate_compass_vectors(ref,args.output/'compass-vectors.json')
+    generate_pipeline_types(args.output/'pipeline-types.json')
     print('Generated Python position vectors for AvionixProtocolTests.')
 
 

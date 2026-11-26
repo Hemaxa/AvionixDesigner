@@ -8,6 +8,7 @@
 #include "TextObject.h"
 #include "PitchScaleObject.h"
 #include "BankScaleObject.h"
+#include "CompassScaleObject.h"
 #include "OptimizedStaticImageObject.h"
 #include "RasterGeometry.h"
 
@@ -36,6 +37,11 @@ Report inspect(const BaseObject &object)
     if (const auto *bank = dynamic_cast<const BankScaleObject *>(&object)) {
         if (!bank->hasValidParameters())
             report.errors.append(QStringLiteral("BANK_SCALE: центр и радиус должны быть 0…4095, крен ±180°, цвета RGB888."));
+        return report;
+    }
+    if (const auto *compass = dynamic_cast<const CompassScaleObject *>(&object)) {
+        if (!compass->hasValidParameters())
+            report.errors.append(QStringLiteral("COMPASS_SCALE: Y должен быть 0…4095, курс −512…511,9921875°, цвет RGB888."));
         return report;
     }
     // TextObject наследуется от StaticGroupObject для предпросмотра. Память

@@ -1,4 +1,4 @@
-// BankScaleFormat — раскладка BANK_SCALE из docs/scale_control_raw.py.
+// BankScaleFormat — раскладка BANK_SCALE из docs/Все, что есть по шкалам/scale_control_raw.py.
 #pragma once
 
 namespace BankScaleFormat {
@@ -18,6 +18,11 @@ constexpr int angleBits = 16;
 constexpr int colorBits = 24;
 constexpr int paddingBits = 31;
 
-// Размеры для 1920×1080. В Python radius помечен ref; плата пока не меняет геометрию.
-constexpr int fixedRadius = 78;
+// Поле radius из Python и фиксированная геометрия PDF описаны независимо.
+constexpr int defaultRadius = 78;
+constexpr int fixedRadius = 173;
+constexpr int tickLength = 24;
+constexpr int tickWidth = 5;
+constexpr int arrowOffset = 70;
+constexpr int labelCell = 3;
 }

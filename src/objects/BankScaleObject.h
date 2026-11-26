@@ -4,7 +4,7 @@
 #include "BaseObject.h"
 #include "fpga/model/BankScaleFormat.h"
 
-// BankScaleObject — RollScale в интерфейсе; аппаратное имя BANK_SCALE сохранено.
+// BankScaleObject — RollScale в интерфейсе; XML-имя bank_scale сохранено.
 class BankScaleObject : public BaseObject
 {
     Q_OBJECT
@@ -13,8 +13,8 @@ public:
     double centerX = 960.0;
     double centerY = 540.0;
     double bankAngle = 0.0;
-    // Сохраняем поле протокола, но не даём менять размер, пока его не принимает плата.
-    int radius = BankScaleFormat::fixedRadius;
+    // Настраиваемое поле Python. В PDF рисунок имеет отдельный фиксированный радиус.
+    int radius = BankScaleFormat::defaultRadius;
     QColor tickColor = QColor("#D3D3D3");
     QColor mark20Color = QColor("#9C4868");
     bool colorValid = true;

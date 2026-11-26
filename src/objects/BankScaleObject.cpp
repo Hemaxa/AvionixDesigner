@@ -1,13 +1,14 @@
 // BankScaleObject — формат Python и приближённый предпросмотр фиксированной шкалы крена.
 #include "BankScaleObject.h"
 #include "BitParser.h"
+#include "ScaleGlyphs.h"
 #include "fpga/model/ScaleFormat.h"
 
 #include <cmath>
 
 namespace {
 // Полный круг вмещает риски при любом крене; локальный размер рамки постоянен.
-constexpr int extent = BankScaleFormat::fixedRadius + 14;
+constexpr int extent = BankScaleFormat::fixedRadius + BankScaleFormat::arrowOffset + BankScaleFormat::tickLength;
 const QRectF localBounds(-extent, -extent, 2 * extent, 2 * extent);
 }
 
@@ -64,7 +65,7 @@ QList<QPair<QString, QString>> BankScaleObject::getProperties() const
     return {{"Включен", enabled ? "да" : "нет"},
         {"Центр X", QString::number(centerX, 'g', 12)}, {"Центр Y", QString::number(centerY, 'g', 12)},
         {"Крен (°)", QString::number(bankAngle, 'g', 12)},
-        {"Радиус (фикс.)", QString::number(BankScaleFormat::fixedRadius)},
+        {"Радиус", QString::number(radius)},
         {"Цвет рисок", tickColor.name()}, {"Цвет отметок 20°", mark20Color.name()},
         {"Применять цвета", colorValid ? "да" : "нет"}};
 }
@@ -93,6 +94,11 @@ bool BankScaleObject::setObjectProperty(const QString &name, const QString &valu
                 setValidationMessage(tr("Координата центра должна быть в диапазоне 0…4095.")); return false;
             }
             (name == "Центр X" ? centerX : centerY) = ScaleFormat::roundEven(number);
+        } else if (name == "Радиус") {
+            if (number < 0 || number > 4095 || number != std::floor(number)) {
+                setValidationMessage(tr("Радиус должен быть целым числом в диапазоне 0…4095.")); return false;
+            }
+            radius = int(number);
         } else if (name == "Крен (°)") {
             if (number < -180 || number > 180) {
                 setValidationMessage(tr("Крен должен быть в диапазоне −180…+180°.")); return false;
@@ -125,20 +131,26 @@ void BankScaleObject::draw(QPainter &painter)
     for (int angle : {-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60}) {
         painter.save();
         painter.rotate(angle);
-        const int length = angle % 30 == 0 ? 14 : 8;
-        const QLineF line(0, -BankScaleFormat::fixedRadius, 0, -BankScaleFormat::fixedRadius + length);
-        painter.setPen(QPen(Qt::black, 5, Qt::SolidLine, Qt::SquareCap));
+        const QLineF line(0, -BankScaleFormat::fixedRadius, 0, -BankScaleFormat::fixedRadius + BankScaleFormat::tickLength);
+        painter.setPen(QPen(Qt::black, BankScaleFormat::tickWidth + 2, Qt::SolidLine, Qt::SquareCap));
         painter.drawLine(line);
-        painter.setPen(QPen(std::abs(angle) == 20 ? mark20 : tick, 2, Qt::SolidLine, Qt::SquareCap));
+        painter.setPen(QPen(std::abs(angle) == 20 ? mark20 : tick, BankScaleFormat::tickWidth, Qt::SolidLine, Qt::SquareCap));
         painter.drawLine(line);
+        if (std::abs(angle) == 30 || std::abs(angle) == 45 || std::abs(angle) == 60) {
+            const auto text = QString::number(std::abs(angle));
+            ScaleGlyphs::drawNumber(painter, text,
+                QPointF(-ScaleGlyphs::textWidth(text, BankScaleFormat::labelCell) / 2.0,
+                        -BankScaleFormat::fixedRadius - 8 - 7 * BankScaleFormat::labelCell),
+                BankScaleFormat::labelCell, tick);
+        }
         painter.restore();
     }
-    // Неподвижный указатель сравнивается с повёрнутыми рисками.
-    painter.rotate(-ScaleFormat::quantizedAngle(bankAngle));
+    // Метка входит в ту же геометрию: поворот вокруг перенесённой оси
+    // должен преобразовывать её вместе с рисками и подписями.
     painter.setPen(QPen(Qt::black, 2));
-    painter.setBrush(tick);
-    painter.drawPolygon(QPolygonF({QPointF(0, -BankScaleFormat::fixedRadius - 2),
-        QPointF(-5, -BankScaleFormat::fixedRadius - 11), QPointF(5, -BankScaleFormat::fixedRadius - 11)}));
+    painter.setBrush(QColor("#1E1EE6"));
+    const double arrowY = -BankScaleFormat::fixedRadius - BankScaleFormat::arrowOffset;
+    painter.drawPolygon(QPolygonF({QPointF(0, arrowY), QPointF(-7, arrowY - 18), QPointF(7, arrowY - 18)}));
     painter.restore();
 }
 

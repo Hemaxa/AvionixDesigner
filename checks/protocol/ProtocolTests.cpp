@@ -27,6 +27,8 @@
 #include "RibbonScaleObject.h"
 #include "PitchScaleObject.h"
 #include "BankScaleObject.h"
+#include "CompassScaleObject.h"
+#include "fpga/model/CompassScaleFormat.h"
 #include "CanvasGeometry.h"
 #include "fpga/model/PitchScaleFormat.h"
 #include "AviaHorizonObject.h"
@@ -321,7 +323,7 @@ private slots:
     }
     void polymorphicClonesPreserveState() {
         auto *p = ProjectManager::instance();
-        for (const auto &type : {"rectangle", "rectangle_a", "dashline", "RibonScale", "speed_scale", "pitch_scale", "bank_scale", "rotationobject",
+        for (const auto &type : {"rectangle", "rectangle_a", "dashline", "RibonScale", "speed_scale", "pitch_scale", "bank_scale", "compass_scale", "rotationobject",
                                   "staticgroup", "aviahorizont", "layer3d", "text"}) {
             p->createNewProject("Clone",640,480,Qt::black);
             QVERIFY(p->addObject(type) >= 0);
@@ -3715,14 +3717,20 @@ private slots:
         QVERIFY(found);
         MainWindow window;window.showNormal();window.resize(1100,720);QTest::qWait(10);
         QVERIFY(window.minimumSizeHint().height()<=720);
+        window.grab().save(QCoreApplication::applicationDirPath()+"/workspace.png");
         for(auto *dock:window.findChildren<QDockWidget *>()) {
             if(dock->isFloating() || !dock->isVisible()) continue;
             QVERIFY(window.rect().contains(dock->geometry()));
             auto *scroll=dock->findChild<QScrollArea *>();
             if(scroll && scroll->widget() && dynamic_cast<FlowLayout *>(scroll->widget()->layout()))
-                QCOMPARE(scroll->verticalScrollBar()->maximum(),0);
+                QVERIFY2(scroll->verticalScrollBar()->maximum()==0,
+                    qPrintable(QString("%1: dock=%2x%3 viewport=%4x%5 required=%6 scroll=%7 body=%8 min=%9 hint=%10")
+                        .arg(dock->objectName()).arg(dock->width()).arg(dock->height())
+                        .arg(scroll->viewport()->width()).arg(scroll->viewport()->height())
+                        .arg(scroll->widget()->layout()->heightForWidth(scroll->viewport()->width()))
+                        .arg(scroll->verticalScrollBar()->maximum()).arg(scroll->widget()->height())
+                        .arg(scroll->widget()->minimumHeight()).arg(scroll->widget()->sizeHint().height())));
         }
-        window.grab().save(QCoreApplication::applicationDirPath()+"/workspace.png");
     }
     void fontExportColumnToggles() {
         QList<FontExportDialogEntry> entries;
@@ -3778,8 +3786,8 @@ private slots:
     }
     void scaleNamesAndIcons() {
         auto *project = ProjectManager::instance(); QVERIFY(project->createNewProject("Scale names", 1920, 1080, Qt::black));
-        const QMap<QString, QString> names = {{"speed_scale", "SpeedScale"}, {"bank_scale", "RollScale"}, {"pitch_scale", "PitchScale"}};
-        const QMap<QString, QString> icons = {{"speed_scale", "speedscale.svg"}, {"bank_scale", "rollscale.svg"}, {"pitch_scale", "pitchscale.svg"}};
+        const QMap<QString, QString> names = {{"speed_scale", "SpeedScale"}, {"bank_scale", "RollScale"}, {"pitch_scale", "PitchScale"}, {"compass_scale", "CompassScale"}};
+        const QMap<QString, QString> icons = {{"speed_scale", "speedscale.svg"}, {"bank_scale", "rollscale.svg"}, {"pitch_scale", "pitchscale.svg"}, {"compass_scale", "compassscale.svg"}};
         for (const auto &descriptor : FpgaSchemaRegistry::instance()->editorObjectCatalog()) {
             if (!names.contains(descriptor.typeName)) continue;
             QCOMPARE(descriptor.iconPath, ":/icons/icons/library/" + icons.value(descriptor.typeName));
@@ -3790,7 +3798,7 @@ private slots:
         ObjectListPanel list; list.refreshList(); list.resize(540, 260); list.show(); QTest::qWait(5);
         QSet<QString> labels;
         for (auto *label : list.findChildren<QLabel *>("ObjectListTypeLabel")) labels.insert(label->text());
-        QCOMPARE(labels, (QSet<QString>{"SpeedScale", "RollScale", "PitchScale"}));
+        QCOMPARE(labels, (QSet<QString>{"SpeedScale", "RollScale", "PitchScale", "CompassScale"}));
         ObjectLibraryPanel library; library.resize(650, 100); library.show(); QTest::qWait(5);
         library.grab().save(QCoreApplication::applicationDirPath() + "/scale-library-icons.png");
     }
@@ -3858,7 +3866,7 @@ private slots:
             QCOMPARE(config.stages[i].parameterCount, i % 2 ? 1 : 3);
             QCOMPARE(config.stages[i].ramId, 0);
         }
-        QVERIFY(config.systemVerilog().contains("TYPE_PITCHSCALE = 8"));
+        QVERIFY(config.systemVerilog().contains("TYPE_PITCH_SCALE = 8"));
         QVERIFY(p->saveToFile(temp.filePath("scales.xml")));
         QVERIFY2(p->loadFromFile(temp.filePath("scales.xml")), qPrintable(p->lastErrorMessage()));
         QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), before.toByteArray());
@@ -4009,8 +4017,11 @@ private slots:
         QVERIFY(qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0))->colorValid);
         QVERIFY(p->redo()); bank = qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0));
         QVERIFY(!bank->colorValid); bank->moveBy(.125, .375);
-        // Импорт сохраняет radius из протокола, даже если текущая плата его игнорирует.
-        bank->radius = 123;
+        QVERIFY(p->setObjectProperty(bank.data(), "Радиус", "123"));
+        QVERIFY(p->undo());
+        QCOMPARE(qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0))->radius, 78);
+        QVERIFY(p->redo()); bank = qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0));
+        QCOMPARE(bank->radius, 123);
         const auto properties = bank->getProperties();
         const auto before = p->buildCompiledFpgaXml();
         const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
@@ -4025,7 +4036,7 @@ private slots:
         QVERIFY2(config.isValid(), qPrintable(error)); QCOMPARE(config.parameterCount(), 5);
         QCOMPARE(config.stages.size(), 3); QCOMPARE(config.stages[2].type, 9);
         QCOMPARE(config.stages[2].parameterCount, 1); QCOMPARE(config.stages[2].ramId, 0);
-        QVERIFY(config.systemVerilog().contains("TYPE_BANKSCALE = 9"));
+        QVERIFY(config.systemVerilog().contains("TYPE_ROLL_SCALE = 9"));
         QVERIFY(p->saveToFile(temp.filePath("scales.xml")));
         QVERIFY2(p->loadFromFile(temp.filePath("scales.xml")), qPrintable(p->lastErrorMessage()));
         QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), before.toByteArray());
@@ -4056,10 +4067,11 @@ private slots:
         auto bank = qSharedPointerDynamicCast<BankScaleObject>(p->getObjectAt(0)); QVERIFY(bank);
         QCOMPARE(bank->centerX, 320.); QCOMPARE(bank->centerY, 240.);
         QVERIFY(!bank->canResize()); QVERIFY(bank->supportsRotationHandle());
-        QVERIFY(!p->isObjectPropertyEditable(bank.data(), "Радиус (фикс.)"));
+        QVERIFY(p->isObjectPropertyEditable(bank.data(), "Радиус"));
         for (const auto &invalid : QList<QPair<QString, QString>>{{"Крен (°)", "180.1"}, {"Крен (°)", "-180.1"},
             {"Крен (°)", "nan"}, {"Центр X", "4096"}, {"Центр Y", "-1"},
-            {"Радиус (фикс.)", "100"}, {"Цвет рисок", "bad-color"}, {"Цвет отметок 20°", "#80123456"}}) {
+            {"Радиус", "4096"}, {"Радиус", "-1"}, {"Радиус", "1.5"},
+            {"Цвет рисок", "bad-color"}, {"Цвет отметок 20°", "#80123456"}}) {
             const auto params = bank->serializeParams();
             QVERIFY(!bank->setObjectProperty(invalid.first, invalid.second)); QCOMPARE(bank->serializeParams(), params);
         }
@@ -4117,13 +4129,224 @@ private slots:
             QImage empty(640, 480, QImage::Format_ARGB32); empty.fill(background); QCOMPARE(disabled, empty);
             QVERIFY(editor != empty);
             if (angle == 0) {
-                QCOMPARE(editor.pixelColor(320, 165), colors ? bank.tickColor : QColor("#D3D3D3"));
+                QCOMPARE(editor.pixelColor(320, 80), colors ? bank.tickColor : QColor("#D3D3D3"));
                 int marked = 0;
                 for (int y = 0; y < editor.height(); ++y) for (int x = 0; x < editor.width(); ++x)
                     if (editor.pixelColor(x, y) == (colors ? bank.mark20Color : QColor("#9C4868"))) ++marked;
                 QVERIFY(marked > 0);
             }
         }
+    }
+    void bankScaleIndicatorFollowsRotationPivot() {
+        const QColor indicator("#1E1EE6");
+        auto render = [](BankScaleObject &bank) {
+            QImage frame(1920, 1600, QImage::Format_ARGB32); frame.fill(Qt::black);
+            QPainter painter(&frame); bank.draw(painter); return frame;
+        };
+        auto indicatorCenter = [&](const QImage &frame) {
+            qint64 sumX = 0, sumY = 0; int count = 0;
+            for (int y = 0; y < frame.height(); ++y) {
+                const auto *row = reinterpret_cast<const QRgb *>(frame.constScanLine(y));
+                for (int x = 0; x < frame.width(); ++x) if (row[x] == indicator.rgba()) {
+                    sumX += x; sumY += y; ++count;
+                }
+            }
+            return count ? QPointF(double(sumX) / count, double(sumY) / count) : QPointF(-1, -1);
+        };
+        for (const auto &localPivot : {QPointF(.5, .5), QPointF(.2, .8), QPointF(.5, .9)}) {
+            BankScaleObject initial; initial.centerX = 960; initial.centerY = 800;
+            initial.setEditorRotationPivot(localPivot);
+            const auto pivot = initial.rotationCenter();
+            const auto original = indicatorCenter(render(initial)); QVERIFY(original.x() > 0);
+            for (double angle : {-180., -90., 30., 90., 135., 180.}) {
+                auto bank = qSharedPointerDynamicCast<BankScaleObject>(initial.clone()); QVERIFY(bank);
+                bank->setRotation(angle);
+                // Аппаратные координаты центра округляются до целых пикселей.
+                QVERIFY(QLineF(bank->rotationCenter(), pivot).length() < 1);
+                QTransform rotation; rotation.rotate(angle);
+                const auto expected = pivot + rotation.map(original - pivot);
+                const auto frame = render(*bank);
+                const auto actual = indicatorCenter(frame); QVERIFY(actual.x() > 0);
+                // Упаковка округляет центр до пикселя, растеризация меняет край треугольника.
+                QVERIFY2(QLineF(actual, expected).length() < 2,
+                    qPrintable(QString("angle=%1 actual=(%2,%3) expected=(%4,%5)")
+                        .arg(angle).arg(actual.x()).arg(actual.y()).arg(expected.x()).arg(expected.y())));
+                FpgaHardwareScene scene; scene.width = frame.width(); scene.height = frame.height(); scene.backgroundColor = Qt::black;
+                scene.schemas.insert("bank_scale", FpgaSchemaRegistry::instance()->buildSchema("bank_scale"));
+                FpgaHardwareObject object; object.type = "bank_scale";
+                object.iparams = {testInit("bank_scale", bank->serializeParams())}; scene.objects = {object};
+                QString error; const auto bundle = FpgaPacketCompiler().compile(scene, &error);
+                QVERIFY2(bundle.document.isValid(), qPrintable(error));
+                FpgaSimulator sim; sim.loadBundle(bundle); QCOMPARE(sim.renderFrame(), frame);
+                if (localPivot == QPointF(.5, .9) && angle == 30)
+                    QVERIFY(frame.save(QCoreApplication::applicationDirPath() + "/roll-scale-pivot.png"));
+            }
+        }
+    }
+    void compassScalePythonPackets() {
+        QFile file(QFileInfo(QString::fromUtf8(PROTOCOL_VECTOR_FILE)).absolutePath() + "/compass-vectors.json");
+        QVERIFY2(file.open(QIODevice::ReadOnly), "Run packet_reference to generate compass vectors.");
+        const auto vectors = QJsonDocument::fromJson(file.readAll()).array();
+        QVERIFY(vectors.size() > 140);
+        for (const auto &entry : vectors) {
+            const auto v = entry.toObject();
+            CompassScaleObject compass;
+            compass.positionY = v["y"].toDouble(); compass.courseAngle = v["course"].toDouble();
+            compass.color = QColor::fromRgb(v["color"].toInt());
+            QVERIFY(compass.hasValidParameters());
+            const auto hex = testInit("compass_scale", compass.serializeParams());
+            QCOMPARE(hex.toLower(), v["payload"].toString());
+            FpgaHardwareScene scene; scene.width = 640; scene.height = 480;
+            scene.schemas.insert("compass_scale", FpgaSchemaRegistry::instance()->buildSchema("compass_scale"));
+            FpgaHardwareObject object; object.type = "compass_scale"; object.iparams = {hex};
+            object.startParamIndex = v["param_id"].toInt(); scene.objects = {object};
+            QString error; const auto bundle = FpgaPacketCompiler().compile(scene, &error);
+            QVERIFY2(bundle.document.isValid(), qPrintable(error)); QCOMPARE(bundle.packets.size(), 1);
+            QCOMPARE(bundle.packets[0].bytes.toHex(), v["packet"].toString().toLatin1());
+            QCOMPARE(bundle.packets[0].payloadSize, 19); QCOMPARE(bundle.packets[0].bytes.size(), 34);
+            QVERIFY(bundle.document.memories.isEmpty());
+            CompassScaleObject restored; restored.parse(hex, scene.schemas.value("compass_scale"));
+            QCOMPARE(testInit("compass_scale", restored.serializeParams()), hex);
+            QCOMPARE(restored.courseAngle, ScaleFormat::roundEven(compass.courseAngle * 128) / 128.0);
+        }
+    }
+    void pipelineTypesMatchProvidedVerilog() {
+        QFile file(QFileInfo(QString::fromUtf8(PROTOCOL_VECTOR_FILE)).absolutePath() + "/pipeline-types.json");
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto types = QJsonDocument::fromJson(file.readAll()).object(); QCOMPARE(types.size(), 11);
+        FpgaPipelineConfig config; config.stages = {{10, 1, 0}}; QVERIFY(config.isValid());
+        const auto text = config.systemVerilog();
+        for (auto it = types.begin(); it != types.end(); ++it) {
+            QCOMPARE(FpgaPipelineConfig::stageTypeName(it.value().toInt()), it.key());
+            QVERIFY(text.contains(QString("%1 = %2").arg(it.key()).arg(it.value().toInt()).toUtf8()));
+        }
+        QVERIFY(!text.contains("TYPE_PITCHSCALE")); QVERIFY(!text.contains("TYPE_BANKSCALE"));
+    }
+    void compassScaleProjectAndPipeline() {
+        auto *p = ProjectManager::instance(); QString error; QTemporaryDir temp;
+        QVERIFY(p->createNewProject("Four scales", 640, 480, Qt::black));
+        for (const auto &type : {"speed_scale", "pitch_scale", "bank_scale", "compass_scale"}) QVERIFY(p->addObject(type) >= 0);
+        auto compass = qSharedPointerDynamicCast<CompassScaleObject>(p->getObjectAt(0)); QVERIFY(compass);
+        QCOMPARE(compass->positionY, 240.);
+        QVERIFY(p->setObjectProperty(compass.data(), "Курс (°)", "360"));
+        QVERIFY(p->setObjectProperty(compass.data(), "Цвет шкалы", "#123456"));
+        QVERIFY(p->undo()); QCOMPARE(qSharedPointerDynamicCast<CompassScaleObject>(p->getObjectAt(0))->color, QColor("#D3D3D3"));
+        QVERIFY(p->redo()); compass = qSharedPointerDynamicCast<CompassScaleObject>(p->getObjectAt(0));
+        compass->moveBy(100, .375);
+        const auto properties = compass->getProperties(); const auto before = p->buildCompiledFpgaXml();
+        const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        QVERIFY2(bundle.document.isValid(), qPrintable(error)); QVERIFY(bundle.document.memories.isEmpty());
+        QCOMPARE(bundle.packets.size(), 6); QCOMPARE(bundle.document.objects.size(), 4);
+        QCOMPARE(bundle.document.objects[0].iparams, FpgaScalePlaceholder::parameters(true));
+        const QList<int> starts = {0, 3, 4, 5}, types = {6, 8, 9, 10}, counts = {3, 1, 1, 1};
+        const auto config = FpgaPipelineConfig::fromScene(bundle.document, &error);
+        QVERIFY2(config.isValid(), qPrintable(error)); QCOMPARE(config.parameterCount(), 6); QCOMPARE(config.stages.size(), 4);
+        for (int i = 0; i < 4; ++i) {
+            QCOMPARE(bundle.document.objects[i].startParamIndex, starts[i]);
+            QCOMPARE(config.stages[i].type, types[i]); QCOMPARE(config.stages[i].parameterCount, counts[i]);
+            QCOMPARE(config.stages[i].ramId, 0); QCOMPARE(bundle.document.objects[i].memId, -1);
+        }
+        QVERIFY(p->exportFpgaConfiguration(temp.filePath("tube_config_pkg.sv"), bundle.document, &error));
+        QFile sv(temp.filePath("tube_config_pkg.sv")); QVERIFY(sv.open(QIODevice::ReadOnly)); QCOMPARE(sv.readAll(), config.systemVerilog());
+        const auto path = temp.filePath("scales.xml"); QVERIFY(p->saveToFile(path));
+        QVERIFY2(p->loadFromFile(path), qPrintable(p->lastErrorMessage()));
+        QCOMPARE(p->fpgaConfiguration(), config); QCOMPARE(p->getObjectAt(0)->getProperties(), properties);
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), before.toByteArray());
+        QCOMPARE(FpgaUartTransport::sceneBytes(FpgaProjectPacketBuilder::buildCurrentProject(&error)), FpgaUartTransport::sceneBytes(bundle));
+        QDomDocument saved; QVERIFY(ProjectXmlFile::read(path, &saved, &error));
+        if (saved.firstChild().isProcessingInstruction()) saved.removeChild(saved.firstChild());
+        auto metadata = saved.documentElement().firstChildElement("editor").firstChildElement("scene").firstChildElement("object");
+        QCOMPARE(metadata.attribute("type"), QString("compass_scale"));
+        metadata.firstChildElement("parameters").setAttribute("course-angle", "0");
+        QVERIFY(ProjectXmlFile::write(temp.filePath("inconsistent.xml"), saved, &error));
+        QVERIFY(!p->loadFromFile(temp.filePath("inconsistent.xml")));
+        QVERIFY(p->lastErrorMessage().contains("не совпадают"));
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), before.toByteArray());
+        metadata.removeChild(metadata.firstChildElement("parameters"));
+        QVERIFY(ProjectXmlFile::write(temp.filePath("from-init.xml"), saved, &error));
+        QVERIFY2(p->loadFromFile(temp.filePath("from-init.xml")), qPrintable(p->lastErrorMessage()));
+        compass = qSharedPointerDynamicCast<CompassScaleObject>(p->getObjectAt(0)); QVERIFY(compass);
+        QCOMPARE(compass->positionY, 240.); QCOMPARE(compass->courseAngle, 360.); QCOMPARE(compass->color, QColor("#123456"));
+        QCOMPARE(p->buildCompiledFpgaXml().toByteArray(), before.toByteArray());
+        QVERIFY(p->loadFromFile(path)); QVERIFY(p->setObjectExportEnabled(0, false));
+        QVERIFY(p->saveToFile(temp.filePath("excluded.xml"))); QVERIFY(p->loadFromFile(temp.filePath("excluded.xml")));
+        QCOMPARE(p->getObjectAt(0)->getProperties(), properties); QVERIFY(!p->getObjectAt(0)->isExportEnabled());
+        QCOMPARE(FpgaProjectPacketBuilder::buildCurrentProject(&error).packets.size(), 5);
+    }
+    void scaleReservedBitsAndCompassValidation() {
+        auto *p = ProjectManager::instance(); QString error;
+        QVERIFY(p->createNewProject("Scale validation", 640, 480, Qt::black));
+        for (const auto &type : {"pitch_scale", "bank_scale", "compass_scale"}) QVERIFY(p->addObject(type) >= 0);
+        auto compass = qSharedPointerDynamicCast<CompassScaleObject>(p->getObjectAt(0)); QVERIFY(compass);
+        QVERIFY(!compass->canResize()); QVERIFY(!compass->supportsRotationHandle());
+        QCOMPARE(compass->getProperties().size(), 3);
+        for (const auto &invalid : QList<QPair<QString, QString>>{{"Координата Y", "-1"}, {"Координата Y", "4096"},
+            {"Курс (°)", "512"}, {"Курс (°)", "-512.1"}, {"Курс (°)", "nan"},
+            {"Цвет шкалы", "bad-color"}, {"Цвет шкалы", "#80123456"}, {"Включен", "да"}}) {
+            const auto params = compass->serializeParams();
+            QVERIFY(!compass->setObjectProperty(invalid.first, invalid.second)); QCOMPARE(compass->serializeParams(), params);
+        }
+        QVERIFY(p->setObjectProperty(compass.data(), "Координата Y", "0"));
+        QVERIFY(compass->getBoundingRect().top() < 0); // Знаковая геометрия при Y = 0.
+        compass->moveBy(200, 15); CanvasGeometry::keepInside(compass.data(), 640, 480);
+        QCOMPARE(compass->positionY, 15.); QCOMPARE(compass->getBoundingRect().left(), 0.);
+        ViewportPanel viewport; viewport.setSelectedIndexes({0}); QTest::keyClick(&viewport, Qt::Key_Right);
+        QCOMPARE(compass->positionY, 15.); QTest::keyClick(&viewport, Qt::Key_Down); QCOMPARE(compass->positionY, 16.);
+        const auto baseline = p->buildCompiledFpgaXml();
+        const QMap<QString, QList<int>> reserved = {{"pitch_scale", {58, 89, 90, 121, 149}},
+            {"bank_scale", {1, 26, 41, 119, 149}}, {"compass_scale", {0, 1, 55, 86, 87, 118, 149}}};
+        for (auto it = reserved.cbegin(); it != reserved.cend(); ++it) for (int bit : it.value()) {
+            auto invalid = baseline.cloneNode(true).toDocument();
+            auto init = invalid.documentElement().firstChildElement("objects").firstChildElement(it.key()).firstChildElement("init");
+            auto hex = init.text(); BitParser::inject(hex, bit, 1, 1); init.firstChild().setNodeValue(hex);
+            QVERIFY2(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error), qPrintable(it.key() + QString::number(bit)));
+        }
+        for (bool data : {false, true}) {
+            auto invalid = baseline.cloneNode(true).toDocument();
+            auto object = invalid.documentElement().firstChildElement("objects").firstChildElement("compass_scale");
+            object.appendChild(data ? invalid.createElement("data") : object.firstChildElement("init").cloneNode(true));
+            QVERIFY(!FpgaSchemaRegistry::instance()->validateXml(invalid, &error));
+        }
+        compass->courseAngle = 512;
+        QVERIFY(!FpgaProjectPacketBuilder::buildCurrentProject(&error).document.isValid());
+    }
+    void compassScalePreviewAndUart() {
+        auto *p = ProjectManager::instance(); QString error; const QColor background("#303840");
+        QVERIFY(p->createNewProject("Compass preview", 640, 480, background)); QVERIFY(p->addObject("compass_scale") >= 0);
+        auto compass = qSharedPointerDynamicCast<CompassScaleObject>(p->getObjectAt(0)); QVERIFY(compass);
+        QImage contact(640 * 2, 480 * 2, QImage::Format_ARGB32); contact.fill(background); int cell = 0;
+        QImage zero;
+        for (double angle : {0., 359.9921875, 256., -512., 360., -360., 511.9921875}) {
+            QVERIFY(p->setObjectProperty(compass.data(), "Курс (°)", QString::number(angle, 'g', 12)));
+            const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&error); QVERIFY2(bundle.document.isValid(), qPrintable(error));
+            FpgaSimulator sim; sim.loadBundle(bundle);
+            QImage editor(640, 480, QImage::Format_ARGB32); editor.fill(background);
+            { QPainter painter(&editor); compass->draw(painter); }
+            QCOMPARE(sim.renderFrame(), editor); QCOMPARE(editor.pixelColor(320, 240), compass->color);
+            if (angle == 0) zero = editor;
+            if (angle == 360 || angle == -360) QCOMPARE(editor, zero);
+            if (cell < 4) { QPainter painter(&contact); painter.drawImage((cell % 2) * 640, (cell / 2) * 480, editor); ++cell; }
+        }
+        QVERIFY(contact.save(QCoreApplication::applicationDirPath() + "/compass-scales.png"));
+        ObjectPropertiesPanel properties; properties.showProperties(compass); properties.resize(360, 420); properties.show();
+        QTest::qWait(5); QVERIFY(properties.grab().save(QCoreApplication::applicationDirPath() + "/compass-properties.png"));
+        const auto original = FpgaProjectPacketBuilder::buildCurrentProject(&error);
+        const auto config = FpgaPipelineConfig::fromScene(original.document);
+        QVERIFY(p->setObjectProperty(compass.data(), "Курс (°)", "300"));
+        const auto edited = FpgaProjectPacketBuilder::buildCurrentProject(&error, &original.document);
+        QVERIFY2(edited.document.isValid(), qPrintable(error)); QCOMPARE(FpgaPipelineConfig::fromScene(edited.document), config);
+#ifdef Q_OS_UNIX
+        PtyCapture capture; QVERIFY(capture.master >= 0);
+        FpgaUartTransport transport; QSignalSpy setup(&transport, &FpgaUartTransport::setupComplete);
+        FpgaUartConfig uart; uart.portName = QString::fromLocal8Bit(capture.name); uart.loadBaudRate = 57600;
+        QVERIFY(transport.startStreaming(original, uart, &error)); QTRY_COMPARE_WITH_TIMEOUT(setup.size(), 1, 3000);
+        const auto initial = QByteArray(1, char(0)) + FpgaUartTransport::sceneBytes(original);
+        QTRY_COMPARE_WITH_TIMEOUT(capture.data(), initial, 1000);
+        transport.updateScene(edited);
+        const auto expected = initial + edited.packets[0].bytes;
+        QTRY_COMPARE_WITH_TIMEOUT(capture.data(), expected, 1000);
+        transport.updateScene(edited); QTest::qWait(30); QCOMPARE(capture.data(), expected);
+#endif
     }
     void ribbonScalePlaceholderPackets() {
         // Проверяем все шесть присланных кадров, включая FCS. В двух сценах

@@ -28,6 +28,7 @@
 #include "RibbonScaleObject.h"
 #include "PitchScaleObject.h"
 #include "BankScaleObject.h"
+#include "CompassScaleObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
 #include "OptimizedStaticImageObject.h"
@@ -272,6 +273,7 @@ void ProjectManager::registerStandardTypes()
     om->registerType("speed_scale", []() { return new RibbonScaleObject(); });
     om->registerType("pitch_scale", []() { return new PitchScaleObject(); });
     om->registerType("bank_scale", []() { return new BankScaleObject(); });
+    om->registerType("compass_scale", []() { return new CompassScaleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
     om->registerType("aviahorizont", []() { return new AviaHorizonObject(); });
@@ -349,6 +351,9 @@ int ProjectManager::addObject(const QString &typeName)
     else if (auto bank = dynamic_cast<BankScaleObject*>(rawObject)) {
         bank->centerX = qMin(4095.0, m_document.canvasWidth() / 2.0);
         bank->centerY = qMin(4095.0, m_document.canvasHeight() / 2.0);
+    }
+    else if (auto compass = dynamic_cast<CompassScaleObject*>(rawObject)) {
+        compass->positionY = qMin(4095.0, m_document.canvasHeight() / 2.0);
     }
     else if (auto horizon = dynamic_cast<AviaHorizonObject*>(rawObject)) {
         horizon->enabled = true;

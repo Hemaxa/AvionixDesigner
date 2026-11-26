@@ -4,12 +4,21 @@
 #include "fpga/model/Layer3dFormat.h"
 #include "fpga/model/PitchScaleFormat.h"
 #include "fpga/model/BankScaleFormat.h"
+#include "fpga/model/CompassScaleFormat.h"
 #include "BitParser.h"
 #include <QDomDocument>
 #include <QRegularExpression>
 #include <QSet>
 
 namespace {
+bool hasNonzeroBits(const QString &hex, int offset, int size)
+{
+    // extract() читает не более 32 бит; padding шкал может занимать 95 бит.
+    for (int bit = 0; bit < size; bit += 32)
+        if (BitParser::extract(hex, offset + bit, qMin(32, size - bit))) return true;
+    return false;
+}
+
 QList<FpgaSchemaField> layer3dFields()
 {
     return {
@@ -155,6 +164,14 @@ QList<FpgaSchemaField> bankScaleFields()
         {"padding", paddingOffset, paddingBits}};
 }
 
+QList<FpgaSchemaField> compassScaleFields()
+{
+    using namespace CompassScaleFormat;
+    return {{"reserved", reservedOffset, reservedBits}, {"position_y", yOffset, coordinateBits},
+        {"course_angle", courseOffset, courseBits}, {"color", colorOffset, colorBits},
+        {"padding", paddingOffset, paddingBits}};
+}
+
 QList<FpgaSchemaField> fontGlyphFields()
 {
     return {
@@ -248,7 +265,8 @@ bool FpgaSchemaRegistry::validateXml(const QDomDocument &document, QString *erro
             return fail(QStringLiteral("В проекте допускается только один layer3d."));
         if (object.firstChildElement("init").isNull())
             return fail(QStringLiteral("У объекта <%1> отсутствует <init>.").arg(name));
-        if ((name == "pitch_scale" || name == "bank_scale") && !object.firstChildElement("init").nextSiblingElement("init").isNull())
+        if ((name == "pitch_scale" || name == "bank_scale" || name == "compass_scale")
+            && !object.firstChildElement("init").nextSiblingElement("init").isNull())
             return fail(QStringLiteral("%1 должен содержать одно 150-битное слово init.").arg(name.toUpper()));
         for (auto child = object.firstChildElement(); !child.isNull(); child = child.nextSiblingElement()) {
             const QString tag = child.tagName();
@@ -261,6 +279,8 @@ bool FpgaSchemaRegistry::validateXml(const QDomDocument &document, QString *erro
                     const int rotation = BitParser::extractSigned(hex, PitchScaleFormat::rotationOffset, PitchScaleFormat::angleBits);
                     if (pitch < -90 * 128 || pitch > 90 * 128 || rotation < -180 * 128 || rotation > 180 * 128)
                         return fail(QStringLiteral("Углы PITCH_SCALE выходят за диапазоны Python: тангаж ±90°, поворот ±180°."));
+                    if (hasNonzeroBits(hex, PitchScaleFormat::paddingOffset, PitchScaleFormat::paddingBits))
+                        return fail(QStringLiteral("Резервные биты PITCH_SCALE должны быть нулевыми."));
                 }
                 if (name == "bank_scale") {
                     const auto hex = child.text().trimmed();
@@ -271,6 +291,12 @@ bool FpgaSchemaRegistry::validateXml(const QDomDocument &document, QString *erro
                         || BitParser::extract(hex, BankScaleFormat::reservedAngleOffset, BankScaleFormat::angleBits)
                         || BitParser::extract(hex, BankScaleFormat::paddingOffset, BankScaleFormat::paddingBits))
                         return fail(QStringLiteral("Резервные биты BANK_SCALE должны быть нулевыми."));
+                }
+                if (name == "compass_scale") {
+                    const auto hex = child.text().trimmed();
+                    if (hasNonzeroBits(hex, CompassScaleFormat::reservedOffset, CompassScaleFormat::reservedBits)
+                        || hasNonzeroBits(hex, CompassScaleFormat::paddingOffset, CompassScaleFormat::paddingBits))
+                        return fail(QStringLiteral("Неописанные биты COMPASS_SCALE должны быть нулевыми."));
                 }
             } else if (tag == QStringLiteral("data")) {
                 if (name != "staticgroup" && name != "rotationobject" && name != "font" && name != "text")
@@ -305,6 +331,8 @@ QList<FpgaSchemaField> FpgaSchemaRegistry::fieldsForSchema(const QString &schema
         return pitchScaleFields();
     if (schemaName == "bank_scale")
         return bankScaleFields();
+    if (schemaName == "compass_scale")
+        return compassScaleFields();
     if (schemaName == "font")
         return fontGlyphFields();
     if (schemaName == "text")
@@ -324,7 +352,7 @@ ParamSchema FpgaSchemaRegistry::buildSchema(const QString &schemaName) const
 
 QStringList FpgaSchemaRegistry::orderedSchemaNames() const
 {
-    return {"layer3d", "rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviahorizont", "dashline", "RibonScale", "speed_scale", "pitch_scale", "bank_scale", "font", "text"};
+    return {"layer3d", "rectangle", "rectangle_a", "rotationobject", "staticgroup", "aviahorizont", "dashline", "RibonScale", "speed_scale", "pitch_scale", "bank_scale", "compass_scale", "font", "text"};
 }
 
 QStringList FpgaSchemaRegistry::defaultSchemaNames() const
@@ -340,6 +368,7 @@ QList<EditorObjectDescriptor> FpgaSchemaRegistry::editorObjectCatalog() const
         {"speed_scale", QStringLiteral("Шкала скорости"), QStringLiteral(":/icons/icons/library/speedscale.svg"), true, true},
         {"pitch_scale", QStringLiteral("Шкала тангажа"), QStringLiteral(":/icons/icons/library/pitchscale.svg"), true, true},
         {"bank_scale", QStringLiteral("Шкала крена"), QStringLiteral(":/icons/icons/library/rollscale.svg"), true, true},
+        {"compass_scale", QStringLiteral("Шкала курса"), QStringLiteral(":/icons/icons/library/compassscale.svg"), true, true},
         {"aviahorizont", QStringLiteral("Авиагоризонт"), QStringLiteral(":/icons/icons/library/aviahorizon.svg"), true, true},
         {"layer3d", QStringLiteral("3D вид"), QStringLiteral(":/icons/icons/library/three-d-view.svg"), true, true},
         {"text", QStringLiteral("Текст"), QStringLiteral(":/icons/icons/library/text.svg"), true, true},

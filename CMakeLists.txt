@@ -109,6 +109,9 @@ qt_add_executable(AvionixDesigner
     src/objects/PitchScaleObject.cpp
     src/objects/BankScaleObject.h
     src/objects/BankScaleObject.cpp
+    src/objects/CompassScaleObject.h
+    src/objects/CompassScaleObject.cpp
+    src/objects/ScaleGlyphs.h
     src/objects/RotationObject.h
     src/objects/RotationObject.cpp
     src/objects/StaticGroupObject.h
@@ -152,6 +155,7 @@ qt_add_executable(AvionixDesigner
     src/fpga/model/Layer3dFormat.h
     src/fpga/model/PitchScaleFormat.h
     src/fpga/model/BankScaleFormat.h
+    src/fpga/model/CompassScaleFormat.h
     src/fpga/model/ScaleFormat.h
     src/fpga/packets/FpgaPacket.h
     src/fpga/packets/FpgaPacket.cpp

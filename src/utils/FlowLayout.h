@@ -68,11 +68,12 @@ public:
     QSize minimumSizeHint() const override { return QSize(110, 74); }
     QSize sizeHint() const override { return QSize(320, 96); }
 protected:
-    bool viewportEvent(QEvent *event) override {
-        const bool result = QScrollArea::viewportEvent(event);
-        if (event->type() == QEvent::Resize && widget() && widget()->layout())
-            widget()->setMinimumHeight(widget()->layout()->heightForWidth(viewport()->width()));
-        return result;
+    void resizeEvent(QResizeEvent *event) override {
+        // Минимум нужно обновить до расчёта полос: прежняя узкая ширина
+        // иначе удерживает лишнюю строку даже после расширения панели.
+        if (widget() && widget()->layout())
+            widget()->setMinimumHeight(widget()->layout()->heightForWidth(event->size().width()));
+        QScrollArea::resizeEvent(event);
     }
 };
 
@@ -82,6 +83,9 @@ inline FlowLayout *createFlowPanel(QWidget *panel)
     panel->setMinimumSize(110, 74);
     auto *scroll = new FlowScrollArea(panel);
     auto *body = new QWidget;
+    // Высоту задаёт перенос по фактической ширине viewport. sizeHint(320)
+    // иначе сохраняет лишнюю третью строку даже в широкой панели.
+    body->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
     auto *flow = new FlowLayout(body);
     scroll->setWidget(body);
     auto *layout = new QVBoxLayout(panel);
