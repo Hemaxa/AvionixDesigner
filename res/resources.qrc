@@ -6,13 +6,35 @@
         <file>themes/AvionixDesignerTheme.qss</file>
     </qresource>
     <qresource prefix="/icons">
+        <file>icons/list/optimized.svg</file>
+        <file>icons/static-editor/shape-builder.svg</file>
+        <file>icons/static-editor/merge-masks.svg</file>
+        <file>icons/static-editor/select.svg</file>
+        <file>icons/static-editor/extend-cut.svg</file>
+        <file>icons/static-editor/eraser.svg</file>
+        <file>icons/static-editor/hand.svg</file>
+        <file>icons/static-editor/isolate.svg</file>
+        <file>icons/static-editor/split.svg</file>
+        <file>icons/static-editor/preview-before.svg</file>
+        <file>icons/static-editor/preview-after.svg</file>
+        <file>icons/static-editor/fit.svg</file>
+        <file>icons/static-editor/back.svg</file>
+        <file>icons/static-editor/move-up.svg</file>
+        <file>icons/static-editor/move-down.svg</file>
+        <file>icons/static-editor/move-top.svg</file>
+        <file>icons/static-editor/move-bottom.svg</file>
+        <file>icons/static-editor/color.svg</file>
+        <file>icons/static-editor/exclude-empty.svg</file>
         <file>icons/layers/add.svg</file>
         <file>icons/layers/delete.svg</file>
         <file>icons/layers/duplicate.svg</file>
         <file>icons/layers/merge.svg</file>
         <file>icons/library/rectangle.svg</file>
         <file>icons/library/dashedline.svg</file>
-        <file>icons/library/ribonscale.svg</file>
+        <file>icons/library/speedscale.svg</file>
+        <file>icons/library/pitchscale.svg</file>
+        <file>icons/library/rollscale.svg</file>
+        <file>icons/library/compassscale.svg</file>
         <file>icons/library/aviahorizon.svg</file>
         <file>icons/library/three-d-view.svg</file>
         <file>icons/objects/aircraft-position-dot.svg</file>

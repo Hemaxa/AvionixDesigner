@@ -21,7 +21,7 @@ QPointF CanvasGeometry::constrainMove(const QRectF &bounds, const QPointF &delta
 void CanvasGeometry::keepInside(BaseObject *object, int width, int height)
 {
     if (!object || width <= 0 || height <= 0) return;
-    const auto correction = constrainMove(object->getBoundingRect(), {}, width, height);
+    const auto correction = constrainMove(object->canvasConstraintRect(), {}, width, height);
     if (!qFuzzyIsNull(correction.x()) || !qFuzzyIsNull(correction.y()))
         object->moveBy(correction.x(), correction.y());
 }

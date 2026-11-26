@@ -5,10 +5,14 @@
 #include "RectangleObject.h"
 #include "DashedLineObject.h"
 #include "RibbonScaleObject.h"
+#include "PitchScaleObject.h"
+#include "BankScaleObject.h"
+#include "CompassScaleObject.h"
 #include "AviaHorizonObject.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "OptimizedStaticImageObject.h"
 #include "TextObject.h"
 #include "ThreeDViewObject.h"
 #include "ObjectReflection.h"
@@ -263,11 +267,15 @@ public:
 
 QString objectType(BaseObject *object)
 {
+    if (dynamic_cast<OptimizedStaticImageObject *>(object)) return "optimized-static";
     if (dynamic_cast<SymmetryCopyObject *>(object)) return "symmetry-copy";
     if (dynamic_cast<TextObject *>(object)) return "text";
     if (dynamic_cast<RectangleObject *>(object)) return "rectangle";
     if (dynamic_cast<DashedLineObject *>(object)) return "dashline";
-    if (dynamic_cast<RibbonScaleObject *>(object)) return "RibonScale";
+    if (dynamic_cast<RibbonScaleObject *>(object)) return "speed_scale";
+    if (dynamic_cast<PitchScaleObject *>(object)) return "pitch_scale";
+    if (dynamic_cast<BankScaleObject *>(object)) return "bank_scale";
+    if (dynamic_cast<CompassScaleObject *>(object)) return "compass_scale";
     if (dynamic_cast<AviaHorizonObject *>(object)) return "aviahorizont";
     if (dynamic_cast<ThreeDViewObject *>(object)) return "layer3d";
     if (dynamic_cast<ImageObject *>(object)) return "image";
@@ -279,9 +287,13 @@ QString objectType(BaseObject *object)
 QSharedPointer<BaseObject> createObject(const QDomElement &n)
 {
     const QString type = n.attribute("type");
+    if (type == "optimized-static") return QSharedPointer<OptimizedStaticImageObject>::create();
     if (type == "rectangle") return QSharedPointer<RectangleObject>::create();
     if (type == "dashline") return QSharedPointer<DashedLineObject>::create();
-    if (type == "RibonScale") return QSharedPointer<RibbonScaleObject>::create();
+    if (type == "RibonScale" || type == "speed_scale") return QSharedPointer<RibbonScaleObject>::create();
+    if (type == "pitch_scale") return QSharedPointer<PitchScaleObject>::create();
+    if (type == "bank_scale") return QSharedPointer<BankScaleObject>::create();
+    if (type == "compass_scale") return QSharedPointer<CompassScaleObject>::create();
     if (type == "aviahorizont") return QSharedPointer<AviaHorizonObject>::create();
     if (type == "layer3d") return QSharedPointer<ThreeDViewObject>::create();
     if (type == "text") return QSharedPointer<TextObject>::create();
@@ -329,7 +341,45 @@ void rotationLayer(Fields &a, RotationObjectLayer &v)
 
 void objectFields(Fields &a, BaseObject &object, Resources &resources)
 {
-    if (auto *v = dynamic_cast<RectangleObject *>(&object)) {
+    if (auto *v = dynamic_cast<OptimizedStaticImageObject *>(&object)) {
+        a.value("x", v->x); a.value("y", v->y);
+        int width = v->document.size.width(), height = v->document.size.height(), original = int(v->document.originalCells);
+        a.value("width", width); a.value("height", height); a.value("original-cells", original); a.value("next-id", v->document.nextId);
+        auto list = a.child("regions");
+        auto regionFields = [&](Fields &r, StaticImageRegion &region) {
+            r.value("id", region.id); r.text("name", region.name); r.value("excluded", region.excluded);
+            int x = region.rect.x(), y = region.rect.y(), w = region.rect.width(), h = region.rect.height();
+            r.value("x", x); r.value("y", y); r.value("width", w); r.value("height", h);
+            region.rect = QRect(x, y, w, h);
+            auto masks = r.child("masks");
+            auto maskFields = [&](Fields &m, StaticImageMask &mask) {
+                int mx = mask.rect.x(), my = mask.rect.y(), mw = mask.rect.width(), mh = mask.rect.height();
+                m.value("x", mx); m.value("y", my); m.value("width", mw); m.value("height", mh);
+                m.value("color", mask.color); m.value("enabled", mask.enabled);
+                QImage image = a.reading ? QImage() : mask.image(); resources.image(m.child("image"), image);
+                if (a.reading) {
+                    if (image.size() != QSize(mw, mh)) m.fail("Размер сохранённой маски не совпадает с init.");
+                    mask = StaticImageMask::fromImage(QRect(mx, my, mw, mh), mask.color, image, mask.enabled);
+                }
+            };
+            if (a.reading) {
+                region.masks.clear();
+                for (auto n = masks.firstChildElement("mask"); !n.isNull(); n = n.nextSiblingElement("mask")) {
+                    if (region.masks.size() >= 65536) { r.fail("Слишком много масок в части."); break; }
+                    StaticImageMask mask; Fields m(n, true, a.error); maskFields(m, mask); region.masks.append(mask);
+                }
+            } else for (auto &mask : region.masks) { Fields m(append(masks, "mask"), false, a.error); maskFields(m, mask); }
+        };
+        if (a.reading) {
+            v->document.size = QSize(width, height); v->document.originalCells = original; v->document.regions.clear();
+            for (auto n = list.firstChildElement("region"); !n.isNull(); n = n.nextSiblingElement("region")) {
+                if (v->document.regions.size() >= 4096) { a.fail("Слишком много областей разбиения."); break; }
+                StaticImageRegion region; Fields r(n, true, a.error); regionFields(r, region); v->document.regions.append(region);
+            }
+        } else for (auto &region : v->document.regions) { Fields r(append(list, "region"), false, a.error); regionFields(r, region); }
+        QString validation;
+        if (!v->document.validate(&validation) || !qIsFinite(v->x) || !qIsFinite(v->y)) a.fail(validation.isEmpty() ? "Некорректное положение статического изображения." : validation);
+    } else if (auto *v = dynamic_cast<RectangleObject *>(&object)) {
         a.value("enabled", v->enabled); a.value("x", v->x); a.value("y", v->y); a.value("width", v->width); a.value("height", v->height);
         a.value("fill", v->fillColor); a.value("stroke", v->strokeColor); a.value("stroke-width", v->strokeWidth);
         a.value("alpha", v->alpha); a.value("explicit-alpha", v->explicitAlpha);
@@ -340,6 +390,19 @@ void objectFields(Fields &a, BaseObject &object, Resources &resources)
     } else if (auto *v = dynamic_cast<RibbonScaleObject *>(&object)) {
         a.value("enabled", v->enabled); a.value("color", v->color); a.value("left", v->left); a.value("right", v->right);
         a.value("top", v->top); a.value("bottom", v->bottom); a.value("line-width", v->lineWidth); a.value("period", v->period); a.value("start-y", v->yStart);
+    } else if (auto *v = dynamic_cast<PitchScaleObject *>(&object)) {
+        a.value("enabled", v->enabled); a.value("scale-mode", v->scaleMode);
+        a.value("center-x", v->centerX); a.value("center-y", v->centerY);
+        a.value("pitch-angle", v->pitchAngle); a.value("rotation-angle", v->rotationAngle);
+        if (!v->hasValidParameters()) a.fail("Параметры шкалы тангажа выходят за диапазоны Python.");
+    } else if (auto *v = dynamic_cast<BankScaleObject *>(&object)) {
+        a.value("enabled", v->enabled); a.value("center-x", v->centerX); a.value("center-y", v->centerY);
+        a.value("bank-angle", v->bankAngle); a.value("radius", v->radius);
+        a.value("tick-color", v->tickColor); a.value("mark20-color", v->mark20Color); a.value("color-valid", v->colorValid);
+        if (!v->hasValidParameters()) a.fail("Параметры шкалы крена выходят за диапазоны Python.");
+    } else if (auto *v = dynamic_cast<CompassScaleObject *>(&object)) {
+        a.value("position-y", v->positionY); a.value("course-angle", v->courseAngle); a.value("color", v->color);
+        if (!v->hasValidParameters()) a.fail("Параметры шкалы курса выходят за диапазоны iparam.");
     } else if (auto *v = dynamic_cast<AviaHorizonObject *>(&object)) {
         a.value("enabled", v->enabled); a.value("earth-color", v->earthColor); a.value("sky-color", v->skyColor); a.value("line-color", v->horizonLineColor);
         a.value("line-width", v->lineWidth); a.value("center-x", v->xCenter); a.value("center-y", v->yCenter);
@@ -587,13 +650,18 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
         compiled = FpgaCompiledDocument::fromDomDocument(editor.ownerDocument(), &error);
         if (!error.isEmpty()) return false;
     }
-    QMap<BaseObject *, int> hardwareIndex;
+    QMap<BaseObject *, QList<int>> hardwareIndex;
     if (!reading) {
         int next = 0;
         for (const auto &ptr : state.objects)
-            if (dynamic_cast<ThreeDViewObject *>(ptr.data()) && ptr->isExportEnabled()) hardwareIndex.insert(ptr.data(), next++);
+            if (dynamic_cast<ThreeDViewObject *>(ptr.data()) && ptr->isExportEnabled()) hardwareIndex.insert(ptr.data(), {next++});
         for (int i = state.objects.size() - 1; i >= 0; --i)
-            if (state.objects[i]->isExportEnabled() && !dynamic_cast<ThreeDViewObject *>(state.objects[i].data())) hardwareIndex.insert(state.objects[i].data(), next++);
+            if (state.objects[i]->isExportEnabled() && !dynamic_cast<ThreeDViewObject *>(state.objects[i].data())) {
+                const auto *optimized = dynamic_cast<OptimizedStaticImageObject *>(state.objects[i].data());
+                const int count = optimized ? optimized->document.exportedRegions().size() : 1;
+                QList<int> indexes; for (int j = 0; j < count; ++j) indexes.append(next++);
+                hardwareIndex.insert(state.objects[i].data(), indexes);
+            }
         if (next != hardware.size()) { error = "Не удалось сопоставить объекты редактора с аппаратным XML."; return false; }
     }
     QSet<int> referencedHardware;
@@ -702,7 +770,8 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
             copySources.insert(index, relation.attribute("source")); usedAxes.insert(axisId);
             ptr = QSharedPointer<SymmetryCopyObject>::create(QSharedPointer<BaseObject>{}, axes.value(axisId));
         }
-        if (!ptr || type.isEmpty() || (tag != type && !(type == "rectangle" && tag == "rectangle_a"))) { root.fail("Неизвестный тип объекта редактора или неверный export-tag."); return false; }
+        if (!ptr || type.isEmpty() || (tag != type && !(type == "rectangle" && tag == "rectangle_a")
+            && !(type == "speed_scale" && tag == "RibonScale"))) { root.fail("Неизвестный тип объекта редактора или неверный export-tag."); return false; }
         if (type == "layer3d" && ++threeDCount > 1) root.fail("В редакторе допускается один 3D-вид.");
         Fields meta(object, reading, error);
         int layer = ptr->editorLayerId(); QString name = ptr->customName(), hint = ptr->editRestrictionHint();
@@ -720,8 +789,43 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
                 relation.setAttribute("axis-id", copy->axis()->id);
                 relation.setAttribute("source", QStringLiteral("object-%1").arg(state.objects.indexOf(copy->source()) + 1));
             }
+        } else if (type == "optimized-static") {
+            auto *optimized = static_cast<OptimizedStaticImageObject *>(ptr.data());
+            Fields parameters(meta.child("parameters"), reading, error); objectFields(parameters, *ptr, resources);
+            if (!error.isEmpty()) return false;
+            Fields references(meta.child("hardware-references"), reading, error);
+            QList<int> indexes = reading ? QList<int>() : (exported ? hardwareIndex.value(ptr.data()) : QList<int>());
+            if (reading) for (auto n = references.node.firstChildElement("ref"); !n.isNull(); n = n.nextSiblingElement("ref")) {
+                Fields r(n, true, error); int value = -1; r.value("index", value); indexes.append(value);
+            }
+            else for (int value : indexes) append(references.node, "ref").setAttribute("index", value);
+            const auto groups = optimized->hardwareGroups();
+            if (indexes.size() != (exported ? groups.size() : 0)) { root.fail("Число аппаратных ссылок оптимизированного изображения не совпадает с частями."); return false; }
+            for (int i = 0; i < indexes.size(); ++i) {
+                const int reference = indexes[i];
+                if (reference < 0 || reference >= hardware.size() || referencedHardware.contains(reference)
+                    || hardware[reference].tagName() != "staticgroup") { root.fail("Некорректная ссылка на часть статического изображения."); return false; }
+                referencedHardware.insert(reference);
+                if (reading) {
+                    const auto &actual = compiled.objects[reference];
+                    const auto schema = compiled.schemas.value("staticgroup");
+                    QStringList words;
+                    for (int state = 0; state < groups[i]->states.size(); ++state) {
+                        QString word(38, '0'); const auto values = groups[i]->serializeState(state);
+                        for (auto it = values.cbegin(); it != values.cend(); ++it) {
+                            const auto f = schema.value(it.key()); BitParser::inject(word, f.offset, f.size, it.value());
+                        }
+                        words.append(word.toUpper());
+                    }
+                    QString data;
+                    const auto region = optimized->document.exportedRegions()[i];
+                    for (const auto &mask : optimized->document.regions[region].masks) for (char value : mask.data) data.append(QChar('0' + value));
+                    QStringList actualWords; for (const auto &word : actual.iparams) actualWords.append(word.toUpper());
+                    if (words != actualWords || data != actual.data) { root.fail("Аппаратные данные части не совпадают с метаданными редактора."); return false; }
+                }
+            }
         } else if (exported) {
-            int reference = reading ? -1 : hardwareIndex.value(ptr.data(), -1);
+            int reference = reading ? -1 : hardwareIndex.value(ptr.data()).value(0, -1);
             meta.value("hardware-index", reference);
             const QString expected = type == "image" ? (object.attribute("kind") == "rotating" ? "rotationobject" : "staticgroup") : tag;
             if (reference < 0 || reference >= hardware.size() || referencedHardware.contains(reference)
@@ -735,18 +839,31 @@ bool process(QDomElement editor, State &state, bool reading, QString &error)
                 restricted = text->restrictedAtlasEditing;
                 editing.value("restricted-atlas-editing", restricted);
             }
-            const bool scaleParameters = type == "RibonScale" && (!reading || !object.firstChildElement("parameters").isNull());
-            if (reading && type == "RibonScale" && !scaleParameters
+            const bool speedScale = type == "RibonScale" || type == "speed_scale";
+            const bool scaleParameters = (speedScale || type == "pitch_scale" || type == "bank_scale" || type == "compass_scale")
+                && (!reading || !object.firstChildElement("parameters").isNull());
+            if (reading && speedScale && !scaleParameters
                 && !hardware[reference].firstChildElement("init").nextSiblingElement("init").isNull()) {
                 root.fail("У трёхсловной заглушки шкалы отсутствуют исходные параметры редактора."); return false;
             }
             if (reading && !scaleParameters && !restoreHardware(*ptr, hardware[reference], compiled, restricted, error)) return false;
             if (scaleParameters) {
-                // Аппаратные init шкалы временно фиксированы. Сохраняем исходные
-                // координаты и оформление независимо от заглушки, без округления.
+                // У скорости аппаратный init фиксирован; у остальных шкал сохраняем также
+                // дробное положение центра редактора до аппаратного округления.
                 // Старые проекты без parameters восстанавливаются из прежнего init.
                 Fields parameters(meta.child("parameters"), reading, error);
                 objectFields(parameters, *ptr, resources);
+                if (reading && !speedScale) {
+                    QString word(38, '0');
+                    const auto schema = compiled.schemas.value(tag);
+                    const auto values = ptr->serializeParams();
+                    for (auto it = values.cbegin(); it != values.cend(); ++it) {
+                        const auto field = schema.value(it.key());
+                        BitParser::inject(word, field.offset, field.size, it.value());
+                    }
+                    if (word.compare(hardware[reference].firstChildElement("init").text().trimmed(), Qt::CaseInsensitive) != 0)
+                        root.fail("Параметры шкалы в editor не совпадают с аппаратным init.");
+                }
             }
             if (auto *text = dynamic_cast<TextObject *>(ptr.data())) {
                 Fields editing(options, reading, error);

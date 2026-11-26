@@ -19,6 +19,7 @@
 #include "fpga/config/FpgaPipelineConfig.h"
 
 class ThreeDViewObject;
+class StaticImageDocument;
 
 // ObjectAlignment - направление выравнивания объектов относительно холста или выделения.
 enum class ObjectAlignment
@@ -129,6 +130,7 @@ public:
     // Проверяем весь набор до изменения, затем записываем одну операцию истории.
     bool setObjectsProperty(const QList<QSharedPointer<BaseObject>> &objects, const QString &name, const QString &value);
     bool isObjectPropertyEditable(const BaseObject *object, const QString &name) const;
+    bool applyStaticImageDocument(int index, const StaticImageDocument &document, QString *error = nullptr);
     bool setObjectRotationPivot(int index, const QPointF &canvasPosition);
 
     bool canCreateSymmetry(const QList<int> &indexes) const;
@@ -304,8 +306,8 @@ private:
     bool m_snapToObjects = false;
 
     int m_gridStep = 10;
-    QColor m_gridColor = QColor(120, 180, 200, 55);
-    QColor m_snapCanvasGuideColor = QColor(255, 92, 122, 210);
-    QColor m_snapGridGuideColor = QColor(86, 211, 255, 210);
-    QColor m_snapObjectGuideColor = QColor(255, 202, 88, 220);
+    QColor m_gridColor;
+    QColor m_snapCanvasGuideColor;
+    QColor m_snapGridGuideColor;
+    QColor m_snapObjectGuideColor;
 };

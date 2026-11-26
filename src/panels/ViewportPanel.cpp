@@ -8,6 +8,8 @@
 #include "DashedLineObject.h"
 #include "ImageObject.h"
 #include "RotationObject.h"
+#include "PitchScaleObject.h"
+#include "BankScaleObject.h"
 #include "ApplicationSettings.h"
 #include "EditorGestures.h"
 #include <cmath>
@@ -78,6 +80,7 @@ ViewportPanel::ViewportPanel(QWidget *parent)
 {
     // устанавливаем имя для стилизации через QSS
     setPanelName("ViewportPanel");
+    m_selectionColor = AppearanceManager::instance()->color("accent");
 
     setMinimumSize(200, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -193,7 +196,7 @@ void ViewportPanel::keyPressEvent(QKeyEvent *event)
     const auto movable = movableSelection();
     if (movable.isEmpty()) { event->accept(); return; }
     QRectF bounds;
-    for (int index : movable) bounds = bounds.isNull() ? project->getObjectAt(index)->getBoundingRect() : bounds.united(project->getObjectAt(index)->getBoundingRect());
+    for (int index : movable) bounds = bounds.isNull() ? project->getObjectAt(index)->canvasConstraintRect() : bounds.united(project->getObjectAt(index)->canvasConstraintRect());
     delta = CanvasGeometry::constrainMove(bounds, delta,
         project->getCanvasWidth(), project->getCanvasHeight());
     delta = project->constrainSymmetryMove(movable, delta);
@@ -281,7 +284,7 @@ double ViewportPanel::currentTotalScale() const
 
 double ViewportPanel::handleSizeInCanvas() const
 {
-    return 8.0 / currentTotalScale();
+    return AppearanceManager::instance()->number("viewport.handleSize") / currentTotalScale();
 }
 
 void ViewportPanel::drawManipulators(QPainter &painter, const QPolygonF &polygon, bool canResize, bool canRotate)
@@ -290,7 +293,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QPolygonF &polygon
     painter.save();
 
     // Рамка выделения
-    QPen dashPen(m_selectionColor, 1, Qt::DashLine);
+    QPen dashPen = AppearanceManager::instance()->pen("pen.selection", m_selectionColor);
     dashPen.setCosmetic(true);
     painter.setPen(dashPen);
     painter.setBrush(Qt::NoBrush);
@@ -302,7 +305,7 @@ void ViewportPanel::drawManipulators(QPainter &painter, const QPolygonF &polygon
     if (canResize) {
         // Маркеры ресайза
         painter.setPen(m_selectionColor);
-        painter.setBrush(Qt::white);
+        painter.setBrush(AppearanceManager::instance()->color("viewport.handle"));
 
         auto drawHandle = [&](double x, double y) {
             painter.drawRect(QRectF(x - half, y - half, size, size));
@@ -326,9 +329,9 @@ void ViewportPanel::drawRotationPivot(QPainter &painter, const BaseObject *objec
 {
     const auto center = object->rotationCenter();
     if (!qIsFinite(center.x()) || !qIsFinite(center.y())) return;
-    const double scale = currentTotalScale(), radius = 4.0 / scale, arm = 8.0 / scale;
+    const double scale = currentTotalScale(), radius = AppearanceManager::instance()->number("viewport.pivotRadius") / scale, arm = AppearanceManager::instance()->number("viewport.pivotArm") / scale;
     painter.save();
-    QPen pen(m_selectionColor, 1.5); pen.setCosmetic(true); painter.setPen(pen);
+    QPen pen = AppearanceManager::instance()->pen("pen.medium", m_selectionColor); pen.setCosmetic(true); painter.setPen(pen);
     painter.setBrush(palette().color(QPalette::Window));
     painter.drawEllipse(center, radius, radius);
     painter.drawLine(center + QPointF(-arm, 0), center + QPointF(arm, 0));
@@ -343,19 +346,19 @@ void ViewportPanel::drawDashedLineEndpointManipulators(QPainter &painter, const 
 
     painter.save();
 
-    QPen guidePen(m_selectionColor, 1, Qt::DashLine);
+    QPen guidePen = AppearanceManager::instance()->pen("pen.selection", m_selectionColor);
     guidePen.setCosmetic(true);
     painter.setPen(guidePen);
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(line->getBoundingRect());
 
     const double size = handleSizeInCanvas();
-    const double radius = size * 0.55;
+    const double radius = size * AppearanceManager::instance()->number("viewport.endpointRadiusRatio");
 
-    QPen endpointPen(m_selectionColor, 1.4);
+    QPen endpointPen = AppearanceManager::instance()->pen("pen.endpoint", m_selectionColor);
     endpointPen.setCosmetic(true);
     painter.setPen(endpointPen);
-    painter.setBrush(Qt::white);
+    painter.setBrush(AppearanceManager::instance()->color("viewport.handle"));
     painter.drawEllipse(QPointF(line->x0, line->y0), radius, radius);
     painter.drawEllipse(QPointF(line->x1, line->y1), radius, radius);
 
@@ -367,7 +370,7 @@ void ViewportPanel::drawGrid(QPainter &painter, int canvasW, int canvasH, double
     Q_UNUSED(totalScale);
     const int step = qMax(1, ProjectManager::instance()->gridStep());
 
-    QPen gridPen(ProjectManager::instance()->gridColor(), 1);
+    QPen gridPen = AppearanceManager::instance()->pen("pen.thin", ProjectManager::instance()->gridColor());
     gridPen.setCosmetic(true);
     painter.save();
     painter.setPen(gridPen);
@@ -399,7 +402,7 @@ void ViewportPanel::drawSnapGuides(QPainter &painter, int canvasW, int canvasH)
             break;
         }
 
-        QPen pen(color, 1.0, Qt::DashLine);
+        QPen pen = AppearanceManager::instance()->pen("pen.selection", color);
         pen.setCosmetic(true);
         painter.setPen(pen);
         if (guide.orientation == Qt::Vertical)
@@ -433,7 +436,7 @@ void ViewportPanel::drawSymmetryAxes(QPainter &painter, int canvasW, int canvasH
         }
         if (!visible) continue;
         QColor color = project->snapObjectGuideColor();
-        QPen pen(color, m_dragMode == SymmetryAxisMove && m_dragAxisId == axis->id ? 2.0 : 1.25, Qt::DashDotLine);
+        QPen pen = AppearanceManager::instance()->pen(m_dragMode == SymmetryAxisMove && m_dragAxisId == axis->id ? "pen.symmetryActive" : "pen.symmetry", color);
         pen.setCosmetic(true); painter.setPen(pen); painter.setBrush(palette().color(QPalette::Window));
         const bool vertical = axis->orientation == Qt::Vertical;
         if (vertical) painter.drawLine(QPointF(axis->position, 0), QPointF(axis->position, canvasH));
@@ -537,7 +540,14 @@ ViewportPanel::SnapResult ViewportPanel::snappedMoveDeltaForSelection(
     const QSet<int> selectedSet(m_selectedIndexes.begin(), m_selectedIndexes.end());
     const auto targets = options.objectsEnabled ? snapTargetRectsForSelection(selectedSet) : QList<QRectF>{};
     auto result = ObjectSnapper::snapMove(originalRect, delta, targets, options);
-    result.delta = CanvasGeometry::constrainMove(originalRect, result.delta,
+    QRectF constraintRect;
+    for (int index : objectIndexes) {
+        const auto object = project->getObjectAt(index);
+        if (!object) continue;
+        const auto bounds = object->canvasConstraintRect().translated(-m_dragLastAppliedDelta);
+        constraintRect = constraintRect.isNull() ? bounds : constraintRect.united(bounds);
+    }
+    result.delta = CanvasGeometry::constrainMove(constraintRect, result.delta,
         project->getCanvasWidth(), project->getCanvasHeight());
     result.delta = m_dragLastAppliedDelta + project->constrainSymmetryMove(
         objectIndexes, result.delta - m_dragLastAppliedDelta);
@@ -992,10 +1002,9 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     // Рисуем рамку выделения
     if (m_dragMode == MarqueeSelect) {
         painter.save();
-        QColor marqueeColor = palette().color(QPalette::Highlight);
-        marqueeColor.setAlpha(50);
+        const QColor marqueeColor = AppearanceManager::instance()->color("viewport.marquee");
         painter.setBrush(marqueeColor);
-        painter.setPen(QPen(palette().color(QPalette::Highlight), 1, Qt::DashLine));
+        painter.setPen(AppearanceManager::instance()->pen("pen.selection", palette().color(QPalette::Highlight)));
         QRectF marqueeRect(m_marqueeStartPos, m_marqueeCurrentPos);
         painter.drawRect(marqueeRect.normalized());
         painter.restore();
@@ -1004,9 +1013,8 @@ void ViewportPanel::paintEvent(QPaintEvent *event)
     painter.restore();
 
     // рисуем рамку вокруг холста
-    QColor canvasFrameColor = palette().color(QPalette::WindowText);
-    canvasFrameColor.setAlpha(90);
-    painter.setPen(QPen(canvasFrameColor, 1));
+    const QColor canvasFrameColor = AppearanceManager::instance()->color("viewport.frame");
+    painter.setPen(AppearanceManager::instance()->pen("pen.thin", canvasFrameColor));
     painter.drawRect(QRectF(offsetX, offsetY, canvasW * totalScale, canvasH * totalScale));
 }
 
@@ -1081,6 +1089,8 @@ void ViewportPanel::mousePressEvent(QMouseEvent *event)
                     if (QLineF(canvasPos, m_rotationCenter).length() < 1e-9) { m_dragMode = None; return; }
                     if (const auto *rotation = dynamic_cast<const RotationObject *>(object.data())) m_rotationStartAngle = rotation->getAngleDegrees();
                     else if (const auto *image = dynamic_cast<const ImageObject *>(object.data())) m_rotationStartAngle = image->rotationDegrees;
+                    else if (const auto *pitch = dynamic_cast<const PitchScaleObject *>(object.data())) m_rotationStartAngle = pitch->rotationAngle;
+                    else if (const auto *bank = dynamic_cast<const BankScaleObject *>(object.data())) m_rotationStartAngle = bank->bankAngle;
                     m_rotationStartPointerAngle = qRadiansToDegrees(qAtan2(canvasPos.y() - m_rotationCenter.y(), canvasPos.x() - m_rotationCenter.x()));
                     return;
                 }

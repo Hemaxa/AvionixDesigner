@@ -68,6 +68,9 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
     QList<QRect> stageGlyphs;
     bool overlappingGlyphs = false;
     bool firstScale = true;
+    bool pitchScaleWarning = false;
+    bool bankScaleWarning = false;
+    bool compassScaleWarning = false;
     int nextParameter = 0;
     const auto textSchema = document.schemas.value("text");
     for (const auto &source : document.objects) {
@@ -182,11 +185,29 @@ FpgaHardwareScene FpgaSceneCompiler::compile(const FpgaCompiledDocument &documen
         object.type = source.type;
         object.leftAnchored = source.leftAnchored;
         object.iparams = source.iparams;
-        if (source.type == QStringLiteral("RibonScale")) {
+        if (source.type == QStringLiteral("pitch_scale") && (source.iparams.size() != 1 || !source.data.isEmpty()))
+            return fail(QStringLiteral("PITCH_SCALE требует одно слово iparam и не использует растровую память."));
+        if (source.type == QStringLiteral("pitch_scale") && !pitchScaleWarning) {
+            scene.warnings.append(QStringLiteral("Шкала тангажа: рисунок редактора и симулятора приближённый; параметры UART соответствуют Python."));
+            pitchScaleWarning = true;
+        }
+        if (source.type == QStringLiteral("bank_scale") && (source.iparams.size() != 1 || !source.data.isEmpty()))
+            return fail(QStringLiteral("BANK_SCALE требует одно слово iparam и не использует растровую память."));
+        if (source.type == QStringLiteral("bank_scale") && !bankScaleWarning) {
+            scene.warnings.append(QStringLiteral("Шкала крена: рисунок приближённый, фиксированный радиус 173 px по PDF. Поле radius из Python передаётся отдельно; его влияние на плату не подтверждено."));
+            bankScaleWarning = true;
+        }
+        if (source.type == QStringLiteral("compass_scale") && (source.iparams.size() != 1 || !source.data.isEmpty()))
+            return fail(QStringLiteral("COMPASS_SCALE требует одно слово iparam и не использует растровую память."));
+        if (source.type == QStringLiteral("compass_scale") && !compassScaleWarning) {
+            scene.warnings.append(QStringLiteral("Шкала курса: iparam соответствует PDF; рисунок приближённый, неописанные биты занулены."));
+            compassScaleWarning = true;
+        }
+        if (source.type == QStringLiteral("RibonScale") || source.type == QStringLiteral("speed_scale")) {
             // Старые XML с одним init также отправляются как трёхсловная заглушка.
             object.iparams = FpgaScalePlaceholder::parameters(firstScale);
             if (firstScale)
-                scene.warnings.append(QStringLiteral("Ленточные шкалы передаются временными заглушками из трёх слов; симулятор их не отображает."));
+                scene.warnings.append(QStringLiteral("Шкалы скорости передаются временными заглушками из трёх слов; симулятор их не отображает."));
             firstScale = false;
         }
         object.startParamIndex = nextParameter;

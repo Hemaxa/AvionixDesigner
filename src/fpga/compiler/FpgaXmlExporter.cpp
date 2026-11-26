@@ -8,6 +8,7 @@
 #include "RectangleObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "OptimizedStaticImageObject.h"
 #include "TextObject.h"
 #include "ThreeDViewObject.h"
 #include "text/FontRasterizer.h"
@@ -386,6 +387,11 @@ QSet<QString> collectCompiledSchemaNames(const QList<QSharedPointer<BaseObject>>
         const auto &obj = objects[objIdx];
         if (!obj->isExportEnabled())
             continue;
+
+        if (dynamic_cast<OptimizedStaticImageObject *>(obj.data())) {
+            schemaNames.insert(QStringLiteral("staticgroup"));
+            continue;
+        }
 
         if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
             schemaNames.insert(image->isRotationObject() ? QStringLiteral("rotationobject") : QStringLiteral("staticgroup"));
@@ -828,6 +834,12 @@ QDomDocument FpgaXmlExporter::compile(const EditorProjectDocument &document,
         if (dynamic_cast<ThreeDViewObject*>(obj.data()))
             continue;
 
+        if (const auto *optimized = dynamic_cast<OptimizedStaticImageObject *>(obj.data())) {
+            for (const auto &group : optimized->hardwareGroups())
+                objectsEl.appendChild(createObjectElement(doc, QStringLiteral("staticgroup"), staticSchema, group));
+            continue;
+        }
+
         if (auto image = dynamic_cast<ImageObject*>(obj.data())) {
             appendCompiledImageElements(doc, objectsEl, staticSchema, rotationSchema, image);
             continue;
@@ -870,7 +882,7 @@ QDomDocument FpgaXmlExporter::compile(const EditorProjectDocument &document,
         const ParamSchema schema = registry->buildSchema(schemaName);
         if (tagName.isEmpty() || schema.isEmpty())
             continue;
-        if (tagName == QStringLiteral("RibonScale")) {
+        if (tagName == QStringLiteral("RibonScale") || tagName == QStringLiteral("speed_scale")) {
             auto scaleEl = doc.createElement(tagName);
             for (const auto &word : FpgaScalePlaceholder::parameters(firstScale)) {
                 auto initEl = doc.createElement("init");

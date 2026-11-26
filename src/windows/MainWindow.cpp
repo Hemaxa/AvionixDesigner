@@ -15,6 +15,7 @@
 #include "ObjectLibraryPanel.h"
 #include "ObjectListPanel.h"
 #include "ObjectPropertiesPanel.h"
+#include "StaticImageEditorPanel.h"
 #include "ProjectManager.h"
 #include "SelectionToolStrip.h"
 #include "SettingsWindow.h"
@@ -47,7 +48,7 @@ constexpr int kDefaultFpgaSimulatorDockWidth = 620;
 constexpr int kDefaultFpgaSimulatorDockHeight = 420;
 constexpr int kDefaultAircraftPositionDockWidth = 1030;
 constexpr int kDefaultAircraftPositionDockHeight = 460;
-constexpr int kDefaultLayersDockWidth = 320;
+constexpr int kDefaultLayersDockWidth = 480;
 constexpr int kDefaultLayersDockHeight = 350;
 
 QString fontExportKey(const QString &family, int pixelSize) {
@@ -356,6 +357,18 @@ void MainWindow::createWidgets() {
   addDockWidget(Qt::BottomDockWidgetArea, m_aircraftPositionDock);
   m_aircraftPositionDock->setFloating(true);
   m_aircraftPositionDock->hide();
+  m_staticImageEditor = new StaticImageEditorPanel(this);
+  m_staticImageEditorDock = new QDockWidget(tr("Редактирование статических изображений"), this);
+  m_staticImageEditorDock->setObjectName("StaticImageEditorDock");
+  m_staticImageEditorDock->setWidget(m_staticImageEditor);
+  m_staticImageEditorDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+  addDockWidget(Qt::RightDockWidgetArea, m_staticImageEditorDock);
+  m_staticImageEditorDock->setFloating(true);
+  m_staticImageEditorDock->resize(1120, 760);
+  const QRect staticEditorScreen = screen() ? screen()->availableGeometry() : QRect(0, 0, 1920, 1080);
+  m_staticImageEditorDock->resize(qMin(1120, staticEditorScreen.width() - 32), qMin(760, staticEditorScreen.height() - 48));
+  m_staticImageEditorDock->move(clampedDockPosition(staticEditorScreen, m_staticImageEditorDock->size(), frameGeometry().topLeft() + QPoint(60, 60)));
+  m_staticImageEditorDock->hide();
   applyDefaultFloatingDockSizes();
 }
 
@@ -601,7 +614,7 @@ void MainWindow::createMenus() {
   QMenu *viewMenu = menuBar()->addMenu("Вид");
   int dockShortcut = 1;
   for (auto *dock : {m_layersDock, m_objectListDock, m_objectPropertiesDock, m_objectLibraryDock,
-                     m_viewportSettingsDock, m_fpgaStreamingDock, m_fpgaSimulatorDock, m_aircraftPositionDock}) {
+                     m_viewportSettingsDock, m_fpgaStreamingDock, m_fpgaSimulatorDock, m_aircraftPositionDock, m_staticImageEditorDock}) {
     auto *action = dock->toggleViewAction();
     action->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+%1").arg(dockShortcut++)));
     action->setToolTip(QStringLiteral("%1 (%2)").arg(action->text(), action->shortcut().toString(QKeySequence::NativeText)));
@@ -675,6 +688,20 @@ void MainWindow::createMenus() {
 }
 
 void MainWindow::connectSignals() {
+  connect(m_staticImageEditorDock, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+    if (visible) m_staticImageEditor->setSelectedObjects(m_viewport->getSelectedIndexes());
+  });
+  connect(m_staticImageEditor, &StaticImageEditorPanel::editingStateChanged, this, [this] {
+    m_objectList->refreshList(); m_viewport->update();
+    m_objectProperties->clearProperties();
+    m_objectProperties->showSelectedObjects(m_viewport->getSelectedIndexes());
+  });
+  connect(m_staticImageEditor, &StaticImageEditorPanel::objectApplied, this, [this](int index) {
+    m_viewport->setSelectedIndexes({index}); m_objectList->selectRows({index}); handleSelectionChanged({index});
+  });
+  connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, [this] {
+    m_staticImageEditor->setSelectedObjects(m_viewport->getSelectedIndexes());
+  });
   connect(m_objectList, &ObjectListPanel::selectionChanged, m_viewport,
           &ViewportPanel::setSelectedIndexes);
   connect(m_objectList, &ObjectListPanel::selectionChanged, this,
@@ -805,10 +832,10 @@ void MainWindow::restoreLayoutSettings() {
     }
   }
   // Один раз обновляем ширину старого плавающего окна, затем сохраняем ручную настройку.
-  if (settings.value("layersPanelLayoutVersion", 0).toInt() < 1) {
-    if (m_layersDock->isFloating())
+  if (settings.value("layersPanelLayoutVersion", 0).toInt() < 2) {
+    if (m_layersDock->isFloating() && m_layersDock->width() < kDefaultLayersDockWidth)
       m_layersDock->resize(kDefaultLayersDockWidth, m_layersDock->height());
-    settings.setValue("layersPanelLayoutVersion", 1);
+    settings.setValue("layersPanelLayoutVersion", 2);
   }
 }
 
@@ -1307,6 +1334,7 @@ void MainWindow::alignSelectedObject(int actionId) {
 
 void MainWindow::handleSelectionChanged(const QList<int> &indexes) {
   m_objectProperties->showSelectedObjects(indexes);
+  m_staticImageEditor->setSelectedObjects(indexes);
 
   setSelectionState(!indexes.isEmpty());
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(AvionixDesigner VERSION 1.0.14 LANGUAGES CXX)
+project(AvionixDesigner VERSION 1.0.15 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Xml Svg SerialPort)
 
@@ -43,6 +43,8 @@ qt_add_executable(AvionixDesigner
     src/editor/ObjectCloner.cpp
     src/editor/CanvasGeometry.h
     src/editor/CanvasGeometry.cpp
+    src/editor/StaticImageDocument.h
+    src/editor/StaticImageDocument.cpp
     src/editor/ProjectXmlFile.h
     src/editor/ProjectXmlFile.cpp
     src/editor/EqualSpacing.h
@@ -75,6 +77,10 @@ qt_add_executable(AvionixDesigner
     src/panels/ObjectListPanel.cpp
     src/panels/ObjectPropertiesPanel.h
     src/panels/ObjectPropertiesPanel.cpp
+    src/panels/StaticImageCanvas.h
+    src/panels/StaticImageCanvas.cpp
+    src/panels/StaticImageEditorPanel.h
+    src/panels/StaticImageEditorPanel.cpp
     src/panels/ObjectLibraryPanel.h
     src/panels/ObjectLibraryPanel.cpp
     src/panels/ViewportSettingsPanel.h
@@ -99,10 +105,19 @@ qt_add_executable(AvionixDesigner
     src/objects/DashedLineObject.cpp
     src/objects/RibbonScaleObject.h
     src/objects/RibbonScaleObject.cpp
+    src/objects/PitchScaleObject.h
+    src/objects/PitchScaleObject.cpp
+    src/objects/BankScaleObject.h
+    src/objects/BankScaleObject.cpp
+    src/objects/CompassScaleObject.h
+    src/objects/CompassScaleObject.cpp
+    src/objects/ScaleGlyphs.h
     src/objects/RotationObject.h
     src/objects/RotationObject.cpp
     src/objects/StaticGroupObject.h
     src/objects/StaticGroupObject.cpp
+    src/objects/OptimizedStaticImageObject.h
+    src/objects/OptimizedStaticImageObject.cpp
     src/objects/ImageObject.h
     src/objects/ImageObject.cpp
     src/objects/AviaHorizonObject.h
@@ -138,6 +153,10 @@ qt_add_executable(AvionixDesigner
     src/fpga/compiler/FpgaResourceLimits.h
     src/fpga/compiler/FpgaResourceLimits.cpp
     src/fpga/model/Layer3dFormat.h
+    src/fpga/model/PitchScaleFormat.h
+    src/fpga/model/BankScaleFormat.h
+    src/fpga/model/CompassScaleFormat.h
+    src/fpga/model/ScaleFormat.h
     src/fpga/packets/FpgaPacket.h
     src/fpga/packets/FpgaPacket.cpp
     src/fpga/packets/FpgaPacketCompiler.h

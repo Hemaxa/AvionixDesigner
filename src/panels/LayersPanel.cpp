@@ -24,7 +24,7 @@
 LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("LayersPanel");
-    setMinimumSize(280, 220);
+    setMinimumSize(440, 220);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
@@ -34,12 +34,14 @@ LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
     m_allLayers->setToolTip(tr("Показать объекты всех слоёв (Ctrl+Shift+A). Новые объекты добавляются на выбранный слой."));
     m_allLayers->setCheckable(true);
     m_allLayers->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    layout->addWidget(m_allLayers);
+    auto *header = new QHBoxLayout;
+    layout->addLayout(header);
+    header->addWidget(m_allLayers, 1);
     m_scroll = new QScrollArea(this);
     m_scroll->setObjectName("LayersScrollArea");
     m_scroll->setWidgetResizable(true);
     m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_scroll->setFrameShape(QFrame::NoFrame);
+
     m_rows = new QWidget();
     m_rows->setObjectName("LayersRows");
     m_rowsLayout = new QVBoxLayout(m_rows);
@@ -49,12 +51,10 @@ LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
     layout->addWidget(m_scroll, 1);
     auto *add = new QToolButton(this);
     add->setObjectName("AddLayerButton");
-    add->setFixedSize(32, 32);
-    add->setIconSize(QSize(18, 18));
     add->setToolTip(tr("Добавить слой (Ctrl+Shift+N)"));
     add->setAccessibleName(tr("Добавить слой"));
     add->setIcon(QIcon(QStringLiteral(":/icons/icons/layers/add.svg")));
-    layout->addWidget(add, 0, Qt::AlignHCenter);
+    header->addWidget(add);
     auto *project = ProjectManager::instance();
     connect(add, &QToolButton::clicked, project, &ProjectManager::addEditorLayer);
     connect(m_allLayers, &QToolButton::toggled, project, &ProjectManager::setShowAllLayers);
@@ -226,23 +226,21 @@ void LayersPanel::refreshLayers()
     int number = 0;
     for (const auto &layer : project->editorLayers()) {
         auto *row = new QWidget(m_rows);
-        row->setFixedHeight(44);
         row->setObjectName("LayerRow");
         row->setProperty("layerId", layer.id);
         row->installEventFilter(this);
         auto *layout = new QHBoxLayout(row);
         layout->setContentsMargins(6, 4, 6, 4);
-        layout->setSpacing(4);
+        layout->setSpacing(6);
         auto *color = new QToolButton(row);
         color->setObjectName("LayerColorButton");
-        color->setFixedSize(32, 32);
         color->setToolTip(tr("Цвет выделения на слое (Ctrl+Shift+C)"));
-        QPixmap swatch(16, 16); swatch.fill(layer.selectionColor);
+        color->ensurePolished();
+        QPixmap swatch(color->iconSize()); swatch.fill(layer.selectionColor);
         color->setIcon(QIcon(swatch));
         layout->addWidget(color);
         auto *order = new QLabel(QString::number(++number), row);
         order->setObjectName("LayerNumber");
-        order->setFixedWidth(18);
         order->setProperty("layerId", layer.id);
         order->installEventFilter(this);
         layout->addWidget(order);
@@ -250,7 +248,6 @@ void LayersPanel::refreshLayers()
         name->setObjectName("LayerNameEdit");
         name->setProperty("layerId", layer.id);
         name->installEventFilter(this);
-        name->setMinimumWidth(70);
         name->setReadOnly(true);
         name->setCursor(Qt::ArrowCursor);
         name->setToolTip(tr("Ctrl/⌘ — несколько слоёв, Shift — диапазон. F2 или двойной щелчок — изменить имя. Объектов: %1").arg(project->layerObjectCount(layer.id)));
@@ -259,10 +256,8 @@ void LayersPanel::refreshLayers()
             auto *button = new QToolButton(row);
             button->setObjectName(objectName);
             button->setIcon(QIcon(QStringLiteral(":/icons/icons/layers/%1.svg").arg(icon)));
-            button->setIconSize(QSize(18, 18));
             button->setToolTip(tip);
             button->setAccessibleName(tip);
-            button->setFixedSize(32, 32);
             layout->addWidget(button);
             return button;
         };

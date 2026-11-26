@@ -8,6 +8,7 @@
 #include <QStringList>
 
 class QTableWidget;
+class QCheckBox;
 
 // FontExportDialogEntry - шрифт, размер и выбранные для экспорта наборы символов.
 struct FontExportDialogEntry
@@ -34,7 +35,10 @@ public:
 private:
     // заполняет таблицу строками шрифтов и чекбоксами алфавитов
     void populateTable();
+    void setAlphabetColumn(int column, bool checked);
+    void updateColumnToggles();
 
     QList<FontExportDialogEntry> m_entries;
     QTableWidget *m_table = nullptr;
+    QList<QCheckBox *> m_columnToggles;
 };

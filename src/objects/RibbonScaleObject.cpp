@@ -61,12 +61,12 @@ void RibbonScaleObject::draw(QPainter &painter)
 
 QString RibbonScaleObject::getTypeName() const
 {
-    return "RibbonScale";
+    return "SpeedScale";
 }
 
 QString RibbonScaleObject::getDisplayName() const
 {
-    return "Ленточная шкала";
+    return "Шкала скорости";
 }
 
 QList<QPair<QString, QString>> RibbonScaleObject::getProperties() const

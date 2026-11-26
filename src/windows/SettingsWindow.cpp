@@ -23,8 +23,6 @@
 #include <QStackedWidget>
 #include <QSpinBox>
 #include <QColorDialog>
-#include <QPainter>
-#include <QPixmap>
 #include <QShowEvent>
 
 SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
@@ -37,6 +35,13 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
 
     createWidgets();
     loadSettings();
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, [this]() {
+        updateColorButtonIcon(m_gridColorButton, m_currentGridColor);
+        updateColorButtonIcon(m_snapCanvasColorButton, m_currentSnapCanvasColor);
+        updateColorButtonIcon(m_snapGridColorButton, m_currentSnapGridColor);
+        updateColorButtonIcon(m_snapObjectColorButton, m_currentSnapObjectColor);
+        alignSettingsFields();
+    });
 }
 
 void SettingsWindow::createWidgets()
@@ -48,7 +53,7 @@ void SettingsWindow::createWidgets()
     contentLayout->setSpacing(18);
 
     m_listWidget = new QListWidget(this);
-    m_listWidget->setFixedWidth(180);
+    m_listWidget->setObjectName("SettingsNavigationList");
     m_listWidget->addItem("Настройки");
     m_listWidget->addItem("Горячие клавиши");
 
@@ -60,14 +65,21 @@ void SettingsWindow::createWidgets()
     settingsLayout->setContentsMargins(0, 0, 0, 0);
     settingsLayout->setSpacing(18);
 
+    auto settingsForm = [this](QGroupBox *group) {
+        auto *form = new QFormLayout(group);
+        form->setContentsMargins(18, 20, 18, 18);
+        form->setHorizontalSpacing(18);
+        form->setVerticalSpacing(14);
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        m_settingsForms.append(form);
+        return form;
+    };
+
     auto *generalGroup = new QGroupBox(QStringLiteral("Общие"), this);
-    auto *generalLayout = new QFormLayout(generalGroup);
-    generalLayout->setContentsMargins(18, 20, 18, 18);
-    generalLayout->setHorizontalSpacing(18);
-    generalLayout->setVerticalSpacing(14);
-    generalLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    generalLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    generalLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto *generalLayout = settingsForm(generalGroup);
 
     m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
     generalLayout->addRow(m_autoLoadCheck);
@@ -79,8 +91,7 @@ void SettingsWindow::createWidgets()
     settingsLayout->addWidget(generalGroup);
 
     auto *fpgaGroup = new QGroupBox(QStringLiteral("ПЛИС — STATICGROUP"), this);
-    auto *fpgaLayout = new QFormLayout(fpgaGroup);
-    fpgaLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto *fpgaLayout = settingsForm(fpgaGroup);
     m_staticGroupPixelsSpin = new ExpressionSpinBox(this);
     m_staticGroupPixelsSpin->setObjectName("StaticGroupPixelsSpin");
     m_staticGroupPixelsSpin->setRange(1, 65536);
@@ -93,8 +104,7 @@ void SettingsWindow::createWidgets()
     settingsLayout->addWidget(fpgaGroup);
 
     auto *symbolsGroup = new QGroupBox(QStringLiteral("ПЛИС — SYMBOLs"), this);
-    auto *symbolsLayout = new QFormLayout(symbolsGroup);
-    symbolsLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto *symbolsLayout = settingsForm(symbolsGroup);
     m_symbolPixelsSpin = new ExpressionSpinBox(this);
     m_symbolPixelsSpin->setObjectName("SymbolPixelsSpin");
     m_symbolPixelsSpin->setRange(1, 65536);
@@ -106,19 +116,11 @@ void SettingsWindow::createWidgets()
     settingsLayout->addWidget(symbolsGroup);
 
     auto *snapGroup = new QGroupBox(QStringLiteral("Сетка и привязки"), this);
-    auto *formLayout = new QFormLayout(snapGroup);
-    formLayout->setContentsMargins(18, 20, 18, 18);
-    formLayout->setHorizontalSpacing(18);
-    formLayout->setVerticalSpacing(14);
-    formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    formLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    formLayout->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
-    formLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto *formLayout = settingsForm(snapGroup);
 
     m_gridStepSpin = new ExpressionSpinBox(this);
     m_gridStepSpin->setObjectName(QStringLiteral("GridStepSpin"));
     m_gridStepSpin->setRange(1, 1000);
-    m_gridStepSpin->setMinimumWidth(160);
     formLayout->addRow("Шаг сетки:", m_gridStepSpin);
 
     m_gridColorButton = new QPushButton(this);
@@ -159,9 +161,10 @@ void SettingsWindow::createWidgets()
 
     settingsLayout->addWidget(snapGroup);
     settingsLayout->addStretch();
+    alignSettingsFields();
     auto *settingsScroll = new QScrollArea(this);
     settingsScroll->setWidgetResizable(true);
-    settingsScroll->setFrameShape(QFrame::NoFrame);
+
     settingsScroll->setWidget(settingsWidget);
     m_stackedWidget->addWidget(settingsScroll);
 
@@ -169,7 +172,7 @@ void SettingsWindow::createWidgets()
     auto *hotkeysScroll = new QScrollArea(this);
     hotkeysScroll->setObjectName("HotkeysScrollArea");
     hotkeysScroll->setWidgetResizable(true);
-    hotkeysScroll->setFrameShape(QFrame::NoFrame);
+
 
     auto *hotkeysWidget = new QWidget(hotkeysScroll);
     auto *hotkeysLayout = new QFormLayout(hotkeysWidget);
@@ -234,7 +237,7 @@ void SettingsWindow::createWidgets()
     hotkeysLayout->addRow("Привязка к объектам:", new QLabel(QKeySequence("Shift+O").toString(QKeySequence::NativeText), this));
     hotkeysLayout->addRow("Цвет фона:", new QLabel(QKeySequence("Ctrl+Alt+C").toString(QKeySequence::NativeText), this));
     const QStringList panelNames = {"Слои", "Список объектов", "Свойства объекта", "Библиотека объектов",
-        "Настройки рабочей области", "Управление ПЛИС", "Симулятор ПЛИС", "Позиционирование самолета"};
+        "Настройки рабочей области", "Управление ПЛИС", "Симулятор ПЛИС", "Позиционирование самолета", "Редактирование статических изображений"};
     for (int i = 0; i < panelNames.size(); ++i)
         hotkeysLayout->addRow(QStringLiteral("Показать / скрыть: %1").arg(panelNames[i]), new QLabel(QKeySequence(QStringLiteral("Ctrl+Alt+%1").arg(i + 1)).toString(QKeySequence::NativeText), this));
 
@@ -345,6 +348,38 @@ void SettingsWindow::createWidgets()
     connect(resetButton, &QPushButton::clicked, this, &SettingsWindow::resetAllSettings);
 }
 
+void SettingsWindow::alignSettingsFields()
+{
+    int labelWidth = 0, fieldWidth = 0;
+    for (auto *form : m_settingsForms) {
+        for (int row = 0; row < form->rowCount(); ++row) {
+            if (auto *item = form->itemAt(row, QFormLayout::LabelRole)) {
+                auto *label = item->widget();
+                label->setMinimumWidth(0);
+                label->ensurePolished();
+                labelWidth = qMax(labelWidth, label->sizeHint().width());
+            }
+            if (auto *item = form->itemAt(row, QFormLayout::FieldRole)) {
+                if (auto *field = qobject_cast<QSpinBox *>(item->widget())) {
+                    field->ensurePolished();
+                    fieldWidth = qMax(fieldWidth, qMax(field->minimumWidth(), field->sizeHint().width()));
+                }
+            }
+        }
+    }
+    for (auto *form : m_settingsForms) {
+        for (int row = 0; row < form->rowCount(); ++row) {
+            if (auto *item = form->itemAt(row, QFormLayout::LabelRole))
+                item->widget()->setMinimumWidth(labelWidth);
+            if (auto *item = form->itemAt(row, QFormLayout::FieldRole))
+                if (auto *field = qobject_cast<QSpinBox *>(item->widget())) {
+                    field->setMinimumWidth(fieldWidth);
+                    field->setSizePolicy(QSizePolicy::Expanding, field->sizePolicy().verticalPolicy());
+                }
+        }
+    }
+}
+
 void SettingsWindow::chooseColor(QColor *targetColor, QPushButton *button, const QString &title)
 {
     if (!targetColor || !button)
@@ -362,16 +397,7 @@ void SettingsWindow::updateColorButtonIcon(QPushButton *button, const QColor &co
     if (!button)
         return;
 
-    QPixmap pixmap(30, 22);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setBrush(color);
-    painter.setPen(QPen(QColor(230, 245, 255, 170), 1));
-    painter.drawRoundedRect(QRectF(1, 1, 28, 20), 4, 4);
-    painter.end();
-    button->setIcon(QIcon(pixmap));
-    button->setIconSize(pixmap.size());
+    button->setIcon(AppearanceManager::instance()->colorSwatch("swatch.settings", color));
 }
 
 void SettingsWindow::showEvent(QShowEvent *event)
@@ -390,10 +416,10 @@ void SettingsWindow::loadSettings()
     m_symbolPixelsSpin->setValue(ApplicationSettings::symbolPixels());
 
     m_gridStepSpin->setValue(qBound(1, settings.value("gridStep", 10).toInt(), 1000));
-    m_currentGridColor = QColor(settings.value("gridColor", "#3778b4c8").toString());
-    m_currentSnapCanvasColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
-    m_currentSnapGridColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
-    m_currentSnapObjectColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
+    m_currentGridColor = QColor(settings.value("gridColor", AppearanceManager::instance()->color("workspace.grid").name(QColor::HexArgb)).toString());
+    m_currentSnapCanvasColor = QColor(settings.value("snapCanvasGuideColor", AppearanceManager::instance()->color("workspace.snapCanvas").name(QColor::HexArgb)).toString());
+    m_currentSnapGridColor = QColor(settings.value("snapGridGuideColor", AppearanceManager::instance()->color("workspace.snapGrid").name(QColor::HexArgb)).toString());
+    m_currentSnapObjectColor = QColor(settings.value("snapObjectGuideColor", AppearanceManager::instance()->color("workspace.snapObject").name(QColor::HexArgb)).toString());
     auto *project = ProjectManager::instance();
     if (project->getCanvasWidth() > 0 && project->getCanvasHeight() > 0) {
         m_gridStepSpin->setValue(project->gridStep());

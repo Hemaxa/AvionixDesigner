@@ -13,6 +13,7 @@
 #include <QtMath>
 
 #include "ProjectManager.h"
+#include "AppearanceManager.h"
 #include "ObjectCloner.h"
 #include "CanvasGeometry.h"
 #include "ProjectXmlFile.h"
@@ -25,8 +26,13 @@
 #include "RectangleObject.h"
 #include "DashedLineObject.h"
 #include "RibbonScaleObject.h"
+#include "PitchScaleObject.h"
+#include "BankScaleObject.h"
+#include "CompassScaleObject.h"
 #include "RotationObject.h"
 #include "StaticGroupObject.h"
+#include "OptimizedStaticImageObject.h"
+#include "fpga/FpgaProjectPacketBuilder.h"
 #include "ImageObject.h"
 #include "AviaHorizonObject.h"
 #include "ThreeDViewObject.h"
@@ -42,6 +48,9 @@
 ProjectManager::ProjectManager()
 {
     resetEditorLayers();
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, [this]() {
+        readGlobalWorkspaceSettings();
+    });
     connect(this, &ProjectManager::projectLoaded, this, [this]() { ++m_sceneRevision; });
     connect(this, &ProjectManager::projectChanged, this, [this]() {
         if (!m_aircraftStateChange) ++m_sceneRevision;
@@ -261,6 +270,10 @@ void ProjectManager::registerStandardTypes()
     om->registerType("rectangle_a", []() { return new RectangleObject(); });
     om->registerType("dashline", []() { return new DashedLineObject(); });
     om->registerType("RibonScale", []() { return new RibbonScaleObject(); });
+    om->registerType("speed_scale", []() { return new RibbonScaleObject(); });
+    om->registerType("pitch_scale", []() { return new PitchScaleObject(); });
+    om->registerType("bank_scale", []() { return new BankScaleObject(); });
+    om->registerType("compass_scale", []() { return new CompassScaleObject(); });
     om->registerType("rotationobject", []() { return new RotationObject(); });
     om->registerType("staticgroup", []() { return new StaticGroupObject(); });
     om->registerType("aviahorizont", []() { return new AviaHorizonObject(); });
@@ -329,6 +342,18 @@ int ProjectManager::addObject(const QString &typeName)
         ribbon->period = 24;
         ribbon->yStart = ribbon->top + 12.0;
         ribbon->color = QColor("#8DE1FF");
+    }
+    else if (auto pitch = dynamic_cast<PitchScaleObject*>(rawObject)) {
+        // На 1920x1080 совпадает с центром (960, 540) из Python; меньший холст тоже видит шкалу.
+        pitch->centerX = qMin(4095.0, m_document.canvasWidth() / 2.0);
+        pitch->centerY = qMin(4095.0, m_document.canvasHeight() / 2.0);
+    }
+    else if (auto bank = dynamic_cast<BankScaleObject*>(rawObject)) {
+        bank->centerX = qMin(4095.0, m_document.canvasWidth() / 2.0);
+        bank->centerY = qMin(4095.0, m_document.canvasHeight() / 2.0);
+    }
+    else if (auto compass = dynamic_cast<CompassScaleObject*>(rawObject)) {
+        compass->positionY = qMin(4095.0, m_document.canvasHeight() / 2.0);
     }
     else if (auto horizon = dynamic_cast<AviaHorizonObject*>(rawObject)) {
         horizon->enabled = true;
@@ -1365,6 +1390,7 @@ bool ProjectManager::setObjectProperty(BaseObject *object, const QString &name, 
 
 bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QString &name) const
 {
+    if (object && object->isStaticImageEditing() && name != "X" && name != "Y") return false;
     for (const auto &candidate : m_objects) {
         if (candidate.data() != object) continue;
         const auto probe = candidate->clone();
@@ -1373,6 +1399,44 @@ bool ProjectManager::isObjectPropertyEditable(const BaseObject *object, const QS
             if (property.first == name) return probe->setObjectProperty(name, property.second);
     }
     return false;
+}
+
+bool ProjectManager::applyStaticImageDocument(int index, const StaticImageDocument &document, QString *error)
+{
+    if (error) error->clear();
+    auto fail = [&](const QString &message) { if (error) *error = message; return false; };
+    const auto source = getObjectAt(index);
+    if (!StaticImageDocument::supports(source.data()) || source->isSelectionLocked()) return fail(tr("Статическое изображение недоступно для редактирования."));
+    QString validation;
+    if (!document.validate(&validation)) return fail(validation);
+    const auto errors = document.hardwareErrors();
+    if (!errors.isEmpty()) return fail(errors.join('\n'));
+    auto optimized = QSharedPointer<OptimizedStaticImageObject>::create();
+    const auto origin = StaticImageDocument::objectOrigin(*source);
+    optimized->x = origin.x(); optimized->y = origin.y(); optimized->document = document;
+    optimized->setCustomName(source->customName()); optimized->setEditorLayerId(source->editorLayerId());
+    optimized->setViewVisible(source->isViewVisible()); optimized->setExportEnabled(source->isExportEnabled());
+    optimized->setResizeLocked(true);
+    optimized->setEditRestrictionHint(tr("Оптимизированное статическое изображение. Размер зафиксирован; маски редактируются в отдельном окне."));
+    // Проверяем весь будущий аппаратный каскад до изменения истории и сигналов сцены.
+    const auto tag = m_objectTags[index];
+    m_objects[index] = optimized; m_objectTags[index] = "optimized-static";
+    QString compilationError;
+    const auto bundle = FpgaProjectPacketBuilder::buildCurrentProject(&compilationError);
+    if (compilationError.isEmpty() && source->isExportEnabled() && !bundle.document.objects.isEmpty()) {
+        bool stages = false;
+        for (const auto &object : bundle.document.objects) stages |= object.type != "layer3d";
+        if (stages) FpgaPipelineConfig::fromScene(bundle.document, &compilationError);
+    }
+    m_objects[index] = source; m_objectTags[index] = tag;
+    if (!compilationError.isEmpty()) return fail(compilationError);
+    source->setStaticImageEditing(false);
+    recordHistory(); m_objects[index] = optimized; m_objectTags[index] = "optimized-static";
+    for (const auto &object : m_objects)
+        if (auto *copy = dynamic_cast<SymmetryCopyObject *>(object.data()); copy && copy->source() == source)
+            copy->bindSource(optimized);
+    finishObjectEdit(tr("Применено редактирование статического изображения"));
+    return true;
 }
 
 bool ProjectManager::setObjectRotationPivot(int index, const QPointF &canvasPosition)
@@ -1411,6 +1475,10 @@ bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> 
     QList<QSharedPointer<BaseObject>> changed;
     for (const auto &object : objects) {
         if (!object || !m_objects.contains(object)) return false;
+        if (object->isStaticImageEditing() && name != "X" && name != "Y") {
+            m_lastErrorMessage = tr("Размер и содержимое зафиксированы в окне редактирования статического изображения.");
+            return false;
+        }
         const auto properties = object->getProperties();
         const auto it = std::find_if(properties.cbegin(), properties.cend(), [&name](const auto &p) { return p.first == name; });
         if (it == properties.cend()) return false;
@@ -1446,7 +1514,7 @@ bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> 
 
 void ProjectManager::resetEditorLayers()
 {
-    m_editorLayers = {{1, tr("Слой 1"), QColor(QStringLiteral("#00c8f0"))}};
+    m_editorLayers = {{1, tr("Слой 1"), AppearanceManager::instance()->color("accent")}};
     m_nextLayerId = 2;
     m_activeLayerId = 1;
     m_showAllLayers = false;
@@ -1466,7 +1534,7 @@ QString ProjectManager::editorLayerName(int id) const
 QColor ProjectManager::editorLayerColor(int id) const
 {
     for (const auto &layer : m_editorLayers) if (layer.id == id) return layer.selectionColor;
-    return QColor(QStringLiteral("#00c8f0"));
+    return AppearanceManager::instance()->color("accent");
 }
 
 int ProjectManager::layerObjectCount(int id) const
@@ -1520,8 +1588,8 @@ int ProjectManager::addEditorLayer()
 {
     recordHistory();
     const int id = m_nextLayerId++;
-    static const QStringList colors = {"#00c8f0", "#ff5c7a", "#ffca58", "#8bdff2"};
-    m_editorLayers.append({id, uniqueLayerName(tr("Слой %1").arg(id)), QColor(colors[(id - 1) % colors.size()])});
+    const QStringList colors = AppearanceManager::instance()->value("layer.colors").split(',');
+    m_editorLayers.append({id, uniqueLayerName(tr("Слой %1").arg(id)), QColor(colors[(id - 1) % colors.size()].trimmed())});
     m_activeLayerId = id;
     notifyEditorLayersChanged();
     return id;
@@ -1850,11 +1918,11 @@ void ProjectManager::readGlobalWorkspaceSettings()
     auto settings = ApplicationSettings::create();
     m_gridStep = qBound(1, settings.value("gridStep", 10).toInt(), 1000);
 
-    QString colorStr = settings.value("gridColor", "#3778b4c8").toString();
-    m_gridColor = QColor(colorStr);
-    m_snapCanvasGuideColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
-    m_snapGridGuideColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
-    m_snapObjectGuideColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
+    auto *appearance = AppearanceManager::instance();
+    m_gridColor = QColor(settings.value("gridColor", appearance->color("workspace.grid").name(QColor::HexArgb)).toString());
+    m_snapCanvasGuideColor = QColor(settings.value("snapCanvasGuideColor", appearance->color("workspace.snapCanvas").name(QColor::HexArgb)).toString());
+    m_snapGridGuideColor = QColor(settings.value("snapGridGuideColor", appearance->color("workspace.snapGrid").name(QColor::HexArgb)).toString());
+    m_snapObjectGuideColor = QColor(settings.value("snapObjectGuideColor", appearance->color("workspace.snapObject").name(QColor::HexArgb)).toString());
 }
 
 // сеттеры

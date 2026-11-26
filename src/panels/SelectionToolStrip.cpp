@@ -11,13 +11,12 @@
 SelectionToolStrip::SelectionToolStrip(QWidget *parent) : BasePanel(parent)
 {
     setPanelName("SelectionToolStrip");
-    setFixedWidth(80);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     auto *scroll = new QScrollArea(this);
-    scroll->setFrameShape(QFrame::NoFrame);
+
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *body = new QWidget;
