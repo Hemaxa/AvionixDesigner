@@ -7,6 +7,7 @@
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include <QBitArray>
 #include <QSet>
+#include <QRegion>
 #include <algorithm>
 #include <cmath>
 
@@ -119,18 +120,20 @@ StaticMaskAnalysis StaticImageMask::analyze() const
             result.bounds = result.bounds.united(bounds);
             result.pixels += pixels;
             ++result.components;
-            if (pixels <= 4 && result.fragments.size() < 256)
-                result.fragments.append(bounds);
         }
-    if (result.components < 2)
-        result.fragments.clear();
     return result;
+}
+
+int StaticImageDocument::maximumEraserSize() const
+{
+    // Кисть — не больше 25% короткой стороны исходного изображения; 1 px доступен всегда.
+    return qMax(1, qMin(size.width(), size.height()) / 4);
 }
 
 bool StaticImageDocument::eraseMasks(int region, const QList<int> &indexes, QPointF from, QPointF to,
                                      int diameter)
 {
-    if (region < 0 || region >= regions.size() || diameter < 1 || diameter > 64)
+    if (region < 0 || region >= regions.size() || diameter < 1 || diameter > maximumEraserSize())
         return false;
     const auto area = QRectF(regions[region].rect).adjusted(-diameter, -diameter, diameter, diameter);
     const QPointF delta = to - from;
@@ -158,19 +161,24 @@ bool StaticImageDocument::eraseMasks(int region, const QList<int> &indexes, QPoi
         if (index < 0 || index >= regions[region].masks.size())
             continue;
         auto &mask = regions[region].masks[index];
+        QRect previousHit;
         for (int step = 0; step <= steps; ++step)
         {
             const auto point = from + (to - from) * (double(step) / steps);
             const QRect brush(int(std::floor(point.x())) - diameter / 2,
                               int(std::floor(point.y())) - diameter / 2, diameter, diameter);
             const auto hit = brush.intersected(mask.rect);
-            for (int y = hit.top(); y <= hit.bottom(); ++y)
-                for (int x = hit.left(); x <= hit.right(); ++x)
-                {
-                    auto &value = mask.data[(y - mask.rect.y()) * mask.rect.width() + x - mask.rect.x()];
-                    changed |= value != 0;
-                    value = 0;
-                }
+            // У большой кисти соседние отпечатки почти совпадают: обрабатываем новые полосы.
+            const auto newPixels = QRegion(hit).subtracted(QRegion(previousHit));
+            previousHit = hit;
+            for (const auto &strip : newPixels)
+                for (int y = strip.top(); y <= strip.bottom(); ++y)
+                    for (int x = strip.left(); x <= strip.right(); ++x)
+                    {
+                        auto &value = mask.data[(y - mask.rect.y()) * mask.rect.width() + x - mask.rect.x()];
+                        changed |= value != 0;
+                        value = 0;
+                    }
         }
     }
     return changed;

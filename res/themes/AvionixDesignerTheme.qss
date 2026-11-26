@@ -927,7 +927,7 @@ QDialog#UartStreamingDialog QPushButton {
 #StaticImageEditorPanel #StaticToolGroup { background: ${panel}; border: 1px solid ${border}; border-radius: 8px; }
 #StaticImageEditorPanel #StaticCutCard { background: ${panel}; border: 1px solid ${border}; border-radius: 8px; }
 #StaticImageEditorPanel #StaticCutRegion, #StaticImageEditorPanel #StaticCutAxis { min-height: 24px; padding: 2px 6px; }
-#StaticImageEditorPanel #StaticCutCoordinate, #StaticImageEditorPanel #StaticEraserSize { min-height: 32px; padding: 4px 6px; }
+#StaticImageEditorPanel #StaticCutCoordinate { min-height: 32px; padding: 4px 6px; }
 #StaticImageEditorPanel #StaticMaskInfo { color: ${muted}; background: transparent; font-size: 12px; }
 
 #StaticImageEditorPanel #StaticEraserSlider { background: transparent; border: none; min-height: 20px; max-height: 20px; }
@@ -959,14 +959,26 @@ QDialog#SettingsWindow QPushButton#ColorSwatchButton { qproperty-iconSize: ${swa
 #SelectionToolStrip { min-width: 80px; max-width: 80px; }
 #WorkspaceLayerCombo { min-width: 166px; max-width: 166px; }
 QDialog#SettingsWindow #SettingsNavigationList { min-width: 180px; max-width: 180px; }
-QDialog#SettingsWindow #GridStepSpin { min-width: 160px; }
 #ObjectListTypeLabel, #ObjectListRowLabel { min-height: 24px; }
 #ObjectListRowLabel { min-width: 40px; }
 #StaticOptimizationBadge { min-width: 24px; max-width: 24px; min-height: 30px; max-height: 30px; }
 #LayerNameEdit { min-width: 70px; }
 #StaticImageEditorPanel #StaticStatsScroll { min-width: 280px; max-width: 320px; }
 #StaticImageEditorPanel #StaticMaskSidePanel { min-width: 280px; max-width: 440px; }
-#StaticImageEditorPanel #StaticEraserSize { min-width: 130px; max-width: 130px; }
+#StaticImageEditorPanel #StaticEditorHeader {
+    background: transparent; border: none;
+    min-height: 44px; max-height: 44px;
+}
+#StaticImageEditorPanel #StaticEraserControls {
+    background: transparent; border: none;
+    min-width: 144px; max-width: 144px;
+    min-height: 44px; max-height: 44px;
+}
+#StaticImageEditorPanel #StaticEraserValue {
+    background: transparent; color: ${muted};
+    min-width: 52px; max-width: 52px;
+    qproperty-alignment: 'AlignRight|AlignVCenter';
+}
 #StaticMaskSplitter { qproperty-handleWidth: 8; }
 #NewProjectDialog #DialogFieldLabel { min-width: 92px; }
 #FpgaStreamingSeparator { min-height: 1px; max-height: 1px; background: ${border}; border: none; }
@@ -1008,3 +1020,5 @@ QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
     width: 10px;
     height: 6px;
 }
+
+QDialog#SettingsWindow QSpinBox { qproperty-alignment: AlignLeft; }

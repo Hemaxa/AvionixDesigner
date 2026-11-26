@@ -28,11 +28,6 @@ class StaticImageCanvas : public QWidget
     void setExtendTool(bool enabled);
     void setEraserTool(bool enabled);
     void setBrushSize(int size);
-    void focusNextFragment();
-    bool hasFragments() const
-    {
-        return !m_fragments.isEmpty();
-    }
     void setExactCut(int region, Qt::Orientation orientation, int coordinate);
     void fit();
     QTransform imageTransform() const;
@@ -78,8 +73,6 @@ class StaticImageCanvas : public QWidget
     QImage m_maskHighlight;
     QImage m_before, m_isolatedImage;
     QHash<int, StaticMaskAnalysis> m_analysis;
-    QList<QRect> m_fragments;
-    int m_fragment = -1;
     StaticImageDocument m_eraseDraft;
     bool m_showBefore = false, m_isolated = false, m_handTool = false, m_extendTool = false,
          m_eraserTool = false, m_erasing = false, m_eraseChanged = false, m_spaceHeld = false;

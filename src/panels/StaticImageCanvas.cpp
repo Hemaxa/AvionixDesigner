@@ -57,13 +57,13 @@ void StaticImageCanvas::setDocument(const StaticImageDocument *document, int reg
     m_clickTimer.stop();
     m_document = document;
     m_region = region;
+    setBrushSize(m_brushSize);
     const int cutKey = changed ? 0 : m_cutKey;
     cancelGesture();
     m_cutKey = cutKey;
     m_hoverRegion = -1;
     m_preview = document ? document->render(region, region >= 0) : QImage();
     m_analysis.clear();
-    m_fragments.clear();
     m_exactCut = false;
     if (changed)
     {
@@ -101,7 +101,6 @@ void StaticImageCanvas::setSelectedMasks(const QSet<int> &indexes)
     m_selectedMasks = indexes;
     m_maskHighlight = {};
     m_isolatedImage = {};
-    m_fragments.clear();
     const auto *document = m_erasing ? &m_eraseDraft : m_document;
     if (document && m_region >= 0 && m_region < document->regions.size() && !indexes.isEmpty())
     {
@@ -124,7 +123,6 @@ void StaticImageCanvas::setSelectedMasks(const QSet<int> &indexes)
                 if (!m_analysis.contains(index))
                     m_analysis.insert(index, mask.analyze());
                 const auto &analysis = m_analysis[index];
-                m_fragments += analysis.fragments;
                 pixels += analysis.pixels;
                 components += analysis.components;
                 occupied = occupied.united(analysis.bounds);
@@ -140,12 +138,11 @@ void StaticImageCanvas::setSelectedMasks(const QSet<int> &indexes)
                             pixel;
         }
         if (!m_erasing)
-            emit selectionInfoChanged(tr("%1 × %2 px · %3 пикселей\nФрагментов: %4 · мелких: %5")
+            emit selectionInfoChanged(tr("%1 × %2 px · %3 пикселей\nСвязных частей: %4")
                                           .arg(occupied.width())
                                           .arg(occupied.height())
                                           .arg(pixels)
-                                          .arg(components)
-                                          .arg(m_fragments.size()));
+                                          .arg(components));
     }
     else
         emit selectionInfoChanged(QString());
@@ -188,7 +185,7 @@ void StaticImageCanvas::setEraserTool(bool enabled)
 }
 void StaticImageCanvas::setBrushSize(int size)
 {
-    size = qBound(1, size, 64);
+    size = qBound(1, size, m_document ? m_document->maximumEraserSize() : 1);
     if (m_brushSize == size)
         return;
     m_brushSize = size;
@@ -203,19 +200,6 @@ void StaticImageCanvas::setExactCut(int region, Qt::Orientation orientation, int
     m_exactCoordinate = coordinate;
     update();
 }
-void StaticImageCanvas::focusNextFragment()
-{
-    if (m_fragments.isEmpty())
-        return;
-    m_fragment = (m_fragment + 1) % m_fragments.size();
-    const auto center = QRectF(m_fragments[m_fragment]).center();
-    const double baseScale = imageTransform().m11() / m_zoom;
-    m_zoom = qBound(.25, 24.0 / baseScale, 64.0);
-    const QPointF target(rulerSize() + (width() - rulerSize()) / 2.0, rulerSize() + (height() - rulerSize()) / 2.0);
-    m_pan += target - imageTransform().map(center);
-    update();
-}
-
 QRect StaticImageCanvas::contentRect() const
 {
     if (!m_document)
@@ -469,22 +453,6 @@ void StaticImageCanvas::paintEvent(QPaintEvent *)
     };
     drawRuler(topRuler, true);
     drawRuler(leftRuler, false);
-    // Markers use screen coordinates so corner pixels remain visible outside the image clip.
-    if (!m_showBefore && !m_erasing)
-    {
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(AppearanceManager::instance()->pen("pen.medium", AppearanceManager::instance()->color("danger")));
-        painter.setBrush(Qt::NoBrush);
-        const auto viewport = rect().adjusted(rulerSize() + canvasMargin(), rulerSize() + canvasMargin(), -canvasMargin(), -canvasMargin());
-        for (const auto &fragment : m_fragments)
-        {
-            const auto center = transform.map(QRectF(fragment).center());
-            if (!viewport.contains(center.toPoint()))
-                continue;
-            const double radius = qMax(6.0, qMax(fragment.width(), fragment.height()) * scale / 2.0 + 2.0);
-            painter.drawEllipse(center, radius, radius);
-        }
-    }
 }
 
 int StaticImageCanvas::maskAt(const QPointF &point) const

@@ -4,12 +4,14 @@
 
 #include <QDialog>
 #include <QColor>
+#include <QList>
 
 class QCheckBox;
 class QListWidget;
 class QStackedWidget;
 class QSpinBox;
 class QPushButton;
+class QFormLayout;
 
 // SettingsWindow - окно настроек приложения.
 class SettingsWindow : public QDialog
@@ -42,6 +44,8 @@ private:
     void loadSettings();
     void chooseColor(QColor *targetColor, QPushButton *button, const QString &title);
     void updateColorButtonIcon(QPushButton *button, const QColor &color);
+    void alignSettingsFields();
+    QList<QFormLayout *> m_settingsForms;
 
     // элементы интерфейса
     QListWidget *m_listWidget;

@@ -2,6 +2,7 @@
 #include "AppearanceManager.h"
 #include "StaticImageEditorPanel.h"
 #include "ExpressionSpinBox.h"
+#include "ElidedLabel.h"
 #include "ImageObject.h"
 #include "OptimizedStaticImageObject.h"
 #include "ProjectManager.h"
@@ -219,19 +220,24 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(10);
-    auto *header = new QHBoxLayout;
-    layout->addLayout(header);
-    auto *back = new QPushButton(QIcon(":/icons/icons/static-editor/back.svg"), QString(), this);
+    auto *headerWidget = new QWidget(this);
+    headerWidget->setObjectName("StaticEditorHeader");
+    auto *header = new QHBoxLayout(headerWidget);
+    header->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(headerWidget);
+    auto *back = new QToolButton(headerWidget);
+    back->setIcon(QIcon(":/icons/icons/static-editor/back.svg"));
     back->setObjectName("StaticPartBack");
-    back->setProperty("staticTool", true);
+    auto backPolicy = back->sizePolicy();
+    backPolicy.setRetainSizeWhenHidden(true);
+    back->setSizePolicy(backPolicy);
     back->setToolTip(tr("К разбиению"));
     back->setAccessibleName(back->toolTip());
     back->hide();
     header->addWidget(back);
-    m_name = new QLabel(tr("Статическое изображение"), this);
+    m_name = new ElidedLabel(tr("Статическое изображение"), headerWidget);
     m_name->setObjectName("StaticEditorTitle");
     m_name->setTextFormat(Qt::PlainText);
-    m_name->setWordWrap(true);
     header->addWidget(m_name, 1);
     m_partName = new QLabel(this);
     m_partName->setObjectName("StaticSectionTitle");
@@ -281,21 +287,26 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
                    tr("Исключить области с полностью нулевыми масками"));
     m_eraser = tool(editBar, this, "StaticEraser", ":/icons/icons/static-editor/eraser.svg",
                     tr("Ластик: стереть пиксели выбранных масок"));
-    m_brushSize = new ExpressionSpinBox(this);
-    m_brushSize->setObjectName("StaticEraserSize");
-    m_brushSize->setRange(1, 64);
-    m_brushSize->setValue(1);
-    m_brushSize->setPrefix(tr("Ластик "));
-    m_brushSize->setSuffix(" px");
-    m_brushSize->setAccessibleName(tr("Размер ластика"));
-    m_brushSize->setToolTip(tr("Размер ластика в пикселях изображения"));
-    editBar->addWidget(m_brushSize);
+    m_brushControls = new QWidget(this);
+    m_brushControls->setObjectName("StaticEraserControls");
+    auto *brushLayout = new QHBoxLayout(m_brushControls);
+    brushLayout->setContentsMargins(0, 0, 0, 0);
+    brushLayout->setSpacing(6);
+    m_brushSlider = new QSlider(Qt::Horizontal, m_brushControls);
+    m_brushSlider->setObjectName("StaticEraserSlider");
+    m_brushSlider->setRange(1, 1);
+    m_brushSlider->setAccessibleName(tr("Размер ластика"));
+    m_brushValue = new QLabel(m_brushControls);
+    m_brushValue->setObjectName("StaticEraserValue");
+    brushLayout->addWidget(m_brushSlider, 1);
+    brushLayout->addWidget(m_brushValue);
+    editBar->addWidget(m_brushControls);
     for (auto *button : {m_selectTool, m_mergeTool, m_partTool, m_extendTool, m_eraser})
         button->setCheckable(true);
     m_selectTool->setChecked(true);
     m_partTool->hide();
     m_eraser->hide();
-    m_brushSize->hide();
+    m_brushControls->hide();
     auto *viewBar = group(tr("Просмотр"));
     m_hand = tool(viewBar, this, "StaticPan", ":/icons/icons/static-editor/hand.svg",
                   tr("Панорама · также Пробел + перетаскивание, правая или средняя кнопка"));
@@ -442,17 +453,7 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     m_isolate = tool(inspect, maskPanel, "StaticIsolateMask", ":/icons/icons/static-editor/isolate.svg",
                      tr("Показать только выбранные маски"));
     m_isolate->setCheckable(true);
-    m_find = tool(inspect, maskPanel, "StaticFindFragment", ":/icons/icons/static-editor/find-fragment.svg",
-                  tr("Приблизить следующий мелкий фрагмент"));
     inspect->addStretch();
-    m_brushSlider = new QSlider(Qt::Horizontal, maskPanel);
-    m_brushSlider->setObjectName("StaticEraserSlider");
-    m_brushSlider->setRange(1, 64);
-    m_brushSlider->setValue(1);
-    m_brushSlider->setAccessibleName(tr("Размер ластика"));
-    m_brushSlider->setToolTip(tr("Размер ластика · [ / ] · Ctrl/⌘ + колесо"));
-    m_brushSlider->hide();
-    maskSide->addWidget(m_brushSlider);
     m_masks = new StaticMaskList(maskPanel);
     m_masks->setObjectName("StaticMaskList");
     m_masks->setItemDelegate(new StaticMaskDelegate(m_masks));
@@ -515,7 +516,7 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     connect(m_begin, &QPushButton::clicked, this, &StaticImageEditorPanel::beginEditing);
     connect(m_cancel, &QPushButton::clicked, this, &StaticImageEditorPanel::cancelEditing);
     connect(m_apply, &QPushButton::clicked, this, [this] { applyEditing(); });
-    connect(back, &QPushButton::clicked, this, &StaticImageEditorPanel::showOverview);
+    connect(back, &QToolButton::clicked, this, &StaticImageEditorPanel::showOverview);
     connect(fit, &QToolButton::clicked, this, [this] { (m_inDetail ? m_partCanvas : m_canvas)->fit(); });
     for (const auto &entry : {qMakePair(m_selectTool, 0), qMakePair(m_mergeTool, 1), qMakePair(m_partTool, 1),
                               qMakePair(m_extendTool, 2), qMakePair(m_eraser, 3), qMakePair(m_hand, 4)})
@@ -524,11 +525,9 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     connect(m_before, &QToolButton::clicked, this, [this] { showBefore(true); });
     connect(m_after, &QToolButton::clicked, this, [this] { showBefore(false); });
     connect(m_isolate, &QToolButton::toggled, m_partCanvas, &StaticImageCanvas::setIsolated);
-    connect(m_find, &QToolButton::clicked, m_partCanvas, &StaticImageCanvas::focusNextFragment);
-    connect(m_brushSize, &QSpinBox::valueChanged, m_partCanvas, &StaticImageCanvas::setBrushSize);
-    connect(m_brushSize, &QSpinBox::valueChanged, m_brushSlider, &QSlider::setValue);
-    connect(m_brushSlider, &QSlider::valueChanged, m_brushSize, &QSpinBox::setValue);
-    connect(m_partCanvas, &StaticImageCanvas::brushSizeChanged, m_brushSize, &QSpinBox::setValue);
+    connect(m_brushSlider, &QSlider::valueChanged, m_partCanvas, &StaticImageCanvas::setBrushSize);
+    connect(m_brushSlider, &QSlider::valueChanged, this, &StaticImageEditorPanel::updateBrushControls);
+    connect(m_partCanvas, &StaticImageCanvas::brushSizeChanged, m_brushSlider, &QSlider::setValue);
     connect(m_partCanvas, &StaticImageCanvas::selectionInfoChanged, this,
             [this](const QString &info)
             {
@@ -669,7 +668,7 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
                 m_extendTool->setVisible(!detail);
                 m_partTool->setVisible(detail);
                 m_eraser->setVisible(detail);
-                m_brushSize->setVisible(detail);
+                m_brushControls->setVisible(detail);
                 m_partName->setVisible(detail);
                 back->setVisible(detail);
                 if ((!detail && m_toolMode == 3) || (detail && m_toolMode == 2))
@@ -997,6 +996,7 @@ void StaticImageEditorPanel::refresh(bool rebuildList)
                         ? (m_session->source->customName().isEmpty() ? m_session->source->getDisplayName()
                                                                      : m_session->source->customName())
                         : tr("Статическое изображение"));
+    m_name->setToolTip(m_name->text());
     if (!document)
     {
         m_stats->hide();
@@ -1185,10 +1185,8 @@ void StaticImageEditorPanel::updateMaskActions()
     m_color->setEnabled(editing() && !m_showBefore && !selection.isEmpty());
     m_eraser->setEnabled(editing() && !m_showBefore && !selection.isEmpty());
     m_isolate->setEnabled(!m_showBefore && !selection.isEmpty());
-    m_find->setEnabled(!m_showBefore && m_partCanvas->hasFragments());
-    m_brushSize->setEnabled(editing() && !m_showBefore && !selection.isEmpty());
-    m_brushSlider->setEnabled(m_brushSize->isEnabled());
-    m_brushSlider->setVisible(m_inDetail && m_toolMode == 3 && !m_showBefore);
+    m_brushControls->setEnabled(editing() && !m_showBefore && !selection.isEmpty());
+    updateBrushControls();
     const bool canMove = editing() && !m_showBefore && !selection.isEmpty();
     const int first = canMove ? *std::min_element(selection.begin(), selection.end()) : -1;
     const int last = canMove ? *std::max_element(selection.begin(), selection.end()) : -1;
@@ -1205,6 +1203,16 @@ void StaticImageEditorPanel::updateMaskActions()
         tip = tr("Объединить в цвет %1").arg(m_session->document.regions[m_part].masks[target].color.name());
     m_merge->setToolTip(tip);
     m_merge->setAccessibleName(tip);
+}
+
+void StaticImageEditorPanel::updateBrushControls()
+{
+    const int maximum = draft() ? draft()->maximumEraserSize() : 1;
+    m_brushSlider->setRange(1, maximum);
+    m_brushSlider->setPageStep(qMax(1, (maximum - 1) / 10));
+    m_brushValue->setText(tr("%1 px").arg(m_brushSlider->value()));
+    m_brushSlider->setToolTip(tr("Размер ластика: %1 px · диапазон 1–%2 px (25% короткой стороны) · [ / ] · Ctrl/⌘ + колесо")
+                                 .arg(m_brushSlider->value()).arg(maximum));
 }
 
 void StaticImageEditorPanel::moveMasks(int direction, bool edge)

@@ -85,6 +85,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QLayout>
+#include <QFormLayout>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
@@ -2026,10 +2027,13 @@ private slots:
         auto *p = ProjectManager::instance(); p->createNewProject("Brush controls", 100, 100, Qt::black);
         QVERIFY(p->addObject("staticgroup") >= 0);
         auto *group = static_cast<StaticGroupObject *>(p->getObjectAt(0).data());
-        QImage image(16, 16, QImage::Format_ARGB32); image.fill(Qt::white);
-        group->states = {{0, 0, 16, 16, 0, Qt::white, true}}; group->maskImages = {image};
+        QImage image(40, 40, QImage::Format_ARGB32); image.fill(Qt::white);
+        group->states = {{0, 0, 40, 40, 0, Qt::white, true}}; group->maskImages = {image};
         StaticImageEditorPanel editor; editor.resize(1000, 740); editor.show(); editor.setSelectedObjects({0}); editor.beginEditing();
-        QVERIFY(!editor.findChild<QSpinBox *>("StaticEraserSize")->isVisible());
+        auto *controls = editor.findChild<QWidget *>("StaticEraserControls"); QVERIFY(controls);
+        QVERIFY(!controls->isVisible());
+        const auto toolbarTop = editor.findChild<QToolButton *>("StaticDraftUndo")->mapTo(&editor, QPoint()).y();
+        const auto titleLeft = editor.findChild<QLabel *>("StaticEditorTitle")->mapTo(&editor, QPoint()).x();
         QVERIFY(QFile::exists(":/icons/icons/list/optimized.svg"));
         QVERIFY(!QFile::exists(":/icons/icons/static-editor/optimized.svg"));
         QVERIFY(!QIcon(":/icons/icons/static-editor/merge-masks.svg").isNull());
@@ -2043,39 +2047,47 @@ private slots:
         auto *overview = editor.findChild<StaticImageCanvas *>("StaticPartitionCanvas");
         QTest::mouseDClick(overview, Qt::LeftButton, Qt::NoModifier, overview->imageTransform().map(QPointF(8, 8)).toPoint()); QTest::qWait(190);
         auto *canvas = editor.findChild<StaticImageCanvas *>("StaticMaskCanvas");
-        auto *size = editor.findChild<QSpinBox *>("StaticEraserSize"); auto *slider = editor.findChild<QSlider *>("StaticEraserSlider");
-        QVERIFY(size && slider && size->isEnabled()); size->setValue(3);
+        auto *slider = editor.findChild<QSlider *>("StaticEraserSlider");
+        auto *value = editor.findChild<QLabel *>("StaticEraserValue");
+        QVERIFY(slider && value && slider->isEnabled());
+        QCOMPARE(slider->minimum(), 1); QCOMPARE(slider->maximum(), 10);
+        slider->setValue(3); QCOMPARE(value->text(), QString("3 px"));
         auto *eraser = editor.findChild<QToolButton *>("StaticEraser");
-        QVERIFY(size->isVisible()); QCOMPARE(size->parentWidget(), eraser->parentWidget());
-        QVERIFY(size->geometry().left() > eraser->geometry().right());
-        QVERIFY(qAbs(size->geometry().center().y() - eraser->geometry().center().y()) <= 1);
+        QVERIFY(controls->isVisible()); QCOMPARE(controls->parentWidget(), eraser->parentWidget());
+        QVERIFY(controls->geometry().left() > eraser->geometry().right());
+        QVERIFY(qAbs(controls->geometry().center().y() - eraser->geometry().center().y()) <= 1);
+        QCOMPARE(editor.findChild<QToolButton *>("StaticDraftUndo")->mapTo(&editor, QPoint()).y(), toolbarTop);
+        QCOMPARE(editor.findChild<QLabel *>("StaticEditorTitle")->mapTo(&editor, QPoint()).x(), titleLeft);
         auto *isolate = editor.findChild<QToolButton *>("StaticIsolateMask");
-        for (const auto *name : {"StaticMaskColor", "StaticMergeMasks", "StaticFindFragment"}) {
+        for (const auto *name : {"StaticMaskColor", "StaticMergeMasks"}) {
             auto *button = editor.findChild<QToolButton *>(name); QVERIFY(button);
             QCOMPARE(button->parentWidget(), isolate->parentWidget());
             QCOMPARE(button->geometry().top(), isolate->geometry().top());
             QCOMPARE(button->size(), isolate->size());
         }
         eraser->click(); QVERIFY(slider->isVisible());
-        slider->setValue(5); QCOMPARE(size->value(), 5);
-        QTest::keyClick(canvas, Qt::Key_BracketRight); QCOMPARE(size->value(), 6); QCOMPARE(slider->value(), 6);
-        QTest::keyClick(canvas, Qt::Key_BracketLeft); QCOMPARE(size->value(), 5);
+        slider->setValue(5);
+        QTest::keyClick(canvas, Qt::Key_BracketRight); QCOMPARE(slider->value(), 6);
+        QTest::keyClick(canvas, Qt::Key_BracketLeft); QCOMPARE(slider->value(), 5);
         QWheelEvent wheel(QPointF(100, 100), QPointF(canvas->mapToGlobal(QPoint(100, 100))), QPoint(), QPoint(0, 120), Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
         const auto zoom = canvas->imageTransform().m11(); QApplication::sendEvent(canvas, &wheel);
-        QCOMPARE(size->value(), 6); QCOMPARE(canvas->imageTransform().m11(), zoom);
-        size->setValue(3);
+        QCOMPARE(slider->value(), 6); QCOMPARE(canvas->imageTransform().m11(), zoom);
+        slider->setValue(3);
         const auto point = canvas->imageTransform().map(QPointF(8.5, 8.5)).toPoint();
         QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier, point);
-        QCOMPARE(editor.draft()->regions[0].masks[0].analyze().pixels, 256 - 9);
-        editor.findChild<QToolButton *>("StaticDraftUndo")->click(); QCOMPARE(editor.draft()->regions[0].masks[0].analyze().pixels, 256);
+        QCOMPARE(editor.draft()->regions[0].masks[0].analyze().pixels, 1600 - 9);
+        editor.findChild<QToolButton *>("StaticDraftUndo")->click(); QCOMPARE(editor.draft()->regions[0].masks[0].analyze().pixels, 1600);
         editor.grab().save(QCoreApplication::applicationDirPath() + "/static-editor-brush-controls.png");
         editor.resize(680, 460); QTest::qWait(5);
         for (auto *button : editor.findChildren<QAbstractButton *>())
             if (button->isVisible()) QVERIFY(editor.rect().contains(QRect(button->mapTo(&editor, QPoint()), button->size())));
         editor.grab().save(QCoreApplication::applicationDirPath() + "/static-editor-brush-compact.png");
+        editor.findChild<QToolButton *>("StaticPartBack")->click(); QTest::qWait(190);
+        QVERIFY(!controls->isVisible());
+        QCOMPARE(editor.findChild<QToolButton *>("StaticDraftUndo")->mapTo(&editor, QPoint()).y(), toolbarTop);
         editor.cancelEditing();
     }
-    void staticMaskFragmentsAndEraseModel() {
+    void staticMaskAnalysisAndEraseModel() {
         StaticImageDocument document; document.size = QSize(40, 20); document.originalCells = 1600;
         StaticImageRegion region; region.rect = QRect(0, 0, 40, 20);
         StaticImageMask mask{region.rect, Qt::white, QByteArray(800, 0), true};
@@ -2085,7 +2097,6 @@ private slots:
         document.regions = {region};
         const auto analysis = mask.analyze();
         QCOMPARE(analysis.pixels, 31); QCOMPARE(analysis.components, 2);
-        QCOMPARE(analysis.fragments, QList<QRect>{QRect(39, 0, 1, 1)});
         QCOMPARE(analysis.bounds, QRect(5, 0, 35, 10));
         QVERIFY(document.eraseMasks(0, {0}, {39.5, .5}, {39.5, .5}, 1));
         QCOMPARE(document.regions[0].masks[0].analyze().bounds, QRect(5, 5, 6, 5));
@@ -2099,6 +2110,48 @@ private slots:
         for (int x = 0; x < 40; ++x) QCOMPARE(document.regions[0].masks[0].data[7 * 40 + x], char(0));
         mask.data.fill(0); mask.data[0] = 7; mask.data[41] = 7;
         QCOMPARE(mask.analyze().components, 1); // Diagonal antialias pixels form the same component.
+    }
+    void eraserRangeTracksImageDimensions() {
+        StaticImageDocument document;
+        for (const auto &sample : QList<QPair<QSize, int>>{{{1, 1}, 1}, {{3, 200}, 1}, {{20, 40}, 5}, {{400, 800}, 100}}) {
+            document.size = sample.first;
+            QCOMPARE(document.maximumEraserSize(), sample.second);
+        }
+        StaticImageRegion region; region.rect = QRect(0, 0, 400, 800);
+        region.masks = {StaticImageMask{region.rect, Qt::white, QByteArray(400 * 800, 7), true}};
+        document.regions = {region};
+        QVERIFY(!document.eraseMasks(0, {0}, {200.5, 400.5}, {200.5, 400.5}, 101));
+        QVERIFY(document.eraseMasks(0, {0}, {200.5, 400.5}, {200.5, 400.5}, 100));
+        QCOMPARE(document.regions[0].masks[0].analyze().pixels, qint64(400 * 800 - 100 * 100));
+        document.regions[0].masks[0].data.fill(7);
+        QVERIFY(document.eraseMasks(0, {0}, {100.5, 300.5}, {300.5, 500.5}, 100));
+        // Диагональный проход: 100² в первом отпечатке и по 199 новых пикселей на шаг.
+        QCOMPARE(document.regions[0].masks[0].analyze().pixels, qint64(400 * 800 - 100 * 100 - 200 * 199));
+        StaticImageCanvas canvas; canvas.resize(600, 600); canvas.setDocument(&document, 0);
+        QSignalSpy changed(&canvas, &StaticImageCanvas::brushSizeChanged);
+        canvas.setBrushSize(200); QCOMPARE(changed.last().first().toInt(), 100);
+        StaticImageDocument small; small.size = QSize(4, 4);
+        canvas.setDocument(&small); QCOMPARE(changed.last().first().toInt(), 1);
+    }
+    void settingsFieldsShareColumns() {
+        SettingsWindow window; window.show();
+        for (int width : {1100, 820, 720}) {
+            window.resize(width, 900); QTest::qWait(5);
+            auto *reference = window.findChild<QSpinBox *>("FastMoveStepSpin"); QVERIFY(reference);
+            auto *referenceForm = qobject_cast<QFormLayout *>(reference->parentWidget()->layout()); QVERIFY(referenceForm);
+            auto *referenceLabel = referenceForm->labelForField(reference); QVERIFY(referenceLabel);
+            for (const auto *name : {"StaticGroupPixelsSpin", "StaticGroupElementsSpin", "SymbolPixelsSpin", "GridStepSpin"}) {
+                auto *field = window.findChild<QSpinBox *>(name); QVERIFY(field);
+                QCOMPARE(field->mapTo(&window, QPoint()).x(), reference->mapTo(&window, QPoint()).x());
+                QVERIFY2(field->size() == reference->size(), qPrintable(QString("window=%1 field=%2 actual=%3x%4 reference=%5x%6")
+                    .arg(width).arg(name).arg(field->width()).arg(field->height()).arg(reference->width()).arg(reference->height())));
+                QVERIFY(field->alignment().testFlag(Qt::AlignLeft));
+                auto *form = qobject_cast<QFormLayout *>(field->parentWidget()->layout()); QVERIFY(form);
+                auto *label = form->labelForField(field); QVERIFY(label);
+                QCOMPARE(label->mapTo(&window, QPoint()).x(), referenceLabel->mapTo(&window, QPoint()).x());
+            }
+            window.grab().save(QCoreApplication::applicationDirPath() + QString("/settings-columns-%1.png").arg(width));
+        }
     }
     void staticEditorExactCutsExtendAndPan() {
         auto *p = ProjectManager::instance(); p->createNewProject("Precise cuts", 100, 100, Qt::black);
@@ -2167,16 +2220,13 @@ private slots:
         StaticImageEditorPanel editor; editor.resize(1100, 760); editor.show(); editor.setSelectedObjects({0}); editor.beginEditing();
         auto *overview = editor.findChild<StaticImageCanvas *>("StaticPartitionCanvas");
         QTest::mouseDClick(overview, Qt::LeftButton, Qt::NoModifier, overview->imageTransform().map(QPointF(8, 7)).toPoint()); QTest::qWait(190);
-        auto *canvas = editor.findChild<StaticImageCanvas *>("StaticMaskCanvas"); QVERIFY(canvas && canvas->hasFragments());
-        auto *find = editor.findChild<QToolButton *>("StaticFindFragment"); QVERIFY(find->isEnabled());
-        editor.grab().save(QCoreApplication::applicationDirPath() + "/static-editor-fragments.png");
-        find->click(); QVERIFY(canvas->imageTransform().m11() >= 20);
+        auto *canvas = editor.findChild<StaticImageCanvas *>("StaticMaskCanvas"); QVERIFY(canvas);
         editor.findChild<QToolButton *>("StaticFit")->click();
         auto point = [&](double x, double y) { return canvas->imageTransform().map(QPointF(x, y)).toPoint(); };
         auto *eraser = editor.findChild<QToolButton *>("StaticEraser"); eraser->click();
         QTest::mousePress(canvas, Qt::LeftButton, Qt::NoModifier, point(39.5, .5));
         QTest::mouseRelease(canvas, Qt::LeftButton, Qt::NoModifier, point(39.5, .5));
-        QCOMPARE(editor.draft()->regions[0].masks[0].data[39], char(0)); QVERIFY(!canvas->hasFragments());
+        QCOMPARE(editor.draft()->regions[0].masks[0].data[39], char(0));
         editor.findChild<QToolButton *>("StaticDraftUndo")->click();
         QCOMPARE(editor.draft()->regions[0].masks[0].data[39], char(1));
         editor.findChild<QToolButton *>("StaticDraftRedo")->click();
@@ -2193,7 +2243,7 @@ private slots:
         QVERIFY(!editor.findChild<QLabel *>("StaticEditorHint")->isVisible());
         QVERIFY(!editor.findChild<QLabel *>("StaticEditorNote"));
         // Stored mask bytes and dimensions survive editor XML and the hardware compilation path.
-        editor.findChild<QPushButton *>("StaticPartBack")->click(); QTest::qWait(190);
+        editor.findChild<QToolButton *>("StaticPartBack")->click(); QTest::qWait(190);
         QVERIFY(editor.applyEditing());
         QTemporaryDir temporary; QVERIFY(p->saveToFile(temporary.filePath("erased.xml")));
         QVERIFY(p->loadFromFile(temporary.filePath("erased.xml")));
@@ -2327,7 +2377,7 @@ private slots:
         QCOMPARE(editor.draft()->regions[0].masks.size(),1);QCOMPARE(editor.draft()->regions[0].masks[0].color,QColor("#00c8f0"));
         editor.findChild<QToolButton *>("StaticDraftUndo")->click();QCOMPARE(editor.draft()->regions[0].masks.size(),2);
         editor.findChild<QToolButton *>("StaticDraftRedo")->click();QCOMPARE(editor.draft()->regions[0].masks.size(),1);
-        editor.findChild<QPushButton *>("StaticPartBack")->click();QTest::qWait(190);editor.findChild<QToolButton *>("StaticShapeBuilder")->click();
+        editor.findChild<QToolButton *>("StaticPartBack")->click();QTest::qWait(190);editor.findChild<QToolButton *>("StaticShapeBuilder")->click();
         auto cut=[&](Qt::Orientation orientation,int coordinate,QPointF anchor){
             move(canvas,canvas->imageTransform().map(anchor).toPoint());
             const QPoint position=orientation==Qt::Vertical?QPoint(point(coordinate,0).x(),qRound(canvas->horizontalRulerRect().center().y())):QPoint(qRound(canvas->verticalRulerRect().center().x()),point(0,coordinate).y());
@@ -2435,7 +2485,7 @@ private slots:
         dock->grab().save(QCoreApplication::applicationDirPath()+"/static-editor-window.png");
         QTest::mouseDClick(canvas,Qt::LeftButton,Qt::NoModifier,canvas->imageTransform().map(QPointF(90,70)).toPoint());QTest::qWait(190);
         dock->grab().save(QCoreApplication::applicationDirPath()+"/static-editor-part.png");
-        editor->findChild<QPushButton *>("StaticPartBack")->click();QTest::qWait(190);
+        editor->findChild<QToolButton *>("StaticPartBack")->click();QTest::qWait(190);
         QVERIFY(p->addObject("rectangle")>=0);viewport->setSelectedIndexes({0});viewport->selectionChanged({0});QVERIFY(!editor->draft());
         viewport->setSelectedIndexes({1});viewport->selectionChanged({1});QVERIFY(editor->editing());QCOMPARE(editor->draft()->regions.size(),3);
         QVERIFY(editor->applyEditing());QVERIFY(p->getObjectAt(1)->isStaticImageOptimized());QVERIFY(!p->getObjectAt(1)->canResize());

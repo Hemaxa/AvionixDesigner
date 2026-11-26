@@ -40,6 +40,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
         updateColorButtonIcon(m_snapCanvasColorButton, m_currentSnapCanvasColor);
         updateColorButtonIcon(m_snapGridColorButton, m_currentSnapGridColor);
         updateColorButtonIcon(m_snapObjectColorButton, m_currentSnapObjectColor);
+        alignSettingsFields();
     });
 }
 
@@ -64,14 +65,21 @@ void SettingsWindow::createWidgets()
     settingsLayout->setContentsMargins(0, 0, 0, 0);
     settingsLayout->setSpacing(18);
 
+    auto settingsForm = [this](QGroupBox *group) {
+        auto *form = new QFormLayout(group);
+        form->setContentsMargins(18, 20, 18, 18);
+        form->setHorizontalSpacing(18);
+        form->setVerticalSpacing(14);
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        m_settingsForms.append(form);
+        return form;
+    };
+
     auto *generalGroup = new QGroupBox(QStringLiteral("Общие"), this);
-    auto *generalLayout = new QFormLayout(generalGroup);
-    generalLayout->setContentsMargins(18, 20, 18, 18);
-    generalLayout->setHorizontalSpacing(18);
-    generalLayout->setVerticalSpacing(14);
-    generalLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    generalLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    generalLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto *generalLayout = settingsForm(generalGroup);
 
     m_autoLoadCheck = new QCheckBox("Загружать последний проект", this);
     generalLayout->addRow(m_autoLoadCheck);
@@ -83,8 +91,7 @@ void SettingsWindow::createWidgets()
     settingsLayout->addWidget(generalGroup);
 
     auto *fpgaGroup = new QGroupBox(QStringLiteral("ПЛИС — STATICGROUP"), this);
-    auto *fpgaLayout = new QFormLayout(fpgaGroup);
-    fpgaLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto *fpgaLayout = settingsForm(fpgaGroup);
     m_staticGroupPixelsSpin = new ExpressionSpinBox(this);
     m_staticGroupPixelsSpin->setObjectName("StaticGroupPixelsSpin");
     m_staticGroupPixelsSpin->setRange(1, 65536);
@@ -97,8 +104,7 @@ void SettingsWindow::createWidgets()
     settingsLayout->addWidget(fpgaGroup);
 
     auto *symbolsGroup = new QGroupBox(QStringLiteral("ПЛИС — SYMBOLs"), this);
-    auto *symbolsLayout = new QFormLayout(symbolsGroup);
-    symbolsLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto *symbolsLayout = settingsForm(symbolsGroup);
     m_symbolPixelsSpin = new ExpressionSpinBox(this);
     m_symbolPixelsSpin->setObjectName("SymbolPixelsSpin");
     m_symbolPixelsSpin->setRange(1, 65536);
@@ -110,14 +116,7 @@ void SettingsWindow::createWidgets()
     settingsLayout->addWidget(symbolsGroup);
 
     auto *snapGroup = new QGroupBox(QStringLiteral("Сетка и привязки"), this);
-    auto *formLayout = new QFormLayout(snapGroup);
-    formLayout->setContentsMargins(18, 20, 18, 18);
-    formLayout->setHorizontalSpacing(18);
-    formLayout->setVerticalSpacing(14);
-    formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    formLayout->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    formLayout->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
-    formLayout->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto *formLayout = settingsForm(snapGroup);
 
     m_gridStepSpin = new ExpressionSpinBox(this);
     m_gridStepSpin->setObjectName(QStringLiteral("GridStepSpin"));
@@ -162,6 +161,7 @@ void SettingsWindow::createWidgets()
 
     settingsLayout->addWidget(snapGroup);
     settingsLayout->addStretch();
+    alignSettingsFields();
     auto *settingsScroll = new QScrollArea(this);
     settingsScroll->setWidgetResizable(true);
 
@@ -346,6 +346,38 @@ void SettingsWindow::createWidgets()
     connect(buttonBox, &QDialogButtonBox::accepted, this, &SettingsWindow::saveSettings);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &SettingsWindow::close);
     connect(resetButton, &QPushButton::clicked, this, &SettingsWindow::resetAllSettings);
+}
+
+void SettingsWindow::alignSettingsFields()
+{
+    int labelWidth = 0, fieldWidth = 0;
+    for (auto *form : m_settingsForms) {
+        for (int row = 0; row < form->rowCount(); ++row) {
+            if (auto *item = form->itemAt(row, QFormLayout::LabelRole)) {
+                auto *label = item->widget();
+                label->setMinimumWidth(0);
+                label->ensurePolished();
+                labelWidth = qMax(labelWidth, label->sizeHint().width());
+            }
+            if (auto *item = form->itemAt(row, QFormLayout::FieldRole)) {
+                if (auto *field = qobject_cast<QSpinBox *>(item->widget())) {
+                    field->ensurePolished();
+                    fieldWidth = qMax(fieldWidth, qMax(field->minimumWidth(), field->sizeHint().width()));
+                }
+            }
+        }
+    }
+    for (auto *form : m_settingsForms) {
+        for (int row = 0; row < form->rowCount(); ++row) {
+            if (auto *item = form->itemAt(row, QFormLayout::LabelRole))
+                item->widget()->setMinimumWidth(labelWidth);
+            if (auto *item = form->itemAt(row, QFormLayout::FieldRole))
+                if (auto *field = qobject_cast<QSpinBox *>(item->widget())) {
+                    field->setMinimumWidth(fieldWidth);
+                    field->setSizePolicy(QSizePolicy::Expanding, field->sizePolicy().verticalPolicy());
+                }
+        }
+    }
 }
 
 void SettingsWindow::chooseColor(QColor *targetColor, QPushButton *button, const QString &title)

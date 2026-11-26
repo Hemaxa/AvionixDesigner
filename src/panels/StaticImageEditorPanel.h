@@ -70,6 +70,7 @@ class StaticImageEditorPanel : public BasePanel
     void changeColor();
     void reorderMasks();
     void updateMaskActions();
+    void updateBrushControls();
     void moveMasks(int direction, bool edge = false);
     void updateHint();
     void updateCutControls(bool preview = false);
@@ -82,7 +83,7 @@ class StaticImageEditorPanel : public BasePanel
     QHash<BaseObject *, QSharedPointer<Session>> m_sessions;
     QSharedPointer<Session> m_session;
     QStackedWidget *m_pages = nullptr;
-    QWidget *m_overview = nullptr, *m_detail = nullptr;
+    QWidget *m_overview = nullptr, *m_detail = nullptr, *m_brushControls = nullptr;
     StaticImageCanvas *m_canvas = nullptr, *m_partCanvas = nullptr;
     QLabel *m_name = nullptr, *m_partName = nullptr, *m_hint = nullptr, *m_statsEmpty = nullptr;
     QWidget *m_stats = nullptr;
@@ -93,11 +94,12 @@ class StaticImageEditorPanel : public BasePanel
     QToolButton *m_mergeTool = nullptr, *m_empty = nullptr, *m_undo = nullptr, *m_redo = nullptr;
     QToolButton *m_top = nullptr, *m_up = nullptr, *m_down = nullptr, *m_bottom = nullptr;
     QToolButton *m_selectTool = nullptr, *m_partTool = nullptr, *m_extendTool = nullptr, *m_eraser = nullptr,
-                *m_hand = nullptr, *m_isolate = nullptr, *m_find = nullptr, *m_before = nullptr,
+                *m_hand = nullptr, *m_isolate = nullptr, *m_before = nullptr,
                 *m_after = nullptr, *m_split = nullptr;
     QComboBox *m_cutRegion = nullptr, *m_cutAxis = nullptr;
-    QSpinBox *m_cutPosition = nullptr, *m_brushSize = nullptr;
+    QSpinBox *m_cutPosition = nullptr;
     QSlider *m_brushSlider = nullptr;
+    QLabel *m_brushValue = nullptr;
     QLabel *m_maskInfo = nullptr, *m_coordinateLabel = nullptr;
     QPropertyAnimation *m_transition = nullptr;
     int m_part = -1;
