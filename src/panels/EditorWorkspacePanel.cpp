@@ -24,7 +24,6 @@ EditorWorkspacePanel::EditorWorkspacePanel(QWidget *parent) : QWidget(parent)
     // Переключатель поверх рабочей области не резервирует верхнюю полосу.
     auto *combo = new QComboBox(m_viewport);
     combo->setObjectName("WorkspaceLayerCombo");
-    combo->setFixedWidth(180);
     combo->move(8, 8);
     combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     combo->setToolTip(tr("Выбрать рабочий слой. Управление слоями — в панели «Слои»."));

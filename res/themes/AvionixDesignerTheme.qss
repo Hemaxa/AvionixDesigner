@@ -1,35 +1,164 @@
 /*
-    Палитра Avionix Designer
+    Единый источник оформления Avionix Designer: QSS и ручная отрисовка.
 
-    Поверхности:
-    #0f141a - общий фон приложения
-    #121922 - панели, списки, меню, карточки
-    #17212b - заголовки, hover, выбранные строки
-    #0a0f14 - рабочая область холста
+    AppearanceManager читает @define только внутри комментариев и подставляет
+    ${имя} перед передачей QSS в Qt. alpha(${цвет}, 0..255) задает прозрачность.
+    Виджеты адресуются по objectName (#Имя); именованные параметры отрисовки ниже
+    читаются через AppearanceManager. Размеры в параметрах отрисовки — пиксели.
+    SVG-иконки имеют собственное оформление и не обрабатываются темой.
+    Геометрия документа, импортированные изображения, маски ПЛИС и выбранные
+    пользователем цвета проекта/направляющих не являются оформлением приложения.
 
-    Границы:
-    #22303c - обычные границы
-    #334656 - усиленные границы и чекбоксы
+    Основная палитра:
+    @define window = #0f141a;
+    @define panel = #121922;
+    @define hover = #17212b;
+    @define canvas = #0a0f14;
+    @define border = #22303c;
+    @define borderStrong = #334656;
+    @define text = #edf7fb;
+    @define muted = #9fb3c1;
+    @define accent = #00c8f0;
+    @define onAccent = #061116;
+    @define softAccent = #8bdff2;
+    @define active = #063847;
+    @define danger = #ff5c7a;
+    @define warning = #ffca58;
 
-    Текст:
-    #edf7fb - основной текст и заголовки
-    #9fb3c1 - вторичный текст
+    Контрастные поверхности предупреждений и ошибок:
+    @define warningText = #ffd28a;
+    @define warningSurface = #342b1d;
+    @define warningBorder = #8e6b32;
+    @define errorText = #ffb2ac;
+    @define errorSurface = #382126;
+    @define errorBorder = #a14e54;
+    @define font.family = "SF Pro Display", "Segoe UI", "Arial", sans-serif;
 
-    Акценты:
-    #00c8f0 - основной циановый акцент
-    #061116 - текст на циановом акценте
-    #8bdff2 - мягкий голубой для меток типов
-    #063847 - фон активных переключателей
-    #ff5c7a - опасное действие
+    Служебные стрелки полей: геометрия и цвет принадлежат теме, не SVG-иконкам.
+    Значение <svg ...> загрузчик превращает во временный URL для свойства image.
+    @define control.arrowDown = <svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1 L6 6 L11 1" fill="none" stroke="${text}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>;
+    @define control.arrowUp = <svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 7 L6 2 L11 7" fill="none" stroke="${text}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>;
+
+    Начальные цвета пользовательских настроек и слоев (сохраненные цвета приоритетнее):
+    @define workspace.grid = alpha(${softAccent}, 55);
+    @define workspace.snapCanvas = alpha(${danger}, 210);
+    @define workspace.snapGrid = alpha(${accent}, 210);
+    @define workspace.snapObject = alpha(${warning}, 220);
+    @define layer.colors = ${accent}, ${danger}, ${warning}, ${softAccent};
+
+    Рамка симулятора и авиационные приборы:
+    @define simulator.background = ${canvas};
+    @define simulator.empty = ${canvas};
+    @define simulator.frame = ${border};
+    @define simulator.edge = alpha(${text}, 20);
+    @define simulator.overlay = alpha(${canvas}, 215);
+    @define simulator.radius = 12;
+    @define simulator.innerRadius = 10;
+    @define simulator.title.size = 20;
+    @define simulator.title.weight = 700;
+    @define simulator.compactTitle.size = 17;
+    @define simulator.compactTitle.weight = 700;
+    @define simulator.description.size = 14;
+    @define simulator.description.weight = 400;
+    @define simulator.compactDescription.size = 12;
+    @define simulator.compactDescription.weight = 400;
+    @define aircraft.overlay = alpha(${window}, 225);
+    @define aircraft.dot = alpha(${accent}, 180);
+    @define aircraft.ticks = alpha(${text}, 220);
+    @define aircraft.track = alpha(${onAccent}, 150);
+    @define aircraft.altitude.size = 9.35;
+    @define aircraft.altitude.weight = 600;
+    @define aircraft.altitude.minSize = 7;
+    @define aircraft.course.size = 11.2;
+    @define aircraft.course.weight = 600;
+    @define aircraft.course.minSize = 9;
+    @define aircraft.course.maxSize = 12;
+    @define aircraft.caption.size = 20;
+    @define aircraft.caption.weight = 700;
+    @define aircraft.caption.minScale = 0.8;
+    @define aircraft.annotation.size = 20;
+    @define aircraft.annotation.weight = 600;
+
+    Холст, маски, образцы цветов и резервная иконка библиотеки:
+    @define viewport.handle = ${text};
+    @define viewport.marquee = alpha(${accent}, 50);
+    @define viewport.frame = alpha(${text}, 90);
+    @define static.maskHighlight = alpha(${accent}, 150);
+    @define static.selectedOpacity = 55;
+    @define static.excludedOpacity = 30;
+    @define static.hoverOpacity = 15;
+    @define static.rulerSelection = alpha(${accent}, 28);
+    @define swatch.border = ${borderStrong};
+    @define library.placeholderBackground = ${border};
+    @define library.placeholderText = ${text};
+    @define library.placeholder.size = 29;
+    @define library.placeholder.weight = 600;
+
+    @define library.placeholder.side = 64;
+    @define library.placeholder.inset = 4;
+    @define library.placeholder.radius = 14;
+
+    Перья: толщина, solid/dash/dot/dashDot/dashDotDot, необязательный round.
+    @define pen.thin = 1 solid;
+    @define pen.medium = 1.5 solid;
+    @define pen.emphasis = 2 solid;
+    @define pen.selection = 1 dash;
+    @define pen.endpoint = 1.4 solid;
+    @define pen.symmetry = 1.25 dashDot;
+    @define pen.symmetryActive = 2 dashDot;
+    @define pen.cut = 1.5 dash;
+    @define pen.merge = 3 dash;
+    @define pen.tick = 1 solid round;
+    @define pen.track = 2 solid round;
+    @define objectList.minWidth = 220;
+    @define viewport.handleSize = 8;
+    @define viewport.pivotRadius = 4;
+    @define viewport.pivotArm = 8;
+    @define viewport.endpointRadiusRatio = 0.55;
+    @define static.checkerTile = 12;
+    @define static.ruler = 28;
+    @define static.margin = 16;
+    @define static.cutEndpointRadius = 3;
+    @define static.swatchRadius = 4;
+    @define missingMask.border = ${borderStrong};
+    @define missingMask.background = ${hover};
+    @define spacing.labelRadius = 3;
+    @define aircraft.dotRadius = 4;
+    @define aircraft.altitude.tickWidthRatio = 0.022;
+    @define aircraft.altitude.minTickWidth = 3;
+    @define aircraft.course.majorTickWidthRatio = 0.018;
+    @define aircraft.course.majorMinTickWidth = 3;
+    @define aircraft.course.minorTickWidthRatio = 0.010;
+    @define aircraft.course.minorMinTickWidth = 2;
+    @define aircraft.annotationRadius = 4;
+
+    Образцы показывают цвет документа, а границы и размеры берут из темы:
+    @define swatch.project.width = 34;
+    @define swatch.project.height = 22;
+    @define swatch.project.inset = 1;
+    @define swatch.project.radius = 5;
+    @define swatch.settings.width = 30;
+    @define swatch.settings.height = 22;
+    @define swatch.settings.inset = 1;
+    @define swatch.settings.radius = 4;
+    @define swatch.viewport.width = 28;
+    @define swatch.viewport.height = 28;
+    @define swatch.viewport.inset = 3;
+    @define swatch.viewport.radius = 5;
+    @define swatch.property.width = 16;
+    @define swatch.property.height = 16;
+    @define swatch.property.inset = 1;
+    @define swatch.property.radius = 7;
+
 */
 
 QMainWindow#MainWindow,
 QWidget {
-    background-color: #0f141a;
-    color: #edf7fb;
-    selection-background-color: #00c8f0;
-    selection-color: #061116;
-    font-family: "SF Pro Display", "Segoe UI", "Arial", sans-serif;
+    background-color: ${window};
+    color: ${text};
+    selection-background-color: ${accent};
+    selection-color: ${onAccent};
+    font-family: ${font.family};
     font-size: 13px;
 }
 
@@ -51,22 +180,22 @@ QWidget {
 }
 
 #ViewportPanel {
-    background-color: #0a0f14;
-    border: 1px solid #22303c;
+    background-color: ${canvas};
+    border: 1px solid ${border};
     border-radius: 8px;
 }
 
 QDockWidget {
     font-weight: 600;
-    border: 1px solid #22303c;
+    border: 1px solid ${border};
     border-radius: 8px;
 }
 
 QDockWidget::title {
-    background-color: #17212b;
-    color: #edf7fb;
+    background-color: ${hover};
+    color: ${text};
     padding: 8px 12px;
-    border-bottom: 1px solid #22303c;
+    border-bottom: 1px solid ${border};
 }
 
 QDockWidget::close-button,
@@ -79,12 +208,12 @@ QDockWidget::float-button,
 QDockWidget::close-button:hover,
 QDockWidget::float-button:hover,
 #ObjectListIconButton:hover {
-    background-color: #17212b;
+    background-color: ${hover};
 }
 
 QMenuBar {
-    background-color: #121922;
-    border-bottom: 1px solid #22303c;
+    background-color: ${panel};
+    border-bottom: 1px solid ${border};
     padding: 4px 6px;
 }
 
@@ -95,13 +224,13 @@ QMenuBar::item {
 
 QMenuBar::item:selected,
 QMenu::item:selected {
-    background-color: #00c8f0;
-    color: #061116;
+    background-color: ${accent};
+    color: ${onAccent};
 }
 
 QMenu {
-    background-color: #121922;
-    border: 1px solid #22303c;
+    background-color: ${panel};
+    border: 1px solid ${border};
     padding: 6px;
 }
 
@@ -112,31 +241,31 @@ QMenu::item {
 
 QMenu::separator {
     height: 1px;
-    background-color: #22303c;
+    background-color: ${border};
     margin: 6px 8px;
 }
 
 QDialog {
-    background-color: #0f141a;
-    color: #edf7fb;
+    background-color: ${window};
+    color: ${text};
     font-size: 14px;
 }
 
 #DialogTitleLabel {
-    color: #edf7fb;
+    color: ${text};
     font-size: 18px;
     font-weight: 700;
 }
 
 #DialogDescriptionLabel {
-    color: #9fb3c1;
+    color: ${muted};
     font-size: 14px;
     line-height: 150%;
 }
 
 QListWidget {
-    background-color: #121922;
-    border: 1px solid #22303c;
+    background-color: ${panel};
+    border: 1px solid ${border};
     border-radius: 8px;
     outline: none;
     padding: 4px;
@@ -151,13 +280,13 @@ QListWidget::item {
 }
 
 QListWidget::item:hover {
-    background-color: #17212b;
+    background-color: ${hover};
 }
 
 QListWidget::item:selected {
-    background-color: #17212b;
-    border: 1px solid #00c8f0;
-    color: #edf7fb;
+    background-color: ${hover};
+    border: 1px solid ${accent};
+    color: ${text};
 }
 
 #ObjectListRowWidget,
@@ -175,20 +304,20 @@ QListWidget::item:selected {
 
 #ObjectListRowLabel {
     background-color: transparent;
-    color: #edf7fb;
+    color: ${text};
     padding: 0;
 }
 
 #ObjectListTypeLabel {
     background-color: transparent;
-    color: #8bdff2;
+    color: ${softAccent};
     padding: 0;
     font-size: 11px;
 }
 
 QCheckBox {
     background-color: transparent;
-    color: #edf7fb;
+    color: ${text};
     spacing: 4px;
     min-height: 20px;
 }
@@ -196,18 +325,18 @@ QCheckBox {
 QCheckBox::indicator {
     width: 14px;
     height: 14px;
-    border: 1px solid #334656;
+    border: 1px solid ${borderStrong};
     border-radius: 3px;
-    background-color: #121922;
+    background-color: ${panel};
 }
 
 QCheckBox::indicator:hover {
-    border-color: #00c8f0;
+    border-color: ${accent};
 }
 
 QCheckBox::indicator:checked {
-    background-color: #00c8f0;
-    border-color: #00c8f0;
+    background-color: ${accent};
+    border-color: ${accent};
 }
 
 #ObjectExportCheck {
@@ -216,22 +345,23 @@ QCheckBox::indicator:checked {
 
 #PropertiesTitleLabel,
 #PropertiesEmptyTitleLabel {
-    color: #edf7fb;
+    color: ${text};
     font-size: 14px;
     font-weight: 700;
 }
 
 #PropertiesSubtitleLabel,
 #PropertiesEmptyTextLabel {
-    color: #9fb3c1;
+    color: ${muted};
 }
 
 #LibraryCard,
 #SelectionToolStrip QToolButton,
 #ExportFpgaConfigurationButton,
+#SettingsColorButton,
 #SettingsToolButton {
-    background-color: #121922;
-    border: 1px solid #22303c;
+    background-color: ${panel};
+    border: 1px solid ${border};
     border-radius: 8px;
 }
 
@@ -242,21 +372,23 @@ QCheckBox::indicator:checked {
 #LibraryCard:hover,
 #SelectionToolStrip QToolButton:hover,
 #ExportFpgaConfigurationButton:hover,
+#SettingsColorButton:hover,
 #SettingsToolButton:hover {
-    background-color: #17212b;
-    border-color: #00c8f0;
+    background-color: ${hover};
+    border-color: ${accent};
 }
 
 #LibraryCard:pressed,
 #SelectionToolStrip QToolButton:pressed,
 #ExportFpgaConfigurationButton:pressed,
+#SettingsColorButton:pressed,
 #SettingsToolButton:pressed {
-    background-color: #0a0f14;
+    background-color: ${canvas};
 }
 
 #SettingsToolButton:checked {
-    background-color: #063847;
-    border-color: #00c8f0;
+    background-color: ${active};
+    border-color: ${accent};
 }
 
 #SelectionToolStrip QToolButton,
@@ -272,34 +404,34 @@ QTableWidget,
     background-color: transparent;
     border: none;
     gridline-color: transparent;
-    selection-background-color: #00c8f0;
-    selection-color: #061116;
+    selection-background-color: ${accent};
+    selection-color: ${onAccent};
 }
 
 QTableWidget::item,
 #PropertiesTable::item {
     padding: 8px 10px;
-    border-bottom: 1px solid #22303c;
+    border-bottom: 1px solid ${border};
 }
 
 QTableWidget::item:selected,
 #PropertiesTable::item:selected {
-    background-color: #00c8f0;
-    color: #061116;
+    background-color: ${accent};
+    color: ${onAccent};
 }
 
 QHeaderView::section {
-    background-color: #17212b;
-    color: #edf7fb;
+    background-color: ${hover};
+    color: ${text};
     border: none;
-    border-bottom: 1px solid #22303c;
+    border-bottom: 1px solid ${border};
     padding: 8px 10px;
     font-weight: 650;
 }
 
 QGroupBox {
-    background-color: #121922;
-    border: 1px solid #22303c;
+    background-color: ${panel};
+    border: 1px solid ${border};
     border-radius: 8px;
     margin-top: 16px;
     padding: 14px 12px 12px 12px;
@@ -311,8 +443,8 @@ QGroupBox::title {
     subcontrol-position: top left;
     left: 10px;
     padding: 0 6px;
-    color: #edf7fb;
-    background-color: #0f141a;
+    color: ${text};
+    background-color: ${window};
 }
 
 QLabel {
@@ -324,9 +456,9 @@ QTextEdit,
 QSpinBox,
 QDoubleSpinBox,
 QComboBox {
-    background-color: #121922;
-    color: #edf7fb;
-    border: 1px solid #22303c;
+    background-color: ${panel};
+    color: ${text};
+    border: 1px solid ${border};
     border-radius: 7px;
     min-height: 28px;
     padding: 6px 9px;
@@ -337,7 +469,7 @@ QTextEdit:focus,
 QSpinBox:focus,
 QDoubleSpinBox:focus,
 QComboBox:focus {
-    border-color: #00c8f0;
+    border-color: ${accent};
 }
 
 /* Единый список Qt вместо меню системного стиля: высота считается по пунктам,
@@ -348,13 +480,13 @@ QComboBox {
 }
 
 QComboBox QAbstractItemView {
-    background-color: #121922;
-    color: #edf7fb;
-    border: 1px solid #334656;
+    background-color: ${panel};
+    color: ${text};
+    border: 1px solid ${borderStrong};
     padding: 0;
     outline: none;
-    selection-background-color: #00c8f0;
-    selection-color: #061116;
+    selection-background-color: ${accent};
+    selection-color: ${onAccent};
 }
 
 QComboBox QAbstractItemView::item {
@@ -364,20 +496,20 @@ QComboBox QAbstractItemView::item {
 }
 
 QComboBox QAbstractItemView::item:hover {
-    background-color: #17212b;
-    color: #edf7fb;
+    background-color: ${hover};
+    color: ${text};
 }
 
 QComboBox QAbstractItemView::item:selected {
-    background-color: #00c8f0;
-    color: #061116;
+    background-color: ${accent};
+    color: ${onAccent};
 }
 
 QPushButton,
 QToolButton {
-    background-color: #121922;
-    color: #edf7fb;
-    border: 1px solid #22303c;
+    background-color: ${panel};
+    color: ${text};
+    border: 1px solid ${border};
     border-radius: 7px;
     min-height: 28px;
     padding: 7px 12px;
@@ -385,13 +517,13 @@ QToolButton {
 
 QPushButton:hover,
 QToolButton:hover {
-    background-color: #17212b;
-    border-color: #00c8f0;
+    background-color: ${hover};
+    border-color: ${accent};
 }
 
 QPushButton:pressed,
 QToolButton:pressed {
-    background-color: #0a0f14;
+    background-color: ${canvas};
 }
 
 QToolButton#LibraryCard {
@@ -406,7 +538,7 @@ QToolButton#LibraryCard {
 #SelectionToolStrip QToolButton,
 QToolButton#ExportFpgaConfigurationButton,
 QToolButton#SettingsToolButton,
-QPushButton#SettingsColorButton {
+QToolButton#SettingsColorButton {
     min-width: 52px;
     max-width: 52px;
     min-height: 52px;
@@ -421,51 +553,51 @@ QToolButton#SettingsToolButton {
 }
 
 #AircraftPositionPanel {
-    background-color: #0f141a;
+    background-color: ${window};
 }
 
 #AircraftPositionScreen {
-    background-color: #0f141a;
+    background-color: ${window};
     border: none;
 }
 
 #AircraftPositionCaption {
-    color: #edf7fb;
+    color: ${text};
     font-weight: 700;
 }
 
 #AircraftPositionUnavailableOverlay {
-    background-color: rgba(15, 20, 26, 225);
-    border: 1px solid #22303c;
+    background-color: ${aircraft.overlay};
+    border: 1px solid ${border};
     border-radius: 8px;
 }
 
 #AircraftPositionUnavailableTitle {
-    color: #edf7fb;
+    color: ${text};
     font-size: 20px;
     font-weight: 800;
 }
 
 #AircraftPositionUnavailableText {
-    color: #9fb3c1;
+    color: ${muted};
     font-size: 14px;
 }
 
 #FpgaSimulatorWarningsLabel {
-    color: #f05050;
+    color: ${danger};
 }
 
 #PropertiesHardwareWarning {
-    color: #ffd28a;
-    background-color: #342b1d;
-    border: 1px solid #8e6b32;
+    color: ${warningText};
+    background-color: ${warningSurface};
+    border: 1px solid ${warningBorder};
     border-radius: 6px;
     padding: 10px;
 }
 #PropertiesHardwareWarning[severity="error"] {
-    color: #ffb2ac;
-    background-color: #382126;
-    border-color: #a14e54;
+    color: ${errorText};
+    background-color: ${errorSurface};
+    border-color: ${errorBorder};
 }
 #TransparencyEditor, #PropertyFieldEditor, #StaticLayerEditor { background-color: transparent; }
 #TransparencySpin, #ObjectLayerCombo, #WorkspaceLayerCombo, #PropertyValueCombo, #StaticLayerOrderCombo {
@@ -477,12 +609,12 @@ QToolButton#SettingsToolButton {
 #TransparencySpin QLineEdit { background: transparent; border: none; min-height: 0; padding: 0; }
 #TransparencySlider::groove:horizontal {
     height: 5px;
-    background: #304454;
+    background: ${borderStrong};
     border-radius: 2px;
 }
-#TransparencySlider::sub-page:horizontal { background: #00bada; border-radius: 2px; }
+#TransparencySlider::sub-page:horizontal { background: ${accent}; border-radius: 2px; }
 #TransparencySlider::handle:horizontal {
-    background: #d5f8ff;
+    background: ${text};
     width: 10px;
     margin: -5px 0;
     border-radius: 4px;
@@ -493,9 +625,9 @@ QToolButton#SettingsToolButton {
 #AircraftAltitudeSpin,
 #AircraftCourseSpin,
 #AircraftScreenYSpin {
-    background-color: #121922;
-    color: #edf7fb;
-    border: 1px solid #22303c;
+    background-color: ${panel};
+    color: ${text};
+    border: 1px solid ${border};
     border-radius: 7px;
     padding: 2px 6px;
     font-size: 18px;
@@ -507,7 +639,7 @@ QToolButton#SettingsToolButton {
 #AircraftAltitudeSpin:focus,
 #AircraftCourseSpin:focus,
 #AircraftScreenYSpin:focus {
-    border-color: #00c8f0;
+    border-color: ${accent};
 }
 
 #AircraftPositionPanel QAbstractSpinBox QLineEdit {
@@ -547,18 +679,18 @@ QToolButton#AircraftScreenYButton:pressed {
     border: none;
 }
 
-QPushButton#SettingsColorButton {
+QToolButton#SettingsColorButton {
     qproperty-iconSize: 36px 36px;
 }
 
 QPushButton#ResetButton {
-    color: #ff5c7a;
-    border-color: #334656;
+    color: ${danger};
+    border-color: ${borderStrong};
 }
 
 QPushButton#ResetButton:hover {
-    background-color: #17212b;
-    border-color: #ff5c7a;
+    background-color: ${hover};
+    border-color: ${danger};
 }
 
 QPushButton#ColorSwatchButton {
@@ -585,7 +717,7 @@ QDialog#SettingsWindow QGroupBox {
 
 QDialog#SettingsWindow QFormLayout QLabel,
 QDialog QLabel {
-    color: #edf7fb;
+    color: ${text};
 }
 
 QDialog QLineEdit,
@@ -638,8 +770,8 @@ QDialog#SettingsWindow QPushButton#ColorSwatchButton {
 }
 
 QDialog#FontExportDialog QTableWidget {
-    background-color: #121922;
-    border: 1px solid #22303c;
+    background-color: ${panel};
+    border: 1px solid ${border};
     border-radius: 8px;
 }
 
@@ -652,22 +784,22 @@ QDialog#FontExportDialog QHeaderView::section {
 }
 
 QDialog#UartStreamingDialog {
-    background-color: #0f141a;
+    background-color: ${window};
 }
 
 QDialog#NewProjectDialog QLabel,
 QDialog#UartStreamingDialog QLabel {
-    color: #9fb3c1;
+    color: ${muted};
 }
 
 QDialog#NewProjectDialog #DialogTitleLabel,
 QDialog#UartStreamingDialog #DialogTitleLabel {
-    color: #edf7fb;
+    color: ${text};
 }
 
 QDialog#NewProjectDialog #DialogFieldLabel,
 QDialog#UartStreamingDialog #DialogFieldLabel {
-    color: #9fb3c1;
+    color: ${muted};
     font-weight: 600;
 }
 
@@ -707,13 +839,13 @@ QScrollBar:vertical {
 }
 
 QScrollBar::handle:vertical {
-    background-color: #334656;
+    background-color: ${borderStrong};
     border-radius: 5px;
     min-height: 28px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background-color: #00c8f0;
+    background-color: ${accent};
 }
 
 QScrollBar::add-line:vertical,
@@ -733,23 +865,23 @@ QScrollBar::sub-page:horizontal {
 
 /* Слои редактора: та же палитра, что у списка объектов и полей свойств. */
 #LayersPanel, #LayersRows { background: transparent; border: none; }
-#LayerRow { background: #121922; border: 1px solid #22303c; border-radius: 6px; }
-#LayerRow[selected="true"] { background: #17212b; border-color: #00c8f0; }
-#LayerRow[active="true"] { background: #063847; border: 1px solid #00c8f0; }
+#LayerRow { background: ${panel}; border: 1px solid ${border}; border-radius: 6px; }
+#LayerRow[selected="true"] { background: ${hover}; border-color: ${accent}; }
+#LayerRow[active="true"] { background: ${active}; border: 1px solid ${accent}; }
 #LayerNameEdit { background: transparent; border: 1px solid transparent; padding: 3px; min-height: 24px; }
-#LayerNameEdit:focus { border: 1px solid #334656; }
-#LayerNumber { background: transparent; color: #9fb3c1; }
+#LayerNameEdit:focus { border: 1px solid ${borderStrong}; }
+#LayerNumber { background: transparent; color: ${muted}; }
 #LayerColorButton, #DuplicateLayerButton, #MergeLayerButton, #DeleteLayerButton, #AddLayerButton {
     min-width: 42px; max-width: 42px;
     min-height: 42px; max-height: 42px;
     padding: 0; border-radius: 5px;
 }
-#DeleteLayerButton:hover { color: #ff5c7a; border-color: #ff5c7a; }
+#DeleteLayerButton:hover { color: ${danger}; border-color: ${danger}; }
 #ShowAllLayersButton { min-height: 42px; max-height: 42px; padding: 0 8px; }
-#ShowAllLayersButton:checked { background: #063847; border-color: #00c8f0; color: #8bdff2; }
+#ShowAllLayersButton:checked { background: ${active}; border-color: ${accent}; color: ${softAccent}; }
 
 /* Диалоги экспорта структуры аппаратного конвейера. */
-#FpgaConfigurationDialog { background: #0f141a; }
+#FpgaConfigurationDialog { background: ${window}; }
 #FpgaConfigurationPathEdit { min-height: 30px; padding: 4px 8px; }
 #ConfigurationBrowseButton { min-height: 30px; padding: 4px 10px; }
 
@@ -763,44 +895,116 @@ QDialog#UartStreamingDialog QPushButton {
 /* Постоянное окно статических масок использует ту же палитру, что и рабочая область. */
 #StaticImageEditorPanel #StaticEditorTitle { font-size: 16px; font-weight: 600; padding: 2px 0; }
 #StaticImageEditorPanel #StaticSectionTitle { font-weight: 600; background: transparent; border: none; }
-#StaticImageEditorPanel #StaticEditorStats { background: #121922; border: 1px solid #22303c; border-radius: 8px; }
-#StaticImageEditorPanel #StaticStatCaption { color: #9fb3c1; background: transparent; border: none; }
-#StaticImageEditorPanel #StaticStatValue { color: #edf7fb; font-weight: 600; background: transparent; border: none; }
-#StaticImageEditorPanel #StaticStatValue[saving="true"] { color: #00c8f0; }
-#StaticImageEditorPanel #StaticStatValue[growth="true"] { color: #ff5c7a; }
+#StaticImageEditorPanel #StaticEditorStats { background: ${panel}; border: 1px solid ${border}; border-radius: 8px; }
+#StaticImageEditorPanel #StaticStatCaption { color: ${muted}; background: transparent; border: none; }
+#StaticImageEditorPanel #StaticStatValue { color: ${text}; font-weight: 600; background: transparent; border: none; }
+#StaticImageEditorPanel #StaticStatValue[saving="true"] { color: ${accent}; }
+#StaticImageEditorPanel #StaticStatValue[growth="true"] { color: ${danger}; }
 #StaticImageEditorPanel #StaticStatsScroll { background: transparent; border: none; }
 #StaticImageEditorPanel #StaticStatsScroll > QWidget > QWidget { background: transparent; }
-#StaticImageEditorPanel #StaticEditorHint { color: #9fb3c1; padding: 4px 0; }
-#StaticImageEditorPanel #StaticEditorHint[severity="warning"] { color: #ffb2ac; }
-#StaticImageEditorPanel #StaticEditorHint[severity="error"] { color: #ffb2ac; }
+#StaticImageEditorPanel #StaticEditorHint { color: ${muted}; padding: 4px 0; }
+#StaticImageEditorPanel #StaticEditorHint[severity="warning"] { color: ${errorText}; }
+#StaticImageEditorPanel #StaticEditorHint[severity="error"] { color: ${errorText}; }
 #StaticImageEditorPanel QToolButton,
 #StaticImageEditorPanel QPushButton[staticTool="true"] {
-    background: #121922; border: 1px solid #22303c; border-radius: 6px;
+    background: ${panel}; border: 1px solid ${border}; border-radius: 6px;
     padding: 0; min-width: 42px; max-width: 42px; min-height: 42px; max-height: 42px;
 }
 #StaticImageEditorPanel QToolButton:hover,
-#StaticImageEditorPanel QPushButton[staticTool="true"]:hover { border-color: #00c8f0; background: #17212b; }
-#StaticImageEditorPanel QToolButton:checked { background: #063847; border-color: #00c8f0; }
+#StaticImageEditorPanel QPushButton[staticTool="true"]:hover { border-color: ${accent}; background: ${hover}; }
+#StaticImageEditorPanel QToolButton:checked { background: ${active}; border-color: ${accent}; }
 #StaticImageEditorPanel QToolButton:disabled,
-#StaticImageEditorPanel QPushButton[staticTool="true"]:disabled { border-color: #22303c; background: #0f141a; }
+#StaticImageEditorPanel QPushButton[staticTool="true"]:disabled { border-color: ${border}; background: ${window}; }
 #StaticImageEditorPanel QToolButton:focus,
-#StaticImageEditorPanel QPushButton[staticTool="true"]:focus { border-color: #00c8f0; }
+#StaticImageEditorPanel QPushButton[staticTool="true"]:focus { border-color: ${accent}; }
 #StaticImageEditorPanel QPushButton { min-height: 30px; padding: 4px 12px; }
-#StaticImageEditorPanel #StaticApplyEditing { background: #00c8f0; color: #061116; }
-#StaticImageEditorPanel #StaticApplyEditing:disabled { background: #17212b; color: #9fb3c1; }
-#StaticImageEditorPanel #StaticMaskList { background: #121922; border: 1px solid #22303c; border-radius: 8px; padding: 4px; }
+#StaticImageEditorPanel #StaticApplyEditing { background: ${accent}; color: ${onAccent}; }
+#StaticImageEditorPanel #StaticApplyEditing:disabled { background: ${hover}; color: ${muted}; }
+#StaticImageEditorPanel #StaticMaskList { background: ${panel}; border: 1px solid ${border}; border-radius: 8px; padding: 4px; }
 #StaticImageEditorPanel QSplitter::handle { background: transparent; }
-#StaticImageEditorPanel QSplitter::handle:hover { background: #22303c; }
+#StaticImageEditorPanel QSplitter::handle:hover { background: ${border}; }
 
-#StaticImageEditorPanel #StaticToolGroup { background: #121922; border: 1px solid #22303c; border-radius: 8px; }
-#StaticImageEditorPanel #StaticCutCard { background: #121922; border: 1px solid #22303c; border-radius: 8px; }
+#StaticImageEditorPanel #StaticToolGroup { background: ${panel}; border: 1px solid ${border}; border-radius: 8px; }
+#StaticImageEditorPanel #StaticCutCard { background: ${panel}; border: 1px solid ${border}; border-radius: 8px; }
 #StaticImageEditorPanel #StaticCutRegion, #StaticImageEditorPanel #StaticCutAxis { min-height: 24px; padding: 2px 6px; }
 #StaticImageEditorPanel #StaticCutCoordinate, #StaticImageEditorPanel #StaticEraserSize { min-height: 32px; padding: 4px 6px; }
-#StaticImageEditorPanel #StaticMaskInfo { color: #9fb3c1; background: transparent; font-size: 12px; }
+#StaticImageEditorPanel #StaticMaskInfo { color: ${muted}; background: transparent; font-size: 12px; }
 
 #StaticImageEditorPanel #StaticEraserSlider { background: transparent; border: none; min-height: 20px; max-height: 20px; }
-#StaticImageEditorPanel #StaticEraserSlider::groove:horizontal { height: 4px; background: #22303c; border-radius: 2px; }
-#StaticImageEditorPanel #StaticEraserSlider::handle:horizontal { width: 14px; margin: -5px 0; background: #00c8f0; border-radius: 7px; }
-#StaticImageEditorPanel #StaticEraserSlider:disabled::handle:horizontal { background: #334656; }
-#StaticImageEditorPanel #StaticEraserSlider::sub-page:horizontal { background: #00c8f0; border-radius: 2px; }
-#StaticImageEditorPanel #StaticEraserSlider::add-page:horizontal { background: #22303c; border-radius: 2px; }
+#StaticImageEditorPanel #StaticEraserSlider::groove:horizontal { height: 4px; background: ${border}; border-radius: 2px; }
+#StaticImageEditorPanel #StaticEraserSlider::handle:horizontal { width: 14px; margin: -5px 0; background: ${accent}; border-radius: 7px; }
+#StaticImageEditorPanel #StaticEraserSlider:disabled::handle:horizontal { background: ${borderStrong}; }
+#StaticImageEditorPanel #StaticEraserSlider::sub-page:horizontal { background: ${accent}; border-radius: 2px; }
+#StaticImageEditorPanel #StaticEraserSlider::add-page:horizontal { background: ${border}; border-radius: 2px; }
+
+/* Геометрия стандартных контролов задается по objectName. */
+#ObjectListIconButton {
+    min-width: 30px; max-width: 30px;
+    min-height: 30px; max-height: 30px;
+    qproperty-iconSize: 24px 24px;
+}
+#ObjectExportCheck { min-height: 30px; max-height: 30px; }
+#ObjectListRowWidget { min-height: 42px; max-height: 42px; }
+#ObjectListGroupRowWidget { min-height: 40px; max-height: 40px; }
+#LayerRow { min-height: 54px; max-height: 54px; }
+#LayerNumber { min-width: 18px; max-width: 18px; }
+#LayerColorButton { qproperty-iconSize: 24px 24px; }
+#DuplicateLayerButton, #MergeLayerButton, #DeleteLayerButton, #AddLayerButton {
+    qproperty-iconSize: 28px 28px;
+}
+#StaticImageEditorPanel QToolButton,
+#StaticImageEditorPanel QPushButton[staticTool="true"] { qproperty-iconSize: 28px 28px; }
+QDialog#SettingsWindow QPushButton#ColorSwatchButton { qproperty-iconSize: ${swatch.settings.width}px ${swatch.settings.height}px; }
+
+#SelectionToolStrip { min-width: 80px; max-width: 80px; }
+#WorkspaceLayerCombo { min-width: 166px; max-width: 166px; }
+QDialog#SettingsWindow #SettingsNavigationList { min-width: 180px; max-width: 180px; }
+QDialog#SettingsWindow #GridStepSpin { min-width: 160px; }
+#ObjectListTypeLabel, #ObjectListRowLabel { min-height: 24px; }
+#ObjectListRowLabel { min-width: 40px; }
+#StaticOptimizationBadge { min-width: 24px; max-width: 24px; min-height: 30px; max-height: 30px; }
+#LayerNameEdit { min-width: 70px; }
+#StaticImageEditorPanel #StaticStatsScroll { min-width: 280px; max-width: 320px; }
+#StaticImageEditorPanel #StaticMaskSidePanel { min-width: 280px; max-width: 440px; }
+#StaticImageEditorPanel #StaticEraserSize { min-width: 130px; max-width: 130px; }
+#StaticMaskSplitter { qproperty-handleWidth: 8; }
+#NewProjectDialog #DialogFieldLabel { min-width: 92px; }
+#FpgaStreamingSeparator { min-height: 1px; max-height: 1px; background: ${border}; border: none; }
+
+/* Стрелки находятся внутри рамки; системные подложки не перекрывают скругления. */
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 24px;
+    background: transparent;
+    border: none;
+}
+QComboBox::down-arrow {
+    image: ${control.arrowDown};
+    width: 12px;
+    height: 8px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 22px;
+    background: transparent;
+    border: none;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: padding;
+    subcontrol-position: bottom right;
+    width: 22px;
+    background: transparent;
+    border: none;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: ${control.arrowUp};
+    width: 10px;
+    height: 6px;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: ${control.arrowDown};
+    width: 10px;
+    height: 6px;
+}

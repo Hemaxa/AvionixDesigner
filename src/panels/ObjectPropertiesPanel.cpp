@@ -1,5 +1,6 @@
 // ObjectPropertiesPanel - панель свойств выбранного объекта.
 
+#include "AppearanceManager.h"
 #include "ObjectPropertiesPanel.h"
 
 #include "BaseObject.h"
@@ -26,8 +27,6 @@
 #include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QVBoxLayout>
-#include <QPainter>
-#include <QPixmap>
 #include <QIcon>
 #include <QSpinBox>
 #include <QHBoxLayout>
@@ -170,7 +169,7 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
     m_scrollArea = new QScrollArea(this);
     m_scrollArea->setObjectName("PropertiesScrollArea");
     m_scrollArea->setWidgetResizable(true);
-    m_scrollArea->setFrameShape(QFrame::NoFrame);
+
 
     auto *container = new QWidget();
     container->setObjectName("PropertiesContainer");
@@ -243,6 +242,7 @@ ObjectPropertiesPanel::ObjectPropertiesPanel(QWidget *parent) : BasePanel(parent
     m_scrollArea->setWidget(container);
     mainLayout->addWidget(m_scrollArea);
 
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, &ObjectPropertiesPanel::refreshTableValues);
     connect(m_tableWidget, &QTableWidget::cellChanged, this, &ObjectPropertiesPanel::onCellChanged);
     connect(m_tableWidget, &QTableWidget::cellDoubleClicked, this, &ObjectPropertiesPanel::onCellDoubleClicked);
     auto refresh = [this]() {
@@ -415,7 +415,7 @@ void ObjectPropertiesPanel::updateValueItem(int row, const QString &name, const 
     item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
     if (!readOnly && !isColorProperty(name) && name != tr("Слой") && name != QStringLiteral("Прозрачность"))
         item->setFlags(item->flags() | Qt::ItemIsEditable);
-    item->setForeground(readOnly || mixed ? QBrush(QColor("#9fb3c1")) : QBrush());
+    item->setForeground(readOnly || mixed ? QBrush(AppearanceManager::instance()->color("muted")) : QBrush());
     if (name == tr("Слой")) {
         auto *combo = m_tableWidget->cellWidget(row, 1)->findChild<QComboBox *>("ObjectLayerCombo");
         const QSignalBlocker blocker(combo);
@@ -442,12 +442,7 @@ void ObjectPropertiesPanel::updateValueItem(int row, const QString &name, const 
     } else if (isColorProperty(name) && !mixed) {
         const QColor color(value);
         if (color.isValid()) {
-            QPixmap pixmap(16, 16); pixmap.fill(Qt::transparent);
-            QPainter painter(&pixmap);
-            painter.setRenderHint(QPainter::Antialiasing);
-            painter.setBrush(color); painter.setPen(QColor("#334656"));
-            painter.drawEllipse(1, 1, 14, 14); painter.end();
-            item->setIcon(QIcon(pixmap));
+            item->setIcon(AppearanceManager::instance()->colorSwatch("swatch.property", color));
         }
     }
 }

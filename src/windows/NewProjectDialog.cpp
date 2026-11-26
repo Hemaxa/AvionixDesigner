@@ -1,5 +1,6 @@
 // NewProjectDialog - диалог создания нового проекта.
 
+#include "AppearanceManager.h"
 #include "NewProjectDialog.h"
 
 #include <QKeySequence>
@@ -9,9 +10,6 @@
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
-#include <QPainter>
-#include <QPen>
-#include <QPixmap>
 #include <QPushButton>
 #include <QSpinBox>
 #include "ExpressionSpinBox.h"
@@ -23,21 +21,12 @@ QLabel* createFormLabel(const QString &text, QWidget *parent)
     auto *label = new QLabel(text, parent);
     label->setObjectName(QStringLiteral("DialogFieldLabel"));
     label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    label->setMinimumWidth(92);
     return label;
 }
 
 QIcon createColorSwatchIcon(const QColor &color)
 {
-    QPixmap pixmap(34, 22);
-    pixmap.fill(Qt::transparent);
-
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setBrush(color);
-    painter.setPen(QPen(QColor(230, 245, 255, 170), 1));
-    painter.drawRoundedRect(QRectF(1, 1, 32, 20), 5, 5);
-    return QIcon(pixmap);
+    return AppearanceManager::instance()->colorSwatch("swatch.project", color);
 }
 }
 
@@ -70,21 +59,18 @@ NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
     formLayout->setVerticalSpacing(10);
 
     m_nameEdit = new QLineEdit(QStringLiteral("Untitled"), this);
-    m_nameEdit->setFixedHeight(32);
     formLayout->addWidget(createFormLabel(QStringLiteral("Имя"), this), 0, 0);
     formLayout->addWidget(m_nameEdit, 0, 1);
 
     m_widthSpin = new ExpressionSpinBox(this);
     m_widthSpin->setRange(64, 4095);
     m_widthSpin->setValue(640);
-    m_widthSpin->setFixedHeight(32);
     formLayout->addWidget(createFormLabel(QStringLiteral("Ширина"), this), 1, 0);
     formLayout->addWidget(m_widthSpin, 1, 1);
 
     m_heightSpin = new ExpressionSpinBox(this);
     m_heightSpin->setRange(64, 4095);
     m_heightSpin->setValue(480);
-    m_heightSpin->setFixedHeight(32);
     formLayout->addWidget(createFormLabel(QStringLiteral("Высота"), this), 2, 0);
     formLayout->addWidget(m_heightSpin, 2, 1);
 
@@ -92,7 +78,6 @@ NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
     m_colorButton->setObjectName(QStringLiteral("ProjectColorButton"));
     m_colorButton->setShortcut(QKeySequence("Alt+C"));
     m_colorButton->setToolTip(QStringLiteral("Выбрать цвет (Alt+C)"));
-    m_colorButton->setFixedHeight(32);
     formLayout->addWidget(createFormLabel(QStringLiteral("Фон"), this), 3, 0);
     formLayout->addWidget(m_colorButton, 3, 1);
     formLayout->setColumnStretch(1, 1);
@@ -105,6 +90,7 @@ NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
     mainLayout->addWidget(buttons);
 
     refreshColorPreview();
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, &NewProjectDialog::refreshColorPreview);
 
     connect(m_colorButton, &QPushButton::clicked, this, &NewProjectDialog::chooseBackgroundColor);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);

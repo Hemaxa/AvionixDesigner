@@ -1,5 +1,6 @@
 // AircraftPositionPanel - панель позиционирования самолета в пространстве.
 
+#include "AppearanceManager.h"
 #include "AircraftPositionPanel.h"
 #include "AircraftPositionMapping.h"
 #include "ProjectManager.h"
@@ -163,7 +164,7 @@ protected:
     painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
     // Фон совпадает с подложкой SVG; квадрат задается геометрией самого виджета.
     // Круги и оси не зависят от пропорций окна панели.
-    painter.fillRect(rect(), QColor(QStringLiteral("#22303c")));
+    painter.fillRect(rect(), AppearanceManager::instance()->color("border"));
 
     const QRectF screenRect =
         fittedRect(rect(), QSizeF(1.0, 1.0));
@@ -193,8 +194,9 @@ protected:
     painter.restore();
 
     painter.save();
-    painter.setPen(QPen(QColor(0, 200, 240, 180), 1));
-    painter.drawEllipse(aircraftCenter, 4, 4);
+    painter.setPen(AppearanceManager::instance()->pen("pen.thin", AppearanceManager::instance()->color("aircraft.dot")));
+    const double radius = AppearanceManager::instance()->number("aircraft.dotRadius");
+    painter.drawEllipse(aircraftCenter, radius, radius);
     painter.restore();
   }
 
@@ -254,9 +256,10 @@ protected:
     drawSvg(&painter, m_trackRenderer, trackRect);
 
     const double tickX = trackRect.right() + width() * 0.10;
-    painter.setPen(QPen(QColor(237, 247, 251, 220),
-                        qMax(3, qRound(width() * 0.022)), Qt::SolidLine,
-                        Qt::RoundCap));
+    auto *theme = AppearanceManager::instance();
+    painter.setPen(theme->pen("pen.tick", theme->color("aircraft.ticks"),
+        qMax(theme->number("aircraft.altitude.minTickWidth"),
+             double(qRound(width() * theme->number("aircraft.altitude.tickWidthRatio"))))));
     const int tickCount = 10;
     for (int i = 0; i <= tickCount; ++i) {
       const double t = static_cast<double>(i) / tickCount;
@@ -265,11 +268,10 @@ protected:
       painter.drawLine(QPointF(tickX, y), QPointF(tickX + tickLength, y));
     }
 
-    painter.setPen(QColor(237, 247, 251));
-    QFont valueFont = painter.font();
-    valueFont.setPixelSize(qMax(7, qRound(width() * 0.055)));
-    valueFont.setWeight(QFont::DemiBold);
-    painter.setFont(valueFont);
+    painter.setPen(AppearanceManager::instance()->color("text"));
+    auto *appearance = AppearanceManager::instance();
+    painter.setFont(appearance->font("aircraft.altitude", painter.font(),
+        qMax(appearance->number("aircraft.altitude.minSize") / appearance->number("aircraft.altitude.size"), width() / 170.0)));
     const double labelX = tickX + width() * 0.15;
     painter.drawText(
         QRectF(labelX, valueRange.top() - 14, width() - labelX, 28),
@@ -282,7 +284,7 @@ protected:
                          static_cast<double>(kMaxAltitude - kMinAltitude);
     const double thumbY = valueRange.bottom() - ratio * valueRange.height();
     painter.setPen(
-        QPen(QColor(6, 17, 22, 150), 2, Qt::SolidLine, Qt::RoundCap));
+        theme->pen("pen.track", theme->color("aircraft.track")));
     painter.drawLine(QPointF(trackRect.center().x(), trackRect.top() + 25),
                      QPointF(trackRect.center().x(), trackRect.bottom() - 25));
 
@@ -415,20 +417,22 @@ protected:
                                 : major  ? height() * 0.050
                                          : height() * 0.030;
       const double endRadius = startRadius + tickLength;
-      painter.setPen(QPen(QColor(237, 247, 251),
-                          major ? qMax(3, qRound(width() * 0.018))
-                                : qMax(2, qRound(width() * 0.010)),
-                          Qt::SolidLine, Qt::RoundCap));
+      auto *theme = AppearanceManager::instance();
+      const double tickWidth = qMax(theme->number(major ? "aircraft.course.majorMinTickWidth" : "aircraft.course.minorMinTickWidth"),
+          double(qRound(width() * theme->number(major ? "aircraft.course.majorTickWidthRatio" : "aircraft.course.minorTickWidthRatio"))));
+      painter.setPen(theme->pen("pen.tick", theme->color("text"), tickWidth));
       const QPointF p1 = baseRect.center() + direction * startRadius;
       const QPointF p2 = baseRect.center() + direction * endRadius;
       painter.drawLine(p1, p2);
     }
 
-    painter.setPen(QColor(237, 247, 251));
-    QFont cardinalFont = painter.font();
-    cardinalFont.setPixelSize(qBound(9, qRound(height() * 0.05), 12));
-    cardinalFont.setWeight(QFont::DemiBold);
-    painter.setFont(cardinalFont);
+    painter.setPen(AppearanceManager::instance()->color("text"));
+    auto *appearance = AppearanceManager::instance();
+    const double fontSize = qBound(appearance->number("aircraft.course.minSize"),
+        appearance->number("aircraft.course.size") * height() / 224.0,
+        appearance->number("aircraft.course.maxSize"));
+    painter.setFont(appearance->font("aircraft.course", painter.font(),
+        fontSize / appearance->number("aircraft.course.size")));
     drawCardinalLabel(&painter, baseRect, QStringLiteral("С 90°"), 0);
     drawCardinalLabel(&painter, baseRect, QStringLiteral("В 0°"), 90);
     drawCardinalLabel(&painter, baseRect, QStringLiteral("Ю 270°"), 180);
@@ -674,6 +678,13 @@ AircraftPositionPanel::AircraftPositionPanel(QWidget *parent)
   overlayLayout->addStretch(1);
   m_unavailableOverlay->hide();
 
+  connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, [this]() {
+    applyControlScale();
+    m_screenWidget->update();
+    m_altitudeSlider->update();
+    m_courseKnob->update();
+  });
+
   connect(m_xSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
           [this](double value) {
             if (!m_updatingControls)
@@ -833,14 +844,12 @@ void AircraftPositionPanel::applyControlScale() {
   m_screenYControlArea->setFixedSize(m_screenYSpin->width() + 8 + screenYButtonSize.width(),
                                    2 * screenYButtonSize.height() + 6);
 
-  const int captionSize = qRound(15 * scale);
   const QList<QLabel *> labels =
       findChildren<QLabel *>(QStringLiteral("AircraftPositionCaption"));
   for (QLabel *label : labels) {
-    QFont font = label->font();
-    font.setPointSize(qMax(12, captionSize));
-    font.setWeight(QFont::Bold);
-    label->setFont(font);
+    auto *appearance = AppearanceManager::instance();
+    label->setFont(appearance->font("aircraft.caption", label->font(),
+        qMax(appearance->number("aircraft.caption.minScale"), scale)));
     label->setFixedHeight(qRound(24 * scale));
   }
   fitScreen();

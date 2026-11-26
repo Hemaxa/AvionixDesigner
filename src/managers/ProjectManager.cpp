@@ -13,6 +13,7 @@
 #include <QtMath>
 
 #include "ProjectManager.h"
+#include "AppearanceManager.h"
 #include "ObjectCloner.h"
 #include "CanvasGeometry.h"
 #include "ProjectXmlFile.h"
@@ -46,6 +47,9 @@
 ProjectManager::ProjectManager()
 {
     resetEditorLayers();
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, [this]() {
+        readGlobalWorkspaceSettings();
+    });
     connect(this, &ProjectManager::projectLoaded, this, [this]() { ++m_sceneRevision; });
     connect(this, &ProjectManager::projectChanged, this, [this]() {
         if (!m_aircraftStateChange) ++m_sceneRevision;
@@ -1505,7 +1509,7 @@ bool ProjectManager::setObjectsProperty(const QList<QSharedPointer<BaseObject>> 
 
 void ProjectManager::resetEditorLayers()
 {
-    m_editorLayers = {{1, tr("Слой 1"), QColor(QStringLiteral("#00c8f0"))}};
+    m_editorLayers = {{1, tr("Слой 1"), AppearanceManager::instance()->color("accent")}};
     m_nextLayerId = 2;
     m_activeLayerId = 1;
     m_showAllLayers = false;
@@ -1525,7 +1529,7 @@ QString ProjectManager::editorLayerName(int id) const
 QColor ProjectManager::editorLayerColor(int id) const
 {
     for (const auto &layer : m_editorLayers) if (layer.id == id) return layer.selectionColor;
-    return QColor(QStringLiteral("#00c8f0"));
+    return AppearanceManager::instance()->color("accent");
 }
 
 int ProjectManager::layerObjectCount(int id) const
@@ -1579,8 +1583,8 @@ int ProjectManager::addEditorLayer()
 {
     recordHistory();
     const int id = m_nextLayerId++;
-    static const QStringList colors = {"#00c8f0", "#ff5c7a", "#ffca58", "#8bdff2"};
-    m_editorLayers.append({id, uniqueLayerName(tr("Слой %1").arg(id)), QColor(colors[(id - 1) % colors.size()])});
+    const QStringList colors = AppearanceManager::instance()->value("layer.colors").split(',');
+    m_editorLayers.append({id, uniqueLayerName(tr("Слой %1").arg(id)), QColor(colors[(id - 1) % colors.size()].trimmed())});
     m_activeLayerId = id;
     notifyEditorLayersChanged();
     return id;
@@ -1909,11 +1913,11 @@ void ProjectManager::readGlobalWorkspaceSettings()
     auto settings = ApplicationSettings::create();
     m_gridStep = qBound(1, settings.value("gridStep", 10).toInt(), 1000);
 
-    QString colorStr = settings.value("gridColor", "#3778b4c8").toString();
-    m_gridColor = QColor(colorStr);
-    m_snapCanvasGuideColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
-    m_snapGridGuideColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
-    m_snapObjectGuideColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
+    auto *appearance = AppearanceManager::instance();
+    m_gridColor = QColor(settings.value("gridColor", appearance->color("workspace.grid").name(QColor::HexArgb)).toString());
+    m_snapCanvasGuideColor = QColor(settings.value("snapCanvasGuideColor", appearance->color("workspace.snapCanvas").name(QColor::HexArgb)).toString());
+    m_snapGridGuideColor = QColor(settings.value("snapGridGuideColor", appearance->color("workspace.snapGrid").name(QColor::HexArgb)).toString());
+    m_snapObjectGuideColor = QColor(settings.value("snapObjectGuideColor", appearance->color("workspace.snapObject").name(QColor::HexArgb)).toString());
 }
 
 // сеттеры

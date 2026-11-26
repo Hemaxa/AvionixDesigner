@@ -1,5 +1,6 @@
 // ThreeDViewObject - область 3D-вида и положение самолета для ПЛИС.
 
+#include "AppearanceManager.h"
 #include "ThreeDViewObject.h"
 
 #include "BitParser.h"
@@ -49,8 +50,8 @@ void ThreeDViewObject::draw(QPainter &painter)
     painter.scale(scale, scale);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    painter.setPen(QPen(QColor(QStringLiteral("#22303c")), 1.5));
-    painter.setBrush(QColor(QStringLiteral("#121922")));
+    painter.setPen(AppearanceManager::instance()->pen("pen.medium", AppearanceManager::instance()->color("border")));
+    painter.setBrush(AppearanceManager::instance()->color("panel"));
     painter.drawRect(rect.adjusted(0.6, 0.6, -0.6, -0.6));
 
     painter.setClipRect(rect, Qt::IntersectClip);
@@ -73,10 +74,11 @@ void ThreeDViewObject::draw(QPainter &painter)
     const double labelTop = marker.top() - labelHeight - 4.0;
     const QRectF label(left, labelTop < rect.top() + 4.0 ? marker.bottom() + 4.0 : labelTop,
                        labelWidth, labelHeight);
-    painter.setPen(QPen(QColor(QStringLiteral("#22303c")), 1));
-    painter.setBrush(QColor(QStringLiteral("#17212b")));
-    painter.drawRoundedRect(label, 4, 4);
-    painter.setPen(QColor(QStringLiteral("#edf7fb")));
+    painter.setPen(AppearanceManager::instance()->pen("pen.thin", AppearanceManager::instance()->color("border")));
+    painter.setBrush(AppearanceManager::instance()->color("hover"));
+    const double radius = AppearanceManager::instance()->number("aircraft.annotationRadius");
+    painter.drawRoundedRect(label, radius, radius);
+    painter.setPen(AppearanceManager::instance()->color("text"));
     painter.drawText(label, Qt::AlignCenter, coordinates);
 
     painter.restore();
@@ -218,10 +220,7 @@ QRectF ThreeDViewObject::aircraftMarkerRect() const
 
 QFont ThreeDViewObject::annotationFont() const
 {
-    QFont font;
-    font.setPixelSize(20);
-    font.setWeight(QFont::DemiBold);
-    return font;
+    return AppearanceManager::instance()->font("aircraft.annotation", QFont());
 }
 
 QRectF ThreeDViewObject::viewRect() const

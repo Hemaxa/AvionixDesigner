@@ -41,7 +41,7 @@ LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
     m_scroll->setObjectName("LayersScrollArea");
     m_scroll->setWidgetResizable(true);
     m_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_scroll->setFrameShape(QFrame::NoFrame);
+
     m_rows = new QWidget();
     m_rows->setObjectName("LayersRows");
     m_rowsLayout = new QVBoxLayout(m_rows);
@@ -51,8 +51,6 @@ LayersPanel::LayersPanel(QWidget *parent) : BasePanel(parent)
     layout->addWidget(m_scroll, 1);
     auto *add = new QToolButton(this);
     add->setObjectName("AddLayerButton");
-    add->setFixedSize(44, 44);
-    add->setIconSize(QSize(28, 28));
     add->setToolTip(tr("Добавить слой (Ctrl+Shift+N)"));
     add->setAccessibleName(tr("Добавить слой"));
     add->setIcon(QIcon(QStringLiteral(":/icons/icons/layers/add.svg")));
@@ -228,7 +226,6 @@ void LayersPanel::refreshLayers()
     int number = 0;
     for (const auto &layer : project->editorLayers()) {
         auto *row = new QWidget(m_rows);
-        row->setFixedHeight(56);
         row->setObjectName("LayerRow");
         row->setProperty("layerId", layer.id);
         row->installEventFilter(this);
@@ -237,15 +234,13 @@ void LayersPanel::refreshLayers()
         layout->setSpacing(6);
         auto *color = new QToolButton(row);
         color->setObjectName("LayerColorButton");
-        color->setFixedSize(44, 44);
         color->setToolTip(tr("Цвет выделения на слое (Ctrl+Shift+C)"));
-        QPixmap swatch(24, 24); swatch.fill(layer.selectionColor);
-        color->setIconSize(QSize(24, 24));
+        color->ensurePolished();
+        QPixmap swatch(color->iconSize()); swatch.fill(layer.selectionColor);
         color->setIcon(QIcon(swatch));
         layout->addWidget(color);
         auto *order = new QLabel(QString::number(++number), row);
         order->setObjectName("LayerNumber");
-        order->setFixedWidth(18);
         order->setProperty("layerId", layer.id);
         order->installEventFilter(this);
         layout->addWidget(order);
@@ -253,7 +248,6 @@ void LayersPanel::refreshLayers()
         name->setObjectName("LayerNameEdit");
         name->setProperty("layerId", layer.id);
         name->installEventFilter(this);
-        name->setMinimumWidth(70);
         name->setReadOnly(true);
         name->setCursor(Qt::ArrowCursor);
         name->setToolTip(tr("Ctrl/⌘ — несколько слоёв, Shift — диапазон. F2 или двойной щелчок — изменить имя. Объектов: %1").arg(project->layerObjectCount(layer.id)));
@@ -262,10 +256,8 @@ void LayersPanel::refreshLayers()
             auto *button = new QToolButton(row);
             button->setObjectName(objectName);
             button->setIcon(QIcon(QStringLiteral(":/icons/icons/layers/%1.svg").arg(icon)));
-            button->setIconSize(QSize(28, 28));
             button->setToolTip(tip);
             button->setAccessibleName(tip);
-            button->setFixedSize(44, 44);
             layout->addWidget(button);
             return button;
         };

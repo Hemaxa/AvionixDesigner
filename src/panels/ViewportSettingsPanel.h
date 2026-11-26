@@ -6,7 +6,6 @@
 
 #include <QColor>
 
-class QPushButton;
 class QSpinBox;
 class QToolButton;
 
@@ -31,7 +30,7 @@ private slots:
 
 private:
 
-    QPushButton *m_bgColorButton = nullptr;
+    QToolButton *m_bgColorButton = nullptr;
     QSpinBox *m_widthSpin = nullptr;
     QSpinBox *m_heightSpin = nullptr;
     QToolButton *m_gridButton = nullptr;

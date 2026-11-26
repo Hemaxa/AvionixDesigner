@@ -1,5 +1,6 @@
 // FpgaScreenWidget - декоративная рамка экрана для результата симулятора ПЛИС.
 
+#include "AppearanceManager.h"
 #include "FpgaScreenWidget.h"
 
 #include <QPainter>
@@ -11,7 +12,9 @@
 FpgaScreenWidget::FpgaScreenWidget(QWidget *parent)
     : QWidget(parent)
 {
+    setObjectName("FpgaScreenWidget");
     setMinimumSize(260, 180);
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, QOverload<>::of(&QWidget::update));
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
 
@@ -35,44 +38,45 @@ void FpgaScreenWidget::paintEvent(QPaintEvent *event)
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.fillRect(rect(), QColor(14, 18, 24));
+    painter.fillRect(rect(), AppearanceManager::instance()->color("simulator.background"));
 
     const QRectF backing = backingRect();
+    const double radius = AppearanceManager::instance()->number("simulator.radius");
+    const double innerRadius = AppearanceManager::instance()->number("simulator.innerRadius");
 
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(QStringLiteral("#22303c")));
-    painter.drawRoundedRect(backing, 12, 12);
+    painter.setBrush(AppearanceManager::instance()->color("simulator.frame"));
+    painter.drawRoundedRect(backing, radius, radius);
 
     if (m_image.isNull()) {
-        painter.setBrush(QColor(8, 12, 16));
-        painter.drawRoundedRect(backing.adjusted(1, 1, -1, -1), 10, 10);
+        painter.setBrush(AppearanceManager::instance()->color("simulator.empty"));
+        painter.drawRoundedRect(backing.adjusted(1, 1, -1, -1), innerRadius, innerRadius);
     } else {
         QPainterPath clipPath;
-        clipPath.addRoundedRect(backing, 12, 12);
+        clipPath.addRoundedRect(backing, radius, radius);
         painter.save();
         painter.setClipPath(clipPath);
         painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
         painter.drawImage(backing, m_image);
         painter.restore();
 
-        painter.setPen(QPen(QColor(255, 255, 255, 20), 1));
+        painter.setPen(AppearanceManager::instance()->pen("pen.thin", AppearanceManager::instance()->color("simulator.edge")));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(backing.adjusted(0.5, 0.5, -0.5, -0.5), 12, 12);
+        painter.drawRoundedRect(backing.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius);
     }
 
     if (!m_simulationActive) {
         painter.save();
         painter.setRenderHint(QPainter::Antialiasing, true);
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(5, 8, 11, 215));
-        painter.drawRoundedRect(backing.adjusted(1, 1, -1, -1), 10, 10);
+        painter.setBrush(AppearanceManager::instance()->color("simulator.overlay"));
+        painter.drawRoundedRect(backing.adjusted(1, 1, -1, -1), innerRadius, innerRadius);
 
         const QRect messageRect = backing.adjusted(22, 18, -22, -18).toAlignedRect();
-        QFont titleFont = painter.font();
-        titleFont.setBold(true);
-        titleFont.setPixelSize(messageRect.height() < 100 ? 17 : 20);
-        QFont descriptionFont = painter.font();
-        descriptionFont.setPixelSize(messageRect.height() < 100 ? 12 : 14);
+        auto *appearance = AppearanceManager::instance();
+        const bool compact = messageRect.height() < 100;
+        const QFont titleFont = appearance->font(compact ? "simulator.compactTitle" : "simulator.title", painter.font());
+        const QFont descriptionFont = appearance->font(compact ? "simulator.compactDescription" : "simulator.description", painter.font());
 
         const QString title = QStringLiteral("Симулятор неактивен");
         const QString description = QStringLiteral("Для включения запустите симуляцию.");
@@ -85,11 +89,11 @@ void FpgaScreenWidget::paintEvent(QPaintEvent *event)
         const int contentTop = messageRect.center().y() - contentHeight / 2;
 
         painter.setFont(titleFont);
-        painter.setPen(QColor(QStringLiteral("#edf7fb")));
+        painter.setPen(AppearanceManager::instance()->color("text"));
         painter.drawText(QRect(messageRect.left(), contentTop, messageRect.width(), titleHeight),
                          Qt::AlignCenter, title);
         painter.setFont(descriptionFont);
-        painter.setPen(QColor(QStringLiteral("#9fb3c1")));
+        painter.setPen(AppearanceManager::instance()->color("muted"));
         painter.drawText(QRect(messageRect.left(), contentTop + titleHeight + spacing,
                                messageRect.width(), descriptionBounds.height()),
                          Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, description);

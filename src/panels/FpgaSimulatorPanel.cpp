@@ -18,7 +18,7 @@ FpgaSimulatorPanel::FpgaSimulatorPanel(QWidget *parent)
     m_warningsLabel->setObjectName(QStringLiteral("FpgaSimulatorWarningsLabel"));
     m_warningsLabel->setWordWrap(true);
     m_warningsScroll = new QScrollArea(this);
-    m_warningsScroll->setFrameShape(QFrame::NoFrame);
+
     m_warningsScroll->setWidgetResizable(true);
     m_warningsScroll->setMaximumHeight(120);
     m_warningsScroll->setWidget(m_warningsLabel);

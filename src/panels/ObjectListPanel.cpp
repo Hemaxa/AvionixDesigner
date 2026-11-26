@@ -1,6 +1,7 @@
 // ObjectListPanel - панель со списком объектов проекта.
 
 #include "ObjectListPanel.h"
+#include "AppearanceManager.h"
 #include <QApplication>
 #include <QAction>
 #include "ProjectManager.h"
@@ -85,8 +86,6 @@ QToolButton *createLockButton(QWidget *parent, QHBoxLayout *layout, bool locked)
                                : ":/icons/icons/list/lock-off.svg"));
   button->setToolTip(locked ? QStringLiteral("Разрешить выделение (Ctrl+L)")
                             : QStringLiteral("Заблокировать выделение (Ctrl+L)"));
-  button->setFixedSize(30, 30);
-  button->setIconSize(QSize(24, 24));
   layout->addWidget(button, 0, Qt::AlignVCenter);
   return button;
 }
@@ -98,7 +97,6 @@ QCheckBox *addExportControls(QWidget *parent, QHBoxLayout *layout,
   typeLabel->setTextFormat(Qt::PlainText);
   typeLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
   typeLabel->setToolTip(type);
-  typeLabel->setMinimumHeight(24);
   // Учитываем реальный шрифт темы, в том числе на Windows и при масштабировании.
   typeLabel->ensurePolished();
   typeLabel->setFixedWidth(typeLabel->sizeHint().width());
@@ -109,7 +107,7 @@ QCheckBox *addExportControls(QWidget *parent, QHBoxLayout *layout,
   check->setToolTip(QStringLiteral("%1 (Ctrl+E)").arg(toolTip));
   check->setChecked(enabled);
   check->ensurePolished();
-  check->setFixedSize(check->sizeHint().width(), 30);
+  check->setFixedWidth(check->sizeHint().width());
   layout->addWidget(check, 0, Qt::AlignRight | Qt::AlignVCenter);
   return check;
 }
@@ -128,7 +126,7 @@ ObjectListPanel::ObjectListPanel(QWidget *parent) : BasePanel(parent) {
   m_listWidget = new QListWidget(this);
   m_listWidget->setObjectName("ObjectListWidget");
   m_listWidget->viewport()->setObjectName("ObjectListViewport");
-  m_listWidget->setMinimumWidth(220);
+  m_listWidget->setMinimumWidth(qRound(AppearanceManager::instance()->number("objectList.minWidth")));
   m_listWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_listWidget->setDragEnabled(true);
   m_listWidget->setAcceptDrops(true);
@@ -239,7 +237,6 @@ void ObjectListPanel::refreshList() {
 
     auto *rowWidget = new QWidget(m_listWidget);
     rowWidget->setObjectName("ObjectListRowWidget");
-    rowWidget->setFixedHeight(42);
     auto *rowLayout = new QHBoxLayout(rowWidget);
     rowLayout->setContentsMargins(grouped ? 24 : 6, 0, 6, 0);
     rowLayout->setSpacing(6);
@@ -254,9 +251,7 @@ void ObjectListPanel::refreshList() {
     eyeButton->setToolTip(obj->isViewVisible()
                               ? QStringLiteral("Скрыть на холсте")
                               : QStringLiteral("Показать на холсте"));
-    eyeButton->setFixedSize(30, 30);
     eyeButton->setToolTip(QStringLiteral("%1 (Ctrl+Shift+H)").arg(eyeButton->toolTip()));
-    eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
     auto *lockButton = createLockButton(rowWidget, rowLayout, obj->isSelectionLocked());
@@ -270,8 +265,6 @@ void ObjectListPanel::refreshList() {
     label->setObjectName("ObjectListRowLabel");
     label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     label->setWordWrap(false);
-    label->setMinimumHeight(24);
-    label->setMinimumWidth(40);
     label->setToolTip(text);
     rowLayout->addWidget(label, 1, Qt::AlignVCenter);
 
@@ -282,7 +275,6 @@ void ObjectListPanel::refreshList() {
       detach->setAccessibleName(tr("Сделать копию независимой"));
       detach->setToolTip(tr("Сделать независимым объектом. Вернуть связь можно через отмену действия."));
       detach->setIcon(QIcon(":/icons/icons/list/symmetry-copy.svg"));
-      detach->setFixedSize(30, 30); detach->setIconSize(QSize(24, 24));
       rowLayout->addWidget(detach, 0, Qt::AlignVCenter);
       connect(detach, &QToolButton::clicked, this, [this, index] {
         if (ProjectManager::instance()->detachSymmetryCopy(index)) { refreshList(); onSelectionChanged(); }
@@ -292,8 +284,7 @@ void ObjectListPanel::refreshList() {
     if (obj->isStaticImageOptimized() || obj->isStaticImageEditing()) {
       auto *badge = new QLabel(rowWidget);
       badge->setObjectName("StaticOptimizationBadge");
-      badge->setPixmap(QIcon(":/icons/icons/static-editor/optimized.svg").pixmap(22, 22));
-      badge->setFixedSize(24, 30);
+      badge->setPixmap(QIcon(":/icons/icons/list/optimized.svg").pixmap(22, 22));
       badge->setToolTip(obj->isStaticImageEditing() ? tr("Редактируется в отдельном окне; размер зафиксирован") : tr("Оптимизировано; размер зафиксирован"));
       rowLayout->addWidget(badge, 0, Qt::AlignVCenter);
     }
@@ -306,7 +297,7 @@ void ObjectListPanel::refreshList() {
     rowWidget->ensurePolished();
     minimumRowWidth = qMax(minimumRowWidth, rowLayout->minimumSize().width());
 
-    item->setSizeHint(QSize(0, 42));
+    item->setSizeHint(QSize(0, rowWidget->minimumHeight()));
     m_listWidget->setItemWidget(item, rowWidget);
 
     connect(eyeButton, &QToolButton::clicked, this, [this, index]() {
@@ -354,7 +345,6 @@ void ObjectListPanel::refreshList() {
 
     auto *rowWidget = new QWidget(m_listWidget);
     rowWidget->setObjectName("ObjectListGroupRowWidget");
-    rowWidget->setFixedHeight(40);
     auto *rowLayout = new QHBoxLayout(rowWidget);
     rowLayout->setContentsMargins(6, 0, 6, 0);
     rowLayout->setSpacing(6);
@@ -368,9 +358,7 @@ void ObjectListPanel::refreshList() {
     eyeButton->setToolTip(anyVisible
                               ? QStringLiteral("Скрыть группу на холсте")
                               : QStringLiteral("Показать группу на холсте"));
-    eyeButton->setFixedSize(30, 30);
     eyeButton->setToolTip(QStringLiteral("%1 (Ctrl+Shift+H)").arg(eyeButton->toolTip()));
-    eyeButton->setIconSize(QSize(24, 24));
     rowLayout->addWidget(eyeButton, 0, Qt::AlignVCenter);
 
     auto *lockButton = createLockButton(rowWidget, rowLayout, allLocked);
@@ -383,8 +371,6 @@ void ObjectListPanel::refreshList() {
     auto *label = new ElidedLabel(group.name, rowWidget);
     label->setObjectName("ObjectListRowLabel");
     label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
-    label->setMinimumHeight(24);
-    label->setMinimumWidth(40);
     label->setToolTip(group.name);
     rowLayout->addWidget(label, 1, Qt::AlignVCenter);
 
@@ -394,7 +380,7 @@ void ObjectListPanel::refreshList() {
     rowWidget->ensurePolished();
     minimumRowWidth = qMax(minimumRowWidth, rowLayout->minimumSize().width());
 
-    item->setSizeHint(QSize(0, 40));
+    item->setSizeHint(QSize(0, rowWidget->minimumHeight()));
     m_listWidget->setItemWidget(item, rowWidget);
 
     connect(eyeButton, &QToolButton::clicked, this,
@@ -435,7 +421,7 @@ void ObjectListPanel::refreshList() {
   // При сужении сокращается имя, а тип и флажок остаются целыми.
   const int listChromeWidth = 2 * m_listWidget->frameWidth() + 16
       + m_listWidget->verticalScrollBar()->sizeHint().width();
-  m_listWidget->setMinimumWidth(qMax(220, minimumRowWidth + listChromeWidth));
+  m_listWidget->setMinimumWidth(qMax(qRound(AppearanceManager::instance()->number("objectList.minWidth")), minimumRowWidth + listChromeWidth));
 
   int currentRow = -1;
   QSet<int> selectedSet(preservedSelection.begin(), preservedSelection.end());

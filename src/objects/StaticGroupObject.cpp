@@ -1,6 +1,7 @@
 // StaticGroupObject - класс группы статических растровых объектов с несколькими состояниями.
 
 #include "StaticGroupObject.h"
+#include "AppearanceManager.h"
 #include "fpga/compiler/FpgaResourceLimits.h"
 #include "BitParser.h"
 #include "ProportionalResize.h"
@@ -143,10 +144,9 @@ void StaticGroupObject::draw(QPainter &painter)
         }
         else {
             // если маски нет, рисуем рамку-заглушку
-            QPen pen(Qt::gray, 1, Qt::DashLine);
+            QPen pen = AppearanceManager::instance()->pen("pen.selection", AppearanceManager::instance()->color("missingMask.border"));
             painter.setPen(pen);
-            QColor fillColor = state.color.isValid() ? state.color.lighter(150) : Qt::lightGray;
-            painter.setBrush(fillColor);
+            painter.setBrush(AppearanceManager::instance()->color("missingMask.background"));
             painter.drawRect(QRectF(state.x, state.y, state.w, state.h));
         }
     }

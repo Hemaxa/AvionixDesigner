@@ -1,4 +1,5 @@
 // StaticImageEditorPanel — черновики, навигация, маски и применение к сцене.
+#include "AppearanceManager.h"
 #include "StaticImageEditorPanel.h"
 #include "ExpressionSpinBox.h"
 #include "ImageObject.h"
@@ -159,7 +160,7 @@ class StaticMaskList : public QListWidget
         const int y = m_dropRow < count() ? visualItemRect(item(m_dropRow)).top()
                                           : (count() ? visualItemRect(item(count() - 1)).bottom() : 2);
         QPainter painter(viewport());
-        painter.setPen(QPen(QColor("#00c8f0"), 2));
+        painter.setPen(AppearanceManager::instance()->pen("pen.emphasis", AppearanceManager::instance()->color("accent")));
         painter.drawLine(8, y, viewport()->width() - 8, y);
     }
 
@@ -191,14 +192,15 @@ class StaticMaskDelegate : public QStyledItemDelegate
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing);
         const QRectF swatch(option.rect.left() + 12, option.rect.center().y() - 11, 22, 22);
-        painter->setPen(QPen(QColor("#9fb3c1"), 1));
+        painter->setPen(AppearanceManager::instance()->pen("pen.thin", AppearanceManager::instance()->color("muted")));
         painter->setBrush(index.data(Qt::UserRole + 1).value<QColor>());
-        painter->drawRoundedRect(swatch, 4, 4);
+        const double radius = AppearanceManager::instance()->number("static.swatchRadius");
+        painter->drawRoundedRect(swatch, radius, radius);
         const auto text = option.rect.adjusted(46, 9, -10, -9);
-        painter->setPen(QColor("#edf7fb"));
+        painter->setPen(AppearanceManager::instance()->color("text"));
         painter->drawText(text, Qt::AlignLeft | Qt::AlignTop,
                           option.fontMetrics.elidedText(lines.value(0), Qt::ElideRight, text.width()));
-        painter->setPen(QColor("#9fb3c1"));
+        painter->setPen(AppearanceManager::instance()->color("muted"));
         painter->drawText(text, Qt::AlignLeft | Qt::AlignBottom,
                           option.fontMetrics.elidedText(lines.value(1), Qt::ElideRight, text.width()));
         painter->restore();
@@ -222,8 +224,6 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     auto *back = new QPushButton(QIcon(":/icons/icons/static-editor/back.svg"), QString(), this);
     back->setObjectName("StaticPartBack");
     back->setProperty("staticTool", true);
-    back->setIconSize(QSize(28, 28));
-    back->setFixedSize(44, 44);
     back->setToolTip(tr("К разбиению"));
     back->setAccessibleName(back->toolTip());
     back->hide();
@@ -258,8 +258,6 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
         auto *button = new QToolButton(parent);
         button->setObjectName(name);
         button->setIcon(QIcon(icon));
-        button->setIconSize(QSize(28, 28));
-        button->setFixedSize(44, 44);
         button->setToolTip(tip);
         button->setAccessibleName(tip);
         bar->addWidget(button);
@@ -283,11 +281,21 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
                    tr("Исключить области с полностью нулевыми масками"));
     m_eraser = tool(editBar, this, "StaticEraser", ":/icons/icons/static-editor/eraser.svg",
                     tr("Ластик: стереть пиксели выбранных масок"));
+    m_brushSize = new ExpressionSpinBox(this);
+    m_brushSize->setObjectName("StaticEraserSize");
+    m_brushSize->setRange(1, 64);
+    m_brushSize->setValue(1);
+    m_brushSize->setPrefix(tr("Ластик "));
+    m_brushSize->setSuffix(" px");
+    m_brushSize->setAccessibleName(tr("Размер ластика"));
+    m_brushSize->setToolTip(tr("Размер ластика в пикселях изображения"));
+    editBar->addWidget(m_brushSize);
     for (auto *button : {m_selectTool, m_mergeTool, m_partTool, m_extendTool, m_eraser})
         button->setCheckable(true);
     m_selectTool->setChecked(true);
     m_partTool->hide();
     m_eraser->hide();
+    m_brushSize->hide();
     auto *viewBar = group(tr("Просмотр"));
     m_hand = tool(viewBar, this, "StaticPan", ":/icons/icons/static-editor/hand.svg",
                   tr("Панорама · также Пробел + перетаскивание, правая или средняя кнопка"));
@@ -318,8 +326,6 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     sideScroll->setObjectName("StaticStatsScroll");
     sideScroll->setWidgetResizable(true);
     sideScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    sideScroll->setMinimumWidth(280);
-    sideScroll->setMaximumWidth(320);
     sideScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     overview->addWidget(sideScroll);
     auto *side = new QWidget;
@@ -412,13 +418,12 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     detailLayout->setContentsMargins(0, 0, 0, 0);
     auto *body = new QSplitter(m_detail);
     body->setChildrenCollapsible(false);
-    body->setHandleWidth(8);
+    body->setObjectName("StaticMaskSplitter");
     detailLayout->addWidget(body, 1);
     m_partCanvas = new StaticImageCanvas(body);
     m_partCanvas->setObjectName("StaticMaskCanvas");
     auto *maskPanel = new QWidget(body);
-    maskPanel->setMinimumWidth(280);
-    maskPanel->setMaximumWidth(440);
+    maskPanel->setObjectName("StaticMaskSidePanel");
     auto *maskSide = new QVBoxLayout(maskPanel);
     maskSide->setContentsMargins(0, 0, 0, 0);
     maskSide->setSpacing(8);
@@ -427,41 +432,19 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
     auto *maskTitle = new QLabel(tr("Маски части"));
     maskTitle->setObjectName("StaticSectionTitle");
     maskHeader->addWidget(maskTitle, 1);
-    auto iconAction = [&](const char *name, const QString &icon, const QString &tip)
-    {
-        auto *button = new QPushButton(QIcon(icon), QString(), maskPanel);
-        button->setObjectName(name);
-        button->setProperty("staticTool", true);
-        button->setIconSize(QSize(28, 28));
-        button->setFixedSize(44, 44);
-        button->setToolTip(tip);
-        button->setAccessibleName(tip);
-        maskHeader->addWidget(button);
-        return button;
-    };
-    m_color = iconAction("StaticMaskColor", ":/icons/icons/static-editor/color.svg",
-                         tr("Изменить цвет выбранных масок"));
-    m_merge = iconAction("StaticMergeMasks", ":/icons/icons/static-editor/shape-builder.svg",
-                         tr("Объединить выбранные маски"));
     auto *inspect = new QHBoxLayout;
     inspect->setSpacing(6);
     maskSide->addLayout(inspect);
+    m_color = tool(inspect, maskPanel, "StaticMaskColor", ":/icons/icons/static-editor/color.svg",
+                   tr("Изменить цвет выбранных масок"));
+    m_merge = tool(inspect, maskPanel, "StaticMergeMasks", ":/icons/icons/static-editor/merge-masks.svg",
+                   tr("Объединить выбранные маски"));
     m_isolate = tool(inspect, maskPanel, "StaticIsolateMask", ":/icons/icons/static-editor/isolate.svg",
                      tr("Показать только выбранные маски"));
     m_isolate->setCheckable(true);
     m_find = tool(inspect, maskPanel, "StaticFindFragment", ":/icons/icons/static-editor/find-fragment.svg",
                   tr("Приблизить следующий мелкий фрагмент"));
     inspect->addStretch();
-    m_brushSize = new ExpressionSpinBox;
-    m_brushSize->setObjectName("StaticEraserSize");
-    m_brushSize->setRange(1, 64);
-    m_brushSize->setValue(1);
-    m_brushSize->setPrefix(tr("Ластик "));
-    m_brushSize->setSuffix(" px");
-    m_brushSize->setAccessibleName(tr("Размер ластика"));
-    m_brushSize->setToolTip(tr("Размер ластика в пикселях изображения"));
-    m_brushSize->setFixedWidth(144);
-    inspect->addWidget(m_brushSize);
     m_brushSlider = new QSlider(Qt::Horizontal, maskPanel);
     m_brushSlider->setObjectName("StaticEraserSlider");
     m_brushSlider->setRange(1, 64);
@@ -669,9 +652,9 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
                 updateMaskActions();
             });
     connect(m_masks->model(), &QAbstractItemModel::rowsMoved, this, &StaticImageEditorPanel::reorderMasks);
-    connect(m_color, &QPushButton::clicked, this, &StaticImageEditorPanel::changeColor);
+    connect(m_color, &QToolButton::clicked, this, &StaticImageEditorPanel::changeColor);
     connect(m_masks, &QListWidget::itemDoubleClicked, this, [this] { changeColor(); });
-    connect(m_merge, &QPushButton::clicked, this,
+    connect(m_merge, &QToolButton::clicked, this,
             [this] { mergeMasks(selectedMasks().values(), m_masks->currentRow()); });
     connect(m_top, &QToolButton::clicked, this, [this] { moveMasks(-1, true); });
     connect(m_up, &QToolButton::clicked, this, [this] { moveMasks(-1); });
@@ -686,6 +669,7 @@ StaticImageEditorPanel::StaticImageEditorPanel(QWidget *parent) : BasePanel(pare
                 m_extendTool->setVisible(!detail);
                 m_partTool->setVisible(detail);
                 m_eraser->setVisible(detail);
+                m_brushSize->setVisible(detail);
                 m_partName->setVisible(detail);
                 back->setVisible(detail);
                 if ((!detail && m_toolMode == 3) || (detail && m_toolMode == 2))

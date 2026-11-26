@@ -1,3 +1,4 @@
+#include "AppearanceManager.h"
 #include "SpacingGuidePainter.h"
 
 #include <QFontMetricsF>
@@ -14,7 +15,7 @@ void SpacingGuidePainter::draw(QPainter &painter, const QList<SpacingGuide> &gui
     const auto transform = painter.worldTransform();
     painter.resetTransform();
     painter.setRenderHint(QPainter::Antialiasing);
-    QPen pen(color, 1.0);
+    QPen pen = AppearanceManager::instance()->pen("pen.thin", color);
     painter.setPen(pen);
     const QFontMetricsF metrics(painter.font());
     QList<QRectF> labels;
@@ -63,7 +64,8 @@ void SpacingGuidePainter::draw(QPainter &painter, const QList<SpacingGuide> &gui
         }
         labels.append(box);
         painter.setBrush(background);
-        painter.drawRoundedRect(box, 3, 3);
+        const double radius = AppearanceManager::instance()->number("spacing.labelRadius");
+        painter.drawRoundedRect(box, radius, radius);
         painter.drawText(box, Qt::AlignCenter, label);
     }
     painter.restore();

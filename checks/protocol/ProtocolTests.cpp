@@ -41,6 +41,7 @@
 #include <QMessageBox>
 #include "fpga/config/FpgaPipelineConfig.h"
 #include "AppearanceManager.h"
+#include "FpgaScreenWidget.h"
 #include "ApplicationSettings.h"
 #include "ExpressionSpinBox.h"
 #include "ObjectReflection.h"
@@ -91,6 +92,7 @@
 #include <QDockWidget>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QStyleOptionSpinBox>
 #include <QSlider>
 #include <QTableWidget>
 #include <QMouseEvent>
@@ -218,6 +220,102 @@ private slots:
         QVERIFY(installRussianTranslation(*qApp));
         ProjectManager::instance()->registerStandardTypes();
         AppearanceManager::instance()->applyAvionixTheme();
+    }
+    void themeControlsWidgetsAndPainting() {
+        auto *appearance = AppearanceManager::instance();
+        const auto restore = qScopeGuard([appearance] { appearance->applyAvionixTheme(); });
+        QFile source(":/themes/themes/AvionixDesignerTheme.qss");
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        QByteArray theme = source.readAll();
+        theme.replace("@define accent = #00c8f0;", "@define accent = #a261d9;");
+        theme.replace("@define canvas = #0a0f14;", "@define canvas = #292143;");
+        theme.replace("@define pen.selection = 1 dash;", "@define pen.selection = 3 dot;");
+        theme.replace("@define simulator.title.size = 20;", "@define simulator.title.size = 25;");
+        QTemporaryFile changedTheme;
+        QVERIFY(changedTheme.open());
+        QCOMPARE(changedTheme.write(theme), theme.size());
+        changedTheme.flush();
+
+        FpgaScreenWidget screen;
+        screen.resize(400, 240);
+        QToolButton button;
+        button.setObjectName("SettingsToolButton");
+        button.setCheckable(true);
+        button.setChecked(true);
+        QVERIFY(appearance->loadStyleSheet(changedTheme.fileName()));
+        button.ensurePolished();
+        QVERIFY(!qApp->styleSheet().contains("${"));
+        QCOMPARE(appearance->color("workspace.snapGrid"), QColor(162, 97, 217, 210));
+        QCOMPARE(button.palette().color(QPalette::Highlight), appearance->color("accent"));
+        QCOMPARE(button.iconSize(), QSize(32, 32));
+        QCOMPARE(appearance->pen("pen.selection", Qt::white).style(), Qt::DotLine);
+        QCOMPARE(appearance->pen("pen.selection", Qt::white).widthF(), 3.0);
+        QCOMPARE(appearance->font("simulator.title", QFont()).pixelSize(), 25);
+        QCOMPARE(screen.grab().toImage().pixelColor(0, 0), QColor("#292143"));
+        auto swatch = appearance->colorSwatch("swatch.project", Qt::yellow).pixmap(34, 22);
+        QCOMPARE(swatch.toImage().pixelColor(17, 11), QColor(Qt::yellow));
+    }
+    void invalidThemePreservesCurrentAppearance() {
+        auto *appearance = AppearanceManager::instance();
+        const auto previousStyle = qApp->styleSheet();
+        const auto previousAccent = appearance->color("accent");
+        for (const auto &text : {
+                 "/* @define first = ${second}; @define second = ${first}; */ QWidget { color: ${first}; }",
+                 "/* @define first = #ffffff; @define first = #000000; */",
+                 "QWidget { color: ${missing}; }",
+                 "/* @define invalid = alpha(#ffffff, 256); */ QWidget { color: ${invalid}; }"}) {
+            QTemporaryFile invalid;
+            QVERIFY(invalid.open());
+            invalid.write(text);
+            invalid.flush();
+            QVERIFY(!appearance->loadStyleSheet(invalid.fileName()));
+            QCOMPARE(qApp->styleSheet(), previousStyle);
+            QCOMPARE(appearance->color("accent"), previousAccent);
+        }
+    }
+    void themeToolbarAlignmentAndFieldFrames() {
+        ViewportSettingsPanel toolbar;
+        toolbar.resize(650, 100); toolbar.show(); QTest::qWait(5);
+        auto *color = toolbar.findChild<QToolButton *>("SettingsColorButton");
+        QVERIFY(color);
+        for (auto *button : toolbar.findChildren<QToolButton *>("SettingsToolButton")) {
+            QCOMPARE(color->geometry().top(), button->geometry().top());
+            QCOMPARE(color->size(), button->size());
+        }
+
+        QComboBox combo; combo.addItems({"First", "Second"}); combo.resize(200, 42);
+        QSpinBox spin; spin.setRange(0, 100); spin.setValue(42); spin.resize(140, 42);
+        QDoubleSpinBox decimal; decimal.setValue(3.25); decimal.resize(140, 42);
+        QComboBox compact; compact.setObjectName("WorkspaceLayerCombo"); compact.addItem("Layer 1");
+        auto *appearance = AppearanceManager::instance();
+        for (QWidget *field : QList<QWidget *>{&combo, &spin, &decimal, &compact}) {
+            field->show(); field->clearFocus(); QTest::qWait(5);
+            const QImage image = field->grab().toImage();
+            // Native arrow backgrounds used to erase the right-hand border.
+            const QColor border = appearance->color(field->hasFocus() ? "accent" : "border");
+            QCOMPARE(image.pixelColor(0, image.height() / 2), border);
+            QCOMPARE(image.pixelColor(image.width() - 1, image.height() / 2), border);
+            // Transparent arrow backgrounds must still leave a visible glyph.
+            const QRect glyphArea(image.width() - qRound(20 * image.devicePixelRatio()), 0,
+                                  qRound(16 * image.devicePixelRatio()), image.height());
+            int glyphPixels = 0;
+            for (int y = glyphArea.top(); y <= glyphArea.bottom(); ++y)
+                for (int x = glyphArea.left(); x <= glyphArea.right(); ++x) {
+                    const QColor pixel = image.pixelColor(x, y), text = appearance->color("text");
+                    if (qAbs(pixel.red() - text.red()) < 30 && qAbs(pixel.green() - text.green()) < 30
+                        && qAbs(pixel.blue() - text.blue()) < 30) ++glyphPixels;
+                }
+            QVERIFY(glyphPixels > 3);
+        }
+        QStyleOptionSpinBox option;
+        option.initFrom(&spin); option.rect = spin.rect(); option.buttonSymbols = spin.buttonSymbols();
+        option.stepEnabled = QAbstractSpinBox::StepUpEnabled | QAbstractSpinBox::StepDownEnabled;
+        const auto up = spin.style()->subControlRect(QStyle::CC_SpinBox, &option, QStyle::SC_SpinBoxUp, &spin);
+        const auto down = spin.style()->subControlRect(QStyle::CC_SpinBox, &option, QStyle::SC_SpinBoxDown, &spin);
+        QTest::mouseClick(&spin, Qt::LeftButton, Qt::NoModifier, up.center()); QCOMPARE(spin.value(), 43);
+        QTest::mouseClick(&spin, Qt::LeftButton, Qt::NoModifier, down.center()); QCOMPARE(spin.value(), 42);
+        QTest::mouseClick(&combo, Qt::LeftButton, Qt::NoModifier, QPoint(combo.width() - 12, combo.height() / 2));
+        QVERIFY(combo.view()->isVisible()); combo.hidePopup();
     }
     void polymorphicClonesPreserveState() {
         auto *p = ProjectManager::instance();
@@ -1931,6 +2029,10 @@ private slots:
         QImage image(16, 16, QImage::Format_ARGB32); image.fill(Qt::white);
         group->states = {{0, 0, 16, 16, 0, Qt::white, true}}; group->maskImages = {image};
         StaticImageEditorPanel editor; editor.resize(1000, 740); editor.show(); editor.setSelectedObjects({0}); editor.beginEditing();
+        QVERIFY(!editor.findChild<QSpinBox *>("StaticEraserSize")->isVisible());
+        QVERIFY(QFile::exists(":/icons/icons/list/optimized.svg"));
+        QVERIFY(!QFile::exists(":/icons/icons/static-editor/optimized.svg"));
+        QVERIFY(!QIcon(":/icons/icons/static-editor/merge-masks.svg").isNull());
         QVERIFY(editor.findChildren<QLabel *>("StaticToolGroupTitle").isEmpty());
         auto *cut = editor.findChild<QFrame *>("StaticCutCard"); QVERIFY(cut);
         for (auto *label : cut->findChildren<QLabel *>()) QVERIFY(label->text() != "Разрез");
@@ -1943,7 +2045,18 @@ private slots:
         auto *canvas = editor.findChild<StaticImageCanvas *>("StaticMaskCanvas");
         auto *size = editor.findChild<QSpinBox *>("StaticEraserSize"); auto *slider = editor.findChild<QSlider *>("StaticEraserSlider");
         QVERIFY(size && slider && size->isEnabled()); size->setValue(3);
-        editor.findChild<QToolButton *>("StaticEraser")->click(); QVERIFY(slider->isVisible());
+        auto *eraser = editor.findChild<QToolButton *>("StaticEraser");
+        QVERIFY(size->isVisible()); QCOMPARE(size->parentWidget(), eraser->parentWidget());
+        QVERIFY(size->geometry().left() > eraser->geometry().right());
+        QVERIFY(qAbs(size->geometry().center().y() - eraser->geometry().center().y()) <= 1);
+        auto *isolate = editor.findChild<QToolButton *>("StaticIsolateMask");
+        for (const auto *name : {"StaticMaskColor", "StaticMergeMasks", "StaticFindFragment"}) {
+            auto *button = editor.findChild<QToolButton *>(name); QVERIFY(button);
+            QCOMPARE(button->parentWidget(), isolate->parentWidget());
+            QCOMPARE(button->geometry().top(), isolate->geometry().top());
+            QCOMPARE(button->size(), isolate->size());
+        }
+        eraser->click(); QVERIFY(slider->isVisible());
         slider->setValue(5); QCOMPARE(size->value(), 5);
         QTest::keyClick(canvas, Qt::Key_BracketRight); QCOMPARE(size->value(), 6); QCOMPARE(slider->value(), 6);
         QTest::keyClick(canvas, Qt::Key_BracketLeft); QCOMPARE(size->value(), 5);
@@ -2270,7 +2383,7 @@ private slots:
             auto *dialog = qobject_cast<QColorDialog *>(QApplication::activeModalWidget()); QVERIFY(dialog);
             dialog->setCurrentColor(Qt::blue); dialog->accept();
         });
-        editor.findChild<QPushButton *>("StaticMaskColor")->click();
+        editor.findChild<QToolButton *>("StaticMaskColor")->click();
         QCOMPARE(editor.draft()->regions[0].masks.first().color, QColor(Qt::blue));
         editor.grab().save(QCoreApplication::applicationDirPath() + "/static-layer-controls.png");
         QVERIFY(editor.applyEditing()); QVERIFY(p->getObjectAt(0)->isStaticImageOptimized());

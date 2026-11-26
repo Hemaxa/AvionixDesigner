@@ -62,7 +62,7 @@ public slots:
     void setRotationSnapping(bool enabled);
 
 private:
-    QColor m_selectionColor = QColor("#00c8f0");
+    QColor m_selectionColor;
     double m_scale; //текущий масштаб
     double m_offsetX; //смещение по X
     double m_offsetY; //смещение по Y

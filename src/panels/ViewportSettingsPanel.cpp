@@ -1,5 +1,6 @@
 // ViewportSettingsPanel - компактная панель параметров рабочей области.
 
+#include "AppearanceManager.h"
 #include "ViewportSettingsPanel.h"
 
 #include "ProjectManager.h"
@@ -8,9 +9,6 @@
 #include <QColorDialog>
 #include <QIcon>
 #include <QLabel>
-#include <QPainter>
-#include <QPixmap>
-#include <QPushButton>
 #include <QSizePolicy>
 #include <QSpinBox>
 #include "ExpressionSpinBox.h"
@@ -37,15 +35,7 @@ QToolButton* createSettingsToggle(const QString &iconPath, const QString &toolTi
 
 QIcon createColorSwatchIcon(const QColor &color)
 {
-    QPixmap pixmap(28, 28);
-    pixmap.fill(Qt::transparent);
-
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setBrush(color);
-    painter.setPen(QPen(QColor(230, 245, 255, 170), 1));
-    painter.drawRoundedRect(QRectF(3, 3, 22, 22), 5, 5);
-    return QIcon(pixmap);
+    return AppearanceManager::instance()->colorSwatch("swatch.viewport", color);
 }
 }
 
@@ -75,7 +65,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     m_heightSpin->setToolTip(QStringLiteral("Высота холста (px)"));
     flow->addWidget(m_heightSpin);
 
-    m_bgColorButton = new QPushButton(this);
+    m_bgColorButton = new QToolButton(this);
     m_bgColorButton->setObjectName("SettingsColorButton");
     m_bgColorButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_bgColorButton->setToolTip(QStringLiteral("Цвет фона (Ctrl+Alt+C)"));
@@ -92,7 +82,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     flow->addWidget(m_snapObjectsButton);
 
 
-    connect(m_bgColorButton, &QPushButton::clicked, this, &ViewportSettingsPanel::onChangeBgColor);
+    connect(m_bgColorButton, &QToolButton::clicked, this, &ViewportSettingsPanel::onChangeBgColor);
     connect(m_widthSpin, &QSpinBox::editingFinished, this, &ViewportSettingsPanel::onCanvasSizeEdited);
     connect(m_heightSpin, &QSpinBox::editingFinished, this, &ViewportSettingsPanel::onCanvasSizeEdited);
     connect(m_gridButton, &QToolButton::toggled, this, &ViewportSettingsPanel::onToggleGrid);
@@ -101,6 +91,7 @@ ViewportSettingsPanel::ViewportSettingsPanel(QWidget *parent) : BasePanel(parent
     connect(m_snapObjectsButton, &QToolButton::toggled, this, &ViewportSettingsPanel::onToggleSnapObjects);
     connect(ProjectManager::instance(), &ProjectManager::projectLoaded, this, &ViewportSettingsPanel::refreshInfo);
     connect(ProjectManager::instance(), &ProjectManager::projectChanged, this, &ViewportSettingsPanel::refreshInfo);
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, &ViewportSettingsPanel::refreshInfo);
 
     refreshInfo();
 }

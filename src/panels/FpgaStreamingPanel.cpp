@@ -206,7 +206,8 @@ public:
         layout->addWidget(descriptionLabel);
         layout->addSpacing(2);
         layout->addLayout(form);
-        auto *separator = new QFrame(this); separator->setFrameShape(QFrame::HLine);
+        auto *separator = new QFrame(this);
+        separator->setObjectName("FpgaStreamingSeparator");
         layout->addWidget(separator);
         auto *hint = new QLabel(QStringLiteral("Файл tube_config_pkg.sv будет сохранён автоматически перед открытием порта."), this);
         hint->setObjectName("ConfigurationAutoSaveNotice");

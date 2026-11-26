@@ -36,7 +36,27 @@ def main():
                 errors.append(f"Нет пояснения к {match[1]}: {source.relative_to(root)}:{index + 1}")
 
     references = "\n".join(p.read_text() for p in sources)
-    references += "\n" + (root / "res/themes/AvionixDesignerTheme.qss").read_text()
+    theme = (root / "res/themes/AvionixDesignerTheme.qss").read_text()
+    references += "\n" + theme
+
+    # Оформление виджетов и отрисовка интерфейса используют единую тему.
+    # SVG — самостоятельные ресурсы; цвета объектов/масок — содержимое документа.
+    ui_color = re.compile(r'#[0-9a-fA-F]{3,8}\b|QColor\(\s*\d|Qt::(?:white|red|green|blue|gray|darkGray|lightGray|cyan|magenta|yellow)\b')
+    for source in sources:
+        if source.parent.name in {"panels", "windows"}:
+            for number, line in enumerate(source.read_text().splitlines(), 1):
+                if ui_color.search(line):
+                    errors.append(f"Цвет интерфейса задан вне темы: {source.relative_to(root)}:{number}")
+        if source.name != "AppearanceManager.cpp" and re.search(r'\bsetStyleSheet\s*\(', source.read_text()):
+            errors.append(f"Локальный стиль вне темы: {source.relative_to(root)}")
+
+    definitions = dict(re.findall(r'@define\s+([\w.]+)\s*=\s*([^;\r\n]+);', theme))
+    qss = re.sub(r'/\*[\s\S]*?\*/', '', theme)
+    for name in re.findall(r'\$\{([\w.]+)\}', qss + '\n'.join(definitions.values())):
+        if name not in definitions:
+            errors.append(f"Неизвестное имя в теме: {name}")
+    if re.search(r'#[0-9a-fA-F]{3,8}\b|rgba?\(', qss):
+        errors.append("Цвет QSS должен ссылаться на именованную палитру темы")
     patterns = []
     for reference in re.findall(r":/[\w%./-]+", references):
         pattern = re.escape(reference)

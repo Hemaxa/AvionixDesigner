@@ -23,8 +23,6 @@
 #include <QStackedWidget>
 #include <QSpinBox>
 #include <QColorDialog>
-#include <QPainter>
-#include <QPixmap>
 #include <QShowEvent>
 
 SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
@@ -37,6 +35,12 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QDialog(parent)
 
     createWidgets();
     loadSettings();
+    connect(AppearanceManager::instance(), &AppearanceManager::styleChanged, this, [this]() {
+        updateColorButtonIcon(m_gridColorButton, m_currentGridColor);
+        updateColorButtonIcon(m_snapCanvasColorButton, m_currentSnapCanvasColor);
+        updateColorButtonIcon(m_snapGridColorButton, m_currentSnapGridColor);
+        updateColorButtonIcon(m_snapObjectColorButton, m_currentSnapObjectColor);
+    });
 }
 
 void SettingsWindow::createWidgets()
@@ -48,7 +52,7 @@ void SettingsWindow::createWidgets()
     contentLayout->setSpacing(18);
 
     m_listWidget = new QListWidget(this);
-    m_listWidget->setFixedWidth(180);
+    m_listWidget->setObjectName("SettingsNavigationList");
     m_listWidget->addItem("Настройки");
     m_listWidget->addItem("Горячие клавиши");
 
@@ -118,7 +122,6 @@ void SettingsWindow::createWidgets()
     m_gridStepSpin = new ExpressionSpinBox(this);
     m_gridStepSpin->setObjectName(QStringLiteral("GridStepSpin"));
     m_gridStepSpin->setRange(1, 1000);
-    m_gridStepSpin->setMinimumWidth(160);
     formLayout->addRow("Шаг сетки:", m_gridStepSpin);
 
     m_gridColorButton = new QPushButton(this);
@@ -161,7 +164,7 @@ void SettingsWindow::createWidgets()
     settingsLayout->addStretch();
     auto *settingsScroll = new QScrollArea(this);
     settingsScroll->setWidgetResizable(true);
-    settingsScroll->setFrameShape(QFrame::NoFrame);
+
     settingsScroll->setWidget(settingsWidget);
     m_stackedWidget->addWidget(settingsScroll);
 
@@ -169,7 +172,7 @@ void SettingsWindow::createWidgets()
     auto *hotkeysScroll = new QScrollArea(this);
     hotkeysScroll->setObjectName("HotkeysScrollArea");
     hotkeysScroll->setWidgetResizable(true);
-    hotkeysScroll->setFrameShape(QFrame::NoFrame);
+
 
     auto *hotkeysWidget = new QWidget(hotkeysScroll);
     auto *hotkeysLayout = new QFormLayout(hotkeysWidget);
@@ -362,16 +365,7 @@ void SettingsWindow::updateColorButtonIcon(QPushButton *button, const QColor &co
     if (!button)
         return;
 
-    QPixmap pixmap(30, 22);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setBrush(color);
-    painter.setPen(QPen(QColor(230, 245, 255, 170), 1));
-    painter.drawRoundedRect(QRectF(1, 1, 28, 20), 4, 4);
-    painter.end();
-    button->setIcon(QIcon(pixmap));
-    button->setIconSize(pixmap.size());
+    button->setIcon(AppearanceManager::instance()->colorSwatch("swatch.settings", color));
 }
 
 void SettingsWindow::showEvent(QShowEvent *event)
@@ -390,10 +384,10 @@ void SettingsWindow::loadSettings()
     m_symbolPixelsSpin->setValue(ApplicationSettings::symbolPixels());
 
     m_gridStepSpin->setValue(qBound(1, settings.value("gridStep", 10).toInt(), 1000));
-    m_currentGridColor = QColor(settings.value("gridColor", "#3778b4c8").toString());
-    m_currentSnapCanvasColor = QColor(settings.value("snapCanvasGuideColor", "#d2ff5c7a").toString());
-    m_currentSnapGridColor = QColor(settings.value("snapGridGuideColor", "#d256d3ff").toString());
-    m_currentSnapObjectColor = QColor(settings.value("snapObjectGuideColor", "#dcffca58").toString());
+    m_currentGridColor = QColor(settings.value("gridColor", AppearanceManager::instance()->color("workspace.grid").name(QColor::HexArgb)).toString());
+    m_currentSnapCanvasColor = QColor(settings.value("snapCanvasGuideColor", AppearanceManager::instance()->color("workspace.snapCanvas").name(QColor::HexArgb)).toString());
+    m_currentSnapGridColor = QColor(settings.value("snapGridGuideColor", AppearanceManager::instance()->color("workspace.snapGrid").name(QColor::HexArgb)).toString());
+    m_currentSnapObjectColor = QColor(settings.value("snapObjectGuideColor", AppearanceManager::instance()->color("workspace.snapObject").name(QColor::HexArgb)).toString());
     auto *project = ProjectManager::instance();
     if (project->getCanvasWidth() > 0 && project->getCanvasHeight() > 0) {
         m_gridStepSpin->setValue(project->gridStep());

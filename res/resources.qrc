@@ -6,8 +6,9 @@
         <file>themes/AvionixDesignerTheme.qss</file>
     </qresource>
     <qresource prefix="/icons">
-        <file>icons/static-editor/optimized.svg</file>
+        <file>icons/list/optimized.svg</file>
         <file>icons/static-editor/shape-builder.svg</file>
+        <file>icons/static-editor/merge-masks.svg</file>
         <file>icons/static-editor/select.svg</file>
         <file>icons/static-editor/extend-cut.svg</file>
         <file>icons/static-editor/eraser.svg</file>

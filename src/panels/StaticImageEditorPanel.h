@@ -87,8 +87,8 @@ class StaticImageEditorPanel : public BasePanel
     QLabel *m_name = nullptr, *m_partName = nullptr, *m_hint = nullptr, *m_statsEmpty = nullptr;
     QWidget *m_stats = nullptr;
     QHash<QString, QLabel *> m_statValues;
-    QPushButton *m_begin = nullptr, *m_apply = nullptr, *m_cancel = nullptr, *m_color = nullptr,
-                *m_merge = nullptr;
+    QPushButton *m_begin = nullptr, *m_apply = nullptr, *m_cancel = nullptr;
+    QToolButton *m_color = nullptr, *m_merge = nullptr;
     QListWidget *m_masks = nullptr;
     QToolButton *m_mergeTool = nullptr, *m_empty = nullptr, *m_undo = nullptr, *m_redo = nullptr;
     QToolButton *m_top = nullptr, *m_up = nullptr, *m_down = nullptr, *m_bottom = nullptr;

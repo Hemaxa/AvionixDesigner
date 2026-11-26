@@ -1,5 +1,6 @@
 // ObjectLibraryPanel - компактная библиотека добавления поддерживаемых объектов.
 
+#include "AppearanceManager.h"
 #include "ObjectLibraryPanel.h"
 
 #include "FpgaSchemaRegistry.h"
@@ -18,18 +19,20 @@
 namespace {
 QIcon createPlaceholderIcon(const QString &glyph)
 {
-    QPixmap pixmap(64, 64);
+    auto *appearance = AppearanceManager::instance();
+    const int side = qRound(appearance->number("library.placeholder.side"));
+    QPixmap pixmap(side, side);
     pixmap.fill(Qt::transparent);
 
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor("#243447"));
-    painter.drawRoundedRect(QRectF(4, 4, 56, 56), 14, 14);
+    painter.setBrush(AppearanceManager::instance()->color("library.placeholderBackground"));
+    const double inset = appearance->number("library.placeholder.inset"), radius = appearance->number("library.placeholder.radius");
+    painter.drawRoundedRect(QRectF(pixmap.rect()).adjusted(inset, inset, -inset, -inset), radius, radius);
 
-    painter.setPen(QColor("#D9E4F2"));
-    QFont font("SF Pro Display", 22, QFont::DemiBold);
-    painter.setFont(font);
+    painter.setPen(AppearanceManager::instance()->color("library.placeholderText"));
+    painter.setFont(AppearanceManager::instance()->font("library.placeholder", painter.font()));
     painter.drawText(pixmap.rect(), Qt::AlignCenter, glyph);
 
     return QIcon(pixmap);
